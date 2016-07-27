@@ -2323,13 +2323,34 @@ public:
 
 Value validateaddress(const Array& params, bool fHelp)
 {
-    if (fHelp || params.size() != 1)
+    if (fHelp || params.size() > 2)
         throw runtime_error(
-            "validateaddress <breakoutaddress>\n"
-            "Return information about <breakoutaddress>.");
+            "validateaddress <breakoutaddress> [ticker]\n"
+            "Return information about <breakoutaddress>.\n"
+            "If <ticker> is given, the address must be the correct currency.");
+
+    int nColor = nDefaultCurrency;
+
+    if (params.size() > 1)
+    {
+        std::string strTicker = params[1].get_str();
+        if (!GetColorFromTicker(strTicker, nColor))
+        {
+            throw runtime_error(
+                     strprintf("ticker %s is not valid\n", strTicker.c_str()));
+        }
+    }
 
     CBitcoinAddress address(params[0].get_str());
-    bool isValid = address.IsValid();
+    bool isValid;
+    if ((nColor != (int) BREAKOUT_COLOR_NONE) && (address.nColor != nColor))
+    {
+       isValid = false;
+    }
+    else
+    {
+       isValid = address.IsValid();
+    }
 
     Object ret;
     ret.push_back(Pair("isvalid", isValid));
