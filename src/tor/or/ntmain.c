@@ -1,7 +1,15 @@
 /* Copyright (c) 2001-2004, Roger Dingledine.
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2013, The Tor Project, Inc. */
+ * Copyright (c) 2007-2016, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
+
+/**
+ * \file ntmain.c
+ *
+ * \brief Entry points for running/configuring Tor as Windows Service.
+ */
+
+#ifdef _WIN32
 
 #include "or.h"
 #include "config.h"
@@ -316,8 +324,10 @@ nt_service_main(void)
       case CMD_HASH_PASSWORD:
       case CMD_VERIFY_CONFIG:
       case CMD_DUMP_CONFIG:
+      case CMD_KEYGEN:
         log_err(LD_CONFIG, "Unsupported command (--list-fingerprint, "
-                "--hash-password, or --verify-config) in NT service.");
+               "--hash-password, --keygen, --dump-config, or --verify-config) "
+                "in NT service.");
         break;
       case CMD_RUN_UNITTESTS:
       default:
@@ -762,4 +772,6 @@ nt_service_parse_options(int argc, char **argv, int *should_exit)
   *should_exit = 0;
   return 0;
 }
+
+#endif
 

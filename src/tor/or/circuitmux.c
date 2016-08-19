@@ -1,4 +1,4 @@
-/* * Copyright (c) 2012-2013, The Tor Project, Inc. */
+/* * Copyright (c) 2012-2016, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -186,10 +186,10 @@ struct chanid_circid_muxinfo_t {
  * Static function declarations
  */
 
-static INLINE int
+static inline int
 chanid_circid_entries_eq(chanid_circid_muxinfo_t *a,
                          chanid_circid_muxinfo_t *b);
-static INLINE unsigned int
+static inline unsigned int
 chanid_circid_entry_hash(chanid_circid_muxinfo_t *a);
 static chanid_circid_muxinfo_t *
 circuitmux_find_map_entry(circuitmux_t *cmux, circuit_t *circ);
@@ -199,12 +199,12 @@ circuitmux_make_circuit_active(circuitmux_t *cmux, circuit_t *circ,
 static void
 circuitmux_make_circuit_inactive(circuitmux_t *cmux, circuit_t *circ,
                                  cell_direction_t direction);
-static INLINE void
+static inline void
 circuitmux_move_active_circ_to_tail(circuitmux_t *cmux, circuit_t *circ,
                                     cell_direction_t direction);
-static INLINE circuit_t **
+static inline circuit_t **
 circuitmux_next_active_circ_p(circuitmux_t *cmux, circuit_t *circ);
-static INLINE circuit_t **
+static inline circuit_t **
 circuitmux_prev_active_circ_p(circuitmux_t *cmux, circuit_t *circ);
 static void circuitmux_assert_okay_pass_one(circuitmux_t *cmux);
 static void circuitmux_assert_okay_pass_two(circuitmux_t *cmux);
@@ -226,7 +226,7 @@ static int64_t global_destroy_ctr = 0;
  * used by circuitmux_notify_xmit_cells().
  */
 
-static INLINE void
+static inline void
 circuitmux_move_active_circ_to_tail(circuitmux_t *cmux, circuit_t *circ,
                                     cell_direction_t direction)
 {
@@ -306,7 +306,7 @@ circuitmux_move_active_circ_to_tail(circuitmux_t *cmux, circuit_t *circ,
   circuitmux_assert_okay_paranoid(cmux);
 }
 
-static INLINE circuit_t **
+static inline circuit_t **
 circuitmux_next_active_circ_p(circuitmux_t *cmux, circuit_t *circ)
 {
   tor_assert(cmux);
@@ -319,7 +319,7 @@ circuitmux_next_active_circ_p(circuitmux_t *cmux, circuit_t *circ)
   }
 }
 
-static INLINE circuit_t **
+static inline circuit_t **
 circuitmux_prev_active_circ_p(circuitmux_t *cmux, circuit_t *circ)
 {
   tor_assert(cmux);
@@ -338,7 +338,7 @@ circuitmux_prev_active_circ_p(circuitmux_t *cmux, circuit_t *circ)
  * than zero appropriately.
  */
 
-static INLINE int
+static inline int
 chanid_circid_entries_eq(chanid_circid_muxinfo_t *a,
                          chanid_circid_muxinfo_t *b)
 {
@@ -349,7 +349,7 @@ chanid_circid_entries_eq(chanid_circid_muxinfo_t *a,
  * Helper: return a hash based on circuit ID and channel ID in a.
  */
 
-static INLINE unsigned int
+static inline unsigned int
 chanid_circid_entry_hash(chanid_circid_muxinfo_t *a)
 {
     return (((unsigned int)(a->circ_id) << 8) ^
@@ -363,9 +363,9 @@ HT_HEAD(chanid_circid_muxinfo_map, chanid_circid_muxinfo_t);
 /* Emit a bunch of hash table stuff */
 HT_PROTOTYPE(chanid_circid_muxinfo_map, chanid_circid_muxinfo_t, node,
              chanid_circid_entry_hash, chanid_circid_entries_eq);
-HT_GENERATE(chanid_circid_muxinfo_map, chanid_circid_muxinfo_t, node,
-            chanid_circid_entry_hash, chanid_circid_entries_eq, 0.6,
-            malloc, realloc, free);
+HT_GENERATE2(chanid_circid_muxinfo_map, chanid_circid_muxinfo_t, node,
+             chanid_circid_entry_hash, chanid_circid_entries_eq, 0.6,
+             tor_reallocarray_, tor_free_)
 
 /*
  * Circuitmux alloc/free functions
@@ -621,8 +621,8 @@ circuitmux_clear_policy(circuitmux_t *cmux)
  * Return the policy currently installed on a circuitmux_t
  */
 
-const circuitmux_policy_t *
-circuitmux_get_policy(circuitmux_t *cmux)
+MOCK_IMPL(const circuitmux_policy_t *,
+circuitmux_get_policy, (circuitmux_t *cmux))
 {
   tor_assert(cmux);
 
@@ -896,8 +896,8 @@ circuitmux_num_cells_for_circuit(circuitmux_t *cmux, circuit_t *circ)
  * Query total number of available cells on a circuitmux
  */
 
-unsigned int
-circuitmux_num_cells(circuitmux_t *cmux)
+MOCK_IMPL(unsigned int,
+circuitmux_num_cells, (circuitmux_t *cmux))
 {
   tor_assert(cmux);
 
@@ -1949,5 +1949,53 @@ circuitmux_count_queued_destroy_cells(const channel_t *chan,
   }
 
   return n_destroy_cells;
+}
+
+/**
+ * Compare cmuxes to see which is more preferred; return < 0 if
+ * cmux_1 has higher priority (i.e., cmux_1 < cmux_2 in the scheduler's
+ * sort order), > 0 if cmux_2 has higher priority, or 0 if they are
+ * equally preferred.
+ *
+ * If the cmuxes have different cmux policies or the policy does not
+ * support the cmp_cmux method, return 0.
+ */
+
+MOCK_IMPL(int,
+circuitmux_compare_muxes, (circuitmux_t *cmux_1, circuitmux_t *cmux_2))
+{
+  const circuitmux_policy_t *policy;
+
+  tor_assert(cmux_1);
+  tor_assert(cmux_2);
+
+  if (cmux_1 == cmux_2) {
+    /* Equivalent because they're the same cmux */
+    return 0;
+  }
+
+  if (cmux_1->policy && cmux_2->policy) {
+    if (cmux_1->policy == cmux_2->policy) {
+      policy = cmux_1->policy;
+
+      if (policy->cmp_cmux) {
+        /* Okay, we can compare! */
+        return policy->cmp_cmux(cmux_1, cmux_1->policy_data,
+                                cmux_2, cmux_2->policy_data);
+      } else {
+        /*
+         * Equivalent because the policy doesn't know how to compare between
+         * muxes.
+         */
+        return 0;
+      }
+    } else {
+      /* Equivalent because they have different policies */
+      return 0;
+    }
+  } else {
+    /* Equivalent because one or both are missing a policy */
+    return 0;
+  }
 }
 

@@ -241,7 +241,7 @@
 #define USING_TWOS_COMPLEMENT
 
 /* Version number of package */
-#define VERSION "0.2.5.1-alpha-dev"
+#define VERSION "0.2.8.6"
 
 
 
@@ -257,3 +257,16 @@
 #define USE_CURVE25519_DONNA
 
 #define ENUM_VALS_ARE_SIGNED 1
+
+#ifndef STDOUT_FILENO
+#define STDOUT_FILENO 1
+#endif
+
+#ifndef STDERR_FILENO
+#define STDERR_FILENO 2
+#endif
+
+#define WINVER 0x0501
+#define _WIN32_WINNT 0x0501
+#define WIN32_LEAN_AND_MEAN 1
+

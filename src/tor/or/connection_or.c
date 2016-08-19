@@ -1,7 +1,7 @@
 /* Copyright (c) 2001 Matej Pfajfar.
  * Copyright (c) 2001-2004, Roger Dingledine.
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2013, The Tor Project, Inc. */
+ * Copyright (c) 2007-2016, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -30,6 +30,8 @@
 #include "entrynodes.h"
 #include "geoip.h"
 #include "onion_main.h"
+#include "link_handshake.h"
+#include "microdesc.h"
 #include "networkstatus.h"
 #include "nodelist.h"
 #include "reasons.h"
@@ -38,6 +40,8 @@
 #include "router.h"
 #include "routerlist.h"
 #include "ext_orport.h"
+#include "scheduler.h"
+
 #ifdef USE_BUFFEREVENTS
 #include <event2/bufferevent_ssl.h>
 #endif
@@ -485,6 +489,28 @@ var_cell_new(uint16_t payload_len)
   return cell;
 }
 
+/**
+ * Copy a var_cell_t
+ */
+
+var_cell_t *
+var_cell_copy(const var_cell_t *src)
+{
+  var_cell_t *copy = NULL;
+  size_t size = 0;
+
+  if (src != NULL) {
+    size = STRUCT_OFFSET(var_cell_t, payload) + src->payload_len;
+    copy = tor_malloc_zero(size);
+    copy->payload_len = src->payload_len;
+    copy->command = src->command;
+    copy->circ_id = src->circ_id;
+    memcpy(copy->payload, src->payload, copy->payload_len);
+  }
+
+  return copy;
+}
+
 /** Release all space held by <b>cell</b>. */
 void
 var_cell_free(var_cell_t *cell)
@@ -574,46 +600,49 @@ connection_or_process_inbuf(or_connection_t *conn)
   return ret;
 }
 
-/** When adding cells to an OR connection's outbuf, keep adding until the
- * outbuf is at least this long, or we run out of cells. */
-#define OR_CONN_HIGHWATER (32*1024)
-
-/** Add cells to an OR connection's outbuf whenever the outbuf's data length
- * drops below this size. */
-#define OR_CONN_LOWWATER (16*1024)
-
 /** Called whenever we have flushed some data on an or_conn: add more data
  * from active circuits. */
 int
 connection_or_flushed_some(or_connection_t *conn)
 {
-  size_t datalen, temp;
-  ssize_t n, flushed;
-  size_t cell_network_size = get_cell_network_size(conn->wide_circ_ids);
+  size_t datalen;
+
+  /* The channel will want to update its estimated queue size */
+  channel_update_xmit_queue_size(TLS_CHAN_TO_BASE(conn->chan));
 
   /* If we're under the low water mark, add cells until we're just over the
    * high water mark. */
   datalen = connection_get_outbuf_len(TO_CONN(conn));
   if (datalen < OR_CONN_LOWWATER) {
-    while ((conn->chan) && channel_tls_more_to_flush(conn->chan)) {
-      /* Compute how many more cells we want at most */
-      n = CEIL_DIV(OR_CONN_HIGHWATER - datalen, cell_network_size);
-      /* Bail out if we don't want any more */
-      if (n <= 0) break;
-      /* We're still here; try to flush some more cells */
-      flushed = channel_tls_flush_some_cells(conn->chan, n);
-      /* Bail out if it says it didn't flush anything */
-      if (flushed <= 0) break;
-      /* How much in the outbuf now? */
-      temp = connection_get_outbuf_len(TO_CONN(conn));
-      /* Bail out if we didn't actually increase the outbuf size */
-      if (temp <= datalen) break;
-      /* Update datalen for the next iteration */
-      datalen = temp;
-    }
+    /* Let the scheduler know */
+    scheduler_channel_wants_writes(TLS_CHAN_TO_BASE(conn->chan));
   }
 
   return 0;
+}
+
+/** This is for channeltls.c to ask how many cells we could accept if
+ * they were available. */
+ssize_t
+connection_or_num_cells_writeable(or_connection_t *conn)
+{
+  size_t datalen, cell_network_size;
+  ssize_t n = 0;
+
+  tor_assert(conn);
+
+  /*
+   * If we're under the high water mark, we're potentially
+   * writeable; note this is different from the calculation above
+   * used to trigger when to start writing after we've stopped.
+   */
+  datalen = connection_get_outbuf_len(TO_CONN(conn));
+  if (datalen < OR_CONN_HIGHWATER) {
+    cell_network_size = get_cell_network_size(conn->wide_circ_ids);
+    n = CEIL_DIV(OR_CONN_HIGHWATER - datalen, cell_network_size);
+  }
+
+  return n;
 }
 
 /** Connection <b>conn</b> has finished writing and has no bytes left on
@@ -908,18 +937,11 @@ connection_or_init_conn_from_address(or_connection_t *conn,
     tor_free(conn->base_.address);
     conn->base_.address = tor_dup_addr(&node_ap.addr);
   } else {
-    const char *n;
-    /* If we're an authoritative directory server, we may know a
-     * nickname for this router. */
-    n = dirserv_get_nickname_by_digest(id_digest);
-    if (n) {
-      conn->nickname = tor_strdup(n);
-    } else {
-      conn->nickname = tor_malloc(HEX_DIGEST_LEN+2);
-      conn->nickname[0] = '$';
-      base16_encode(conn->nickname+1, HEX_DIGEST_LEN+1,
-                    conn->identity_digest, DIGEST_LEN);
-    }
+    conn->nickname = tor_malloc(HEX_DIGEST_LEN+2);
+    conn->nickname[0] = '$';
+    base16_encode(conn->nickname+1, HEX_DIGEST_LEN+1,
+                  conn->identity_digest, DIGEST_LEN);
+
     tor_free(conn->base_.address);
     conn->base_.address = tor_dup_addr(addr);
   }
@@ -1151,9 +1173,7 @@ connection_or_notify_error(or_connection_t *conn,
   if (conn->chan) {
     chan = TLS_CHAN_TO_BASE(conn->chan);
     /* Don't transition if we're already in closing, closed or error */
-    if (!(chan->state == CHANNEL_STATE_CLOSING ||
-          chan->state == CHANNEL_STATE_CLOSED ||
-          chan->state == CHANNEL_STATE_ERROR)) {
+    if (!CHANNEL_CONDEMNED(chan)) {
       channel_close_for_error(chan);
     }
   }
@@ -1176,10 +1196,10 @@ connection_or_notify_error(or_connection_t *conn,
  *
  * Return the launched conn, or NULL if it failed.
  */
-or_connection_t *
-connection_or_connect(const tor_addr_t *_addr, uint16_t port,
-                      const char *id_digest,
-                      channel_tls_t *chan)
+
+MOCK_IMPL(or_connection_t *,
+connection_or_connect, (const tor_addr_t *_addr, uint16_t port,
+                        const char *id_digest, channel_tls_t *chan))
 {
   or_connection_t *conn;
   const or_options_t *options = get_options();
@@ -1312,9 +1332,7 @@ connection_or_close_normally(or_connection_t *orconn, int flush)
   if (orconn->chan) {
     chan = TLS_CHAN_TO_BASE(orconn->chan);
     /* Don't transition if we're already in closing, closed or error */
-    if (!(chan->state == CHANNEL_STATE_CLOSING ||
-          chan->state == CHANNEL_STATE_CLOSED ||
-          chan->state == CHANNEL_STATE_ERROR)) {
+    if (!CHANNEL_CONDEMNED(chan)) {
       channel_close_from_lower_layer(chan);
     }
   }
@@ -1324,8 +1342,8 @@ connection_or_close_normally(or_connection_t *orconn, int flush)
  * the error state.
  */
 
-void
-connection_or_close_for_error(or_connection_t *orconn, int flush)
+MOCK_IMPL(void,
+connection_or_close_for_error,(or_connection_t *orconn, int flush))
 {
   channel_t *chan = NULL;
 
@@ -1335,9 +1353,7 @@ connection_or_close_for_error(or_connection_t *orconn, int flush)
   if (orconn->chan) {
     chan = TLS_CHAN_TO_BASE(orconn->chan);
     /* Don't transition if we're already in closing, closed or error */
-    if (!(chan->state == CHANNEL_STATE_CLOSING ||
-          chan->state == CHANNEL_STATE_CLOSED ||
-          chan->state == CHANNEL_STATE_ERROR)) {
+    if (!CHANNEL_CONDEMNED(chan)) {
       channel_close_for_error(chan);
     }
   }
@@ -1457,17 +1473,12 @@ connection_tls_continue_handshake(or_connection_t *conn)
 {
   int result;
   check_no_tls_errors();
- again:
-  if (conn->base_.state == OR_CONN_STATE_TLS_CLIENT_RENEGOTIATING) {
-    // log_notice(LD_OR, "Renegotiate with %p", conn->tls);
-    result = tor_tls_renegotiate(conn->tls);
-    // log_notice(LD_OR, "Result: %d", result);
-  } else {
-    tor_assert(conn->base_.state == OR_CONN_STATE_TLS_HANDSHAKING);
-    // log_notice(LD_OR, "Continue handshake with %p", conn->tls);
-    result = tor_tls_handshake(conn->tls);
-    // log_notice(LD_OR, "Result: %d", result);
-  }
+
+  tor_assert(conn->base_.state == OR_CONN_STATE_TLS_HANDSHAKING);
+  // log_notice(LD_OR, "Continue handshake with %p", conn->tls);
+  result = tor_tls_handshake(conn->tls);
+  // log_notice(LD_OR, "Result: %d", result);
+
   switch (result) {
     CASE_TOR_TLS_ERROR_ANY:
     log_info(LD_OR,"tls error [%s]. breaking connection.",
@@ -1476,23 +1487,10 @@ connection_tls_continue_handshake(or_connection_t *conn)
     case TOR_TLS_DONE:
       if (! tor_tls_used_v1_handshake(conn->tls)) {
         if (!tor_tls_is_server(conn->tls)) {
-          if (conn->base_.state == OR_CONN_STATE_TLS_HANDSHAKING) {
-            if (tor_tls_received_v3_certificate(conn->tls)) {
-              log_info(LD_OR, "Client got a v3 cert!  Moving on to v3 "
-                       "handshake with ciphersuite %s",
-                       tor_tls_get_ciphersuite_name(conn->tls));
-              return connection_or_launch_v3_or_handshake(conn);
-            } else {
-              log_debug(LD_OR, "Done with initial SSL handshake (client-side)."
-                        " Requesting renegotiation.");
-              connection_or_change_state(conn,
-                  OR_CONN_STATE_TLS_CLIENT_RENEGOTIATING);
-              goto again;
-            }
-          }
-          // log_notice(LD_OR,"Done. state was %d.", conn->base_.state);
+          tor_assert(conn->base_.state == OR_CONN_STATE_TLS_HANDSHAKING);
+          return connection_or_launch_v3_or_handshake(conn);
         } else {
-          /* v2/v3 handshake, but not a client. */
+          /* v2/v3 handshake, but we are not a client. */
           log_debug(LD_OR, "Done with initial SSL handshake (server-side). "
                            "Expecting renegotiation or VERSIONS cell");
           tor_tls_set_renegotiate_callback(conn->tls,
@@ -1505,6 +1503,7 @@ connection_tls_continue_handshake(or_connection_t *conn)
           return 0;
         }
       }
+      tor_assert(tor_tls_is_server(conn->tls));
       return connection_tls_finish_handshake(conn);
     case TOR_TLS_WANTWRITE:
       connection_start_writing(TO_CONN(conn));
@@ -1540,22 +1539,8 @@ connection_or_handle_event_cb(struct bufferevent *bufev, short event,
     if (! tor_tls_used_v1_handshake(conn->tls)) {
       if (!tor_tls_is_server(conn->tls)) {
         if (conn->base_.state == OR_CONN_STATE_TLS_HANDSHAKING) {
-          if (tor_tls_received_v3_certificate(conn->tls)) {
-            log_info(LD_OR, "Client got a v3 cert!");
-            if (connection_or_launch_v3_or_handshake(conn) < 0)
-              connection_or_close_for_error(conn, 0);
-            return;
-          } else {
-            connection_or_change_state(conn,
-                OR_CONN_STATE_TLS_CLIENT_RENEGOTIATING);
-            tor_tls_unblock_renegotiation(conn->tls);
-            if (bufferevent_ssl_renegotiate(conn->base_.bufev)<0) {
-              log_warn(LD_OR, "Start_renegotiating went badly.");
-              connection_or_close_for_error(conn, 0);
-            }
-            tor_tls_unblock_renegotiation(conn->tls);
-            return; /* ???? */
-          }
+          if (connection_or_launch_v3_or_handshake(conn) < 0)
+            connection_or_close_for_error(conn, 0);
         }
       } else {
         const int handshakes = tor_tls_get_num_server_handshakes(conn->tls);
@@ -1619,11 +1604,11 @@ connection_or_nonopen_was_started_here(or_connection_t *conn)
 }
 
 /** <b>Conn</b> just completed its handshake. Return 0 if all is well, and
- * return -1 if he is lying, broken, or otherwise something is wrong.
+ * return -1 if they are lying, broken, or otherwise something is wrong.
  *
  * If we initiated this connection (<b>started_here</b> is true), make sure
  * the other side sent a correctly formed certificate. If I initiated the
- * connection, make sure it's the right guy.
+ * connection, make sure it's the right relay by checking the certificate.
  *
  * Otherwise (if we _didn't_ initiate this connection), it's okay for
  * the certificate to be weird or absent.
@@ -1639,7 +1624,7 @@ connection_or_nonopen_was_started_here(or_connection_t *conn)
  * 1) Set conn->circ_id_type according to tor-spec.txt.
  * 2) If we're an authdirserver and we initiated the connection: drop all
  *    descriptors that claim to be on that IP/port but that aren't
- *    this guy; and note that this guy is reachable.
+ *    this relay; and note that this relay is reachable.
  * 3) If this is a bridge and we didn't configure its identity
  *    fingerprint, remember the keyid we just learned.
  */
@@ -1714,9 +1699,17 @@ connection_or_check_valid_tls_handshake(or_connection_t *conn,
  * or renegotiation.  For v3 handshakes, this is right after we get a
  * certificate chain in a CERTS cell.
  *
- * If we want any particular ID before, record the one we got.
+ * If we did not know the ID before, record the one we got.
  *
- * If we wanted an ID, but we didn't get it, log a warning and return -1.
+ * If we wanted an ID, but we didn't get the one we expected, log a message
+ * and return -1.
+ * On relays:
+ *  - log a protocol warning whenever the fingerprints don't match;
+ * On clients:
+ *  - if a relay's fingerprint doesn't match, log a warning;
+ *  - if we don't have updated relay fingerprints from a recent consensus, and
+ *    a fallback directory mirror's hard-coded fingerprint has changed, log an
+ *    info explaining that we will try another fallback.
  *
  * If we're testing reachability, remember what we learned.
  *
@@ -1727,7 +1720,6 @@ connection_or_client_learned_peer_id(or_connection_t *conn,
                                      const uint8_t *peer_id)
 {
   const or_options_t *options = get_options();
-  int severity = server_mode(options) ? LOG_PROTOCOL_WARN : LOG_WARN;
 
   if (tor_digest_is_zero(conn->identity_digest)) {
     connection_or_set_identity_digest(conn, (const char*)peer_id);
@@ -1752,10 +1744,43 @@ connection_or_client_learned_peer_id(or_connection_t *conn,
     base16_encode(seen, sizeof(seen), (const char*)peer_id, DIGEST_LEN);
     base16_encode(expected, sizeof(expected), conn->identity_digest,
                   DIGEST_LEN);
+    const int using_hardcoded_fingerprints =
+      !networkstatus_get_reasonably_live_consensus(time(NULL),
+                                                   usable_consensus_flavor());
+    const int is_fallback_fingerprint = router_digest_is_fallback_dir(
+                                                   conn->identity_digest);
+    const int is_authority_fingerprint = router_digest_is_trusted_dir(
+                                                   conn->identity_digest);
+    int severity;
+    const char *extra_log = "";
+
+    if (server_mode(options)) {
+      severity = LOG_PROTOCOL_WARN;
+    } else {
+      if (using_hardcoded_fingerprints) {
+        /* We need to do the checks in this order, because the list of
+         * fallbacks includes the list of authorities */
+        if (is_authority_fingerprint) {
+          severity = LOG_WARN;
+        } else if (is_fallback_fingerprint) {
+          /* we expect a small number of fallbacks to change from their
+           * hard-coded fingerprints over the life of a release */
+          severity = LOG_INFO;
+          extra_log = " Tor will try a different fallback.";
+        } else {
+          /* it's a bridge, it's either a misconfiguration, or unexpected */
+          severity = LOG_WARN;
+        }
+      } else {
+        /* a relay has changed its fingerprint from the one in the consensus */
+        severity = LOG_WARN;
+      }
+    }
+
     log_fn(severity, LD_HANDSHAKE,
            "Tried connecting to router at %s:%d, but identity key was not "
-           "as expected: wanted %s but got %s.",
-           conn->base_.address, conn->base_.port, expected, seen);
+           "as expected: wanted %s but got %s.%s",
+           conn->base_.address, conn->base_.port, expected, seen, extra_log);
     entry_guard_register_connect_status(conn->identity_digest, 0, 1,
                                         time(NULL));
     control_event_or_conn_status(conn, OR_CONN_EVENT_FAILED,
@@ -1792,7 +1817,7 @@ connection_or_client_used(or_connection_t *conn)
  *
  * Make sure we are happy with the person we just handshaked with.
  *
- * If he initiated the connection, make sure he's not already connected,
+ * If they initiated the connection, make sure they're not already connected,
  * then initialize conn from the information in router.
  *
  * If all is successful, call circuit_n_conn_done() to handle events
@@ -1806,6 +1831,8 @@ connection_tls_finish_handshake(or_connection_t *conn)
 {
   char digest_rcvd[DIGEST_LEN];
   int started_here = connection_or_nonopen_was_started_here(conn);
+
+  tor_assert(!started_here);
 
   log_debug(LD_HANDSHAKE,"%s tls handshake on %p with %s done, using "
             "ciphersuite %s. verifying.",
@@ -1822,20 +1849,17 @@ connection_tls_finish_handshake(or_connection_t *conn)
 
   if (tor_tls_used_v1_handshake(conn->tls)) {
     conn->link_proto = 1;
-    if (!started_here) {
-      connection_or_init_conn_from_address(conn, &conn->base_.addr,
-                                           conn->base_.port, digest_rcvd, 0);
-    }
+    connection_or_init_conn_from_address(conn, &conn->base_.addr,
+                                         conn->base_.port, digest_rcvd, 0);
     tor_tls_block_renegotiation(conn->tls);
+    rep_hist_note_negotiated_link_proto(1, started_here);
     return connection_or_set_state_open(conn);
   } else {
     connection_or_change_state(conn, OR_CONN_STATE_OR_HANDSHAKING_V2);
     if (connection_init_or_handshake_state(conn, started_here) < 0)
       return -1;
-    if (!started_here) {
-      connection_or_init_conn_from_address(conn, &conn->base_.addr,
-                                           conn->base_.port, digest_rcvd, 0);
-    }
+    connection_or_init_conn_from_address(conn, &conn->base_.addr,
+                                         conn->base_.port, digest_rcvd, 0);
     return connection_or_send_versions(conn, 0);
   }
 }
@@ -1850,7 +1874,6 @@ static int
 connection_or_launch_v3_or_handshake(or_connection_t *conn)
 {
   tor_assert(connection_or_nonopen_was_started_here(conn));
-  tor_assert(tor_tls_received_v3_certificate(conn->tls));
 
   circuit_build_times_network_is_live(get_circuit_build_times_mutable());
 
@@ -1886,8 +1909,8 @@ or_handshake_state_free(or_handshake_state_t *state)
     return;
   crypto_digest_free(state->digest_sent);
   crypto_digest_free(state->digest_received);
-  tor_cert_free(state->auth_cert);
-  tor_cert_free(state->id_cert);
+  tor_x509_cert_free(state->auth_cert);
+  tor_x509_cert_free(state->id_cert);
   memwipe(state, 0xBE, sizeof(or_handshake_state_t));
   tor_free(state);
 }
@@ -2020,9 +2043,9 @@ connection_or_write_cell_to_buf(const cell_t *cell, or_connection_t *conn)
  * <b>conn</b>'s outbuf.  Right now, this <em>DOES NOT</em> support cells that
  * affect a circuit.
  */
-void
-connection_or_write_var_cell_to_buf(const var_cell_t *cell,
-                                    or_connection_t *conn)
+MOCK_IMPL(void,
+connection_or_write_var_cell_to_buf,(const var_cell_t *cell,
+                                     or_connection_t *conn))
 {
   int n;
   char hdr[VAR_CELL_MAX_HEADER_SIZE];
@@ -2065,6 +2088,19 @@ static int
 connection_or_process_cells_from_inbuf(or_connection_t *conn)
 {
   var_cell_t *var_cell;
+
+  /*
+   * Note on memory management for incoming cells: below the channel layer,
+   * we shouldn't need to consider its internal queueing/copying logic.  It
+   * is safe to pass cells to it on the stack or on the heap, but in the
+   * latter case we must be sure we free them later.
+   *
+   * The incoming cell queue code in channel.c will (in the common case)
+   * decide it can pass them to the upper layer immediately, in which case
+   * those functions may run directly on the cell pointers we pass here, or
+   * it may decide to queue them, in which case it will allocate its own
+   * buffer and copy the cell.
+   */
 
   while (1) {
     log_debug(LD_OR,
@@ -2165,8 +2201,8 @@ connection_or_send_versions(or_connection_t *conn, int v3_plus)
 
 /** Send a NETINFO cell on <b>conn</b>, telling the other server what we know
  * about their address, our address, and the current time. */
-int
-connection_or_send_netinfo(or_connection_t *conn)
+MOCK_IMPL(int,
+connection_or_send_netinfo,(or_connection_t *conn))
 {
   cell_t cell;
   time_t now = time(NULL);
@@ -2235,7 +2271,7 @@ connection_or_send_netinfo(or_connection_t *conn)
 int
 connection_or_send_certs_cell(or_connection_t *conn)
 {
-  const tor_cert_t *link_cert = NULL, *id_cert = NULL;
+  const tor_x509_cert_t *link_cert = NULL, *id_cert = NULL;
   const uint8_t *link_encoded = NULL, *id_encoded = NULL;
   size_t link_len, id_len;
   var_cell_t *cell;
@@ -2250,8 +2286,8 @@ connection_or_send_certs_cell(or_connection_t *conn)
   server_mode = ! conn->handshake_state->started_here;
   if (tor_tls_get_my_certs(server_mode, &link_cert, &id_cert) < 0)
     return -1;
-  tor_cert_get_der(link_cert, &link_encoded, &link_len);
-  tor_cert_get_der(id_cert, &id_encoded, &id_len);
+  tor_x509_cert_get_der(link_cert, &link_encoded, &link_len);
+  tor_x509_cert_get_der(id_cert, &id_encoded, &id_len);
 
   cell_len = 1 /* 1 byte: num certs in cell */ +
              2 * ( 1 + 2 ) /* For each cert: 1 byte for type, 2 for length */ +
@@ -2287,28 +2323,36 @@ connection_or_send_certs_cell(or_connection_t *conn)
 int
 connection_or_send_auth_challenge_cell(or_connection_t *conn)
 {
-  var_cell_t *cell;
-  uint8_t *cp;
-  uint8_t challenge[OR_AUTH_CHALLENGE_LEN];
+  var_cell_t *cell = NULL;
+  int r = -1;
   tor_assert(conn->base_.state == OR_CONN_STATE_OR_HANDSHAKING_V3);
 
   if (! conn->handshake_state)
     return -1;
 
-  if (crypto_rand((char*)challenge, OR_AUTH_CHALLENGE_LEN) < 0)
-    return -1;
-  cell = var_cell_new(OR_AUTH_CHALLENGE_LEN + 4);
+  auth_challenge_cell_t *ac = auth_challenge_cell_new();
+
+  crypto_rand((char*)ac->challenge, sizeof(ac->challenge));
+
+  auth_challenge_cell_add_methods(ac, AUTHTYPE_RSA_SHA256_TLSSECRET);
+  auth_challenge_cell_set_n_methods(ac,
+                                    auth_challenge_cell_getlen_methods(ac));
+
+  cell = var_cell_new(auth_challenge_cell_encoded_len(ac));
+  ssize_t len = auth_challenge_cell_encode(cell->payload, cell->payload_len,
+                                           ac);
+  if (len != cell->payload_len)
+    goto done;
   cell->command = CELL_AUTH_CHALLENGE;
-  memcpy(cell->payload, challenge, OR_AUTH_CHALLENGE_LEN);
-  cp = cell->payload + OR_AUTH_CHALLENGE_LEN;
-  set_uint16(cp, htons(1)); /* We recognize one authentication type. */
-  set_uint16(cp+2, htons(AUTHTYPE_RSA_SHA256_TLSSECRET));
 
   connection_or_write_var_cell_to_buf(cell, conn);
-  var_cell_free(cell);
-  memwipe(challenge, 0, sizeof(challenge));
+  r = 0;
 
-  return 0;
+ done:
+  var_cell_free(cell);
+  auth_challenge_cell_free(ac);
+
+  return r;
 }
 
 /** Compute the main body of an AUTHENTICATE cell that a client can use
@@ -2335,28 +2379,28 @@ connection_or_compute_authenticate_cell_body(or_connection_t *conn,
                                              crypto_pk_t *signing_key,
                                              int server)
 {
-  uint8_t *ptr;
+  auth1_t *auth = NULL;
+  auth_ctx_t *ctx = auth_ctx_new();
+  int result;
 
   /* assert state is reasonable XXXX */
 
-  if (outlen < V3_AUTH_FIXED_PART_LEN ||
-      (!server && outlen < V3_AUTH_BODY_LEN))
-    return -1;
+  ctx->is_ed = 0;
 
-  ptr = out;
+  auth = auth1_new();
 
   /* Type: 8 bytes. */
-  memcpy(ptr, "AUTH0001", 8);
-  ptr += 8;
+  memcpy(auth1_getarray_type(auth), "AUTH0001", 8);
 
   {
-    const tor_cert_t *id_cert=NULL, *link_cert=NULL;
-    const digests_t *my_digests, *their_digests;
+    const tor_x509_cert_t *id_cert=NULL, *link_cert=NULL;
+    const common_digests_t *my_digests, *their_digests;
     const uint8_t *my_id, *their_id, *client_id, *server_id;
     if (tor_tls_get_my_certs(server, &link_cert, &id_cert))
-      return -1;
-    my_digests = tor_cert_get_id_digests(id_cert);
-    their_digests = tor_cert_get_id_digests(conn->handshake_state->id_cert);
+      goto err;
+    my_digests = tor_x509_cert_get_id_digests(id_cert);
+    their_digests =
+      tor_x509_cert_get_id_digests(conn->handshake_state->id_cert);
     tor_assert(my_digests);
     tor_assert(their_digests);
     my_id = (uint8_t*)my_digests->d[DIGEST_SHA256];
@@ -2366,12 +2410,10 @@ connection_or_compute_authenticate_cell_body(or_connection_t *conn,
     server_id = server ? my_id : their_id;
 
     /* Client ID digest: 32 octets. */
-    memcpy(ptr, client_id, 32);
-    ptr += 32;
+    memcpy(auth->cid, client_id, 32);
 
     /* Server ID digest: 32 octets. */
-    memcpy(ptr, server_id, 32);
-    ptr += 32;
+    memcpy(auth->sid, server_id, 32);
   }
 
   {
@@ -2385,73 +2427,101 @@ connection_or_compute_authenticate_cell_body(or_connection_t *conn,
     }
 
     /* Server log digest : 32 octets */
-    crypto_digest_get_digest(server_d, (char*)ptr, 32);
-    ptr += 32;
+    crypto_digest_get_digest(server_d, (char*)auth->slog, 32);
 
     /* Client log digest : 32 octets */
-    crypto_digest_get_digest(client_d, (char*)ptr, 32);
-    ptr += 32;
+    crypto_digest_get_digest(client_d, (char*)auth->clog, 32);
   }
 
   {
     /* Digest of cert used on TLS link : 32 octets. */
-    const tor_cert_t *cert = NULL;
-    tor_cert_t *freecert = NULL;
+    const tor_x509_cert_t *cert = NULL;
+    tor_x509_cert_t *freecert = NULL;
     if (server) {
       tor_tls_get_my_certs(1, &cert, NULL);
     } else {
       freecert = tor_tls_get_peer_cert(conn->tls);
       cert = freecert;
     }
-    if (!cert)
-      return -1;
-    memcpy(ptr, tor_cert_get_cert_digests(cert)->d[DIGEST_SHA256], 32);
+    if (!cert) {
+      log_warn(LD_OR, "Unable to find cert when making AUTH1 data.");
+      goto err;
+    }
+
+    memcpy(auth->scert,
+           tor_x509_cert_get_cert_digests(cert)->d[DIGEST_SHA256], 32);
 
     if (freecert)
-      tor_cert_free(freecert);
-    ptr += 32;
+      tor_x509_cert_free(freecert);
   }
 
   /* HMAC of clientrandom and serverrandom using master key : 32 octets */
-  tor_tls_get_tlssecrets(conn->tls, ptr);
-  ptr += 32;
-
-  tor_assert(ptr - out == V3_AUTH_FIXED_PART_LEN);
-
-  if (server)
-    return V3_AUTH_FIXED_PART_LEN; // ptr-out
+  tor_tls_get_tlssecrets(conn->tls, auth->tlssecrets);
 
   /* 8 octets were reserved for the current time, but we're trying to get out
    * of the habit of sending time around willynilly.  Fortunately, nothing
    * checks it.  That's followed by 16 bytes of nonce. */
-  crypto_rand((char*)ptr, 24);
-  ptr += 24;
+  crypto_rand((char*)auth->rand, 24);
 
-  tor_assert(ptr - out == V3_AUTH_BODY_LEN);
-
-  if (!signing_key)
-    return V3_AUTH_BODY_LEN; // ptr - out
-
-  {
-    int siglen;
-    char d[32];
-    crypto_digest256(d, (char*)out, ptr-out, DIGEST_SHA256);
-    siglen = crypto_pk_private_sign(signing_key,
-                                    (char*)ptr, outlen - (ptr-out),
-                                    d, 32);
-    if (siglen < 0)
-      return -1;
-
-    ptr += siglen;
-    tor_assert(ptr <= out+outlen);
-    return (int)(ptr - out);
+  ssize_t len;
+  if ((len = auth1_encode(out, outlen, auth, ctx)) < 0) {
+    log_warn(LD_OR, "Unable to encode signed part of AUTH1 data.");
+    goto err;
   }
+
+  if (server) {
+    auth1_t *tmp = NULL;
+    ssize_t len2 = auth1_parse(&tmp, out, len, ctx);
+    if (!tmp) {
+      log_warn(LD_OR, "Unable to parse signed part of AUTH1 data.");
+      goto err;
+    }
+    result = (int) (tmp->end_of_fixed_part - out);
+    auth1_free(tmp);
+    if (len2 != len) {
+      log_warn(LD_OR, "Mismatched length when re-parsing AUTH1 data.");
+      goto err;
+    }
+    goto done;
+  }
+
+  if (signing_key) {
+    auth1_setlen_sig(auth, crypto_pk_keysize(signing_key));
+
+    char d[32];
+    crypto_digest256(d, (char*)out, len, DIGEST_SHA256);
+    int siglen = crypto_pk_private_sign(signing_key,
+                                    (char*)auth1_getarray_sig(auth),
+                                    auth1_getlen_sig(auth),
+                                    d, 32);
+    if (siglen < 0) {
+      log_warn(LD_OR, "Unable to sign AUTH1 data.");
+      goto err;
+    }
+
+    auth1_setlen_sig(auth, siglen);
+
+    len = auth1_encode(out, outlen, auth, ctx);
+    if (len < 0) {
+      log_warn(LD_OR, "Unable to encode signed AUTH1 data.");
+      goto err;
+    }
+  }
+  result = (int) len;
+  goto done;
+
+ err:
+  result = -1;
+ done:
+  auth1_free(auth);
+  auth_ctx_free(ctx);
+  return result;
 }
 
 /** Send an AUTHENTICATE cell on the connection <b>conn</b>.  Return 0 on
  * success, -1 on failure */
-int
-connection_or_send_authenticate_cell(or_connection_t *conn, int authtype)
+MOCK_IMPL(int,
+connection_or_send_authenticate_cell,(or_connection_t *conn, int authtype))
 {
   var_cell_t *cell;
   crypto_pk_t *pk = tor_tls_get_my_client_auth_key();

@@ -1,8 +1,9 @@
-/* Copyright (c) 2007-2013, The Tor Project, Inc. */
+/* Copyright (c) 2007-2016, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
- * \file dnsserv.c \brief Implements client-side DNS proxy server code.  Note:
+ * \file dnsserv.c
+ * \brief Implements client-side DNS proxy server code.  Note:
  * this is the DNS Server code, not the Server DNS code.  Confused?  This code
  * runs on client-side, and acts as a DNS server.  The code in dns.c, on the
  * other hand, runs on Tor servers, and acts as a DNS client.
@@ -87,8 +88,6 @@ evdns_server_callback(struct evdns_server_request *req, void *data_)
   for (i = 0; i < req->nquestions; ++i) {
     if (req->questions[i]->dns_question_class != EVDNS_CLASS_INET)
       continue;
-    if (! q)
-      q = req->questions[i];
     switch (req->questions[i]->type) {
       case EVDNS_TYPE_A:
       case EVDNS_TYPE_AAAA:
@@ -96,7 +95,7 @@ evdns_server_callback(struct evdns_server_request *req, void *data_)
         /* We always pick the first one of these questions, if there is
            one. */
         if (! supported_q)
-          supported_q = q;
+          supported_q = req->questions[i];
         break;
       default:
         break;
@@ -125,6 +124,7 @@ evdns_server_callback(struct evdns_server_request *req, void *data_)
   /* Make a new dummy AP connection, and attach the request to it. */
   entry_conn = entry_connection_new(CONN_TYPE_AP, AF_INET);
   conn = ENTRY_TO_EDGE_CONN(entry_conn);
+  CONNECTION_AP_EXPECT_NONPENDING(entry_conn);
   TO_CONN(conn)->state = AP_CONN_STATE_RESOLVE_WAIT;
   conn->is_dns_request = 1;
 
@@ -141,13 +141,13 @@ evdns_server_callback(struct evdns_server_request *req, void *data_)
   }
 
   if (q->type == EVDNS_TYPE_A || q->type == EVDNS_QTYPE_ALL) {
-    entry_conn->ipv4_traffic_ok = 1;
-    entry_conn->ipv6_traffic_ok = 0;
-    entry_conn->prefer_ipv6_traffic = 0;
+    entry_conn->entry_cfg.ipv4_traffic = 1;
+    entry_conn->entry_cfg.ipv6_traffic = 0;
+    entry_conn->entry_cfg.prefer_ipv6 = 0;
   } else if (q->type == EVDNS_TYPE_AAAA) {
-    entry_conn->ipv4_traffic_ok = 0;
-    entry_conn->ipv6_traffic_ok = 1;
-    entry_conn->prefer_ipv6_traffic = 1;
+    entry_conn->entry_cfg.ipv4_traffic = 0;
+    entry_conn->entry_cfg.ipv6_traffic = 1;
+    entry_conn->entry_cfg.prefer_ipv6 = 1;
   }
 
   strlcpy(entry_conn->socks_request->address, q->name,
@@ -155,8 +155,8 @@ evdns_server_callback(struct evdns_server_request *req, void *data_)
 
   entry_conn->socks_request->listener_type = listener->base_.type;
   entry_conn->dns_server_request = req;
-  entry_conn->isolation_flags = listener->isolation_flags;
-  entry_conn->session_group = listener->session_group;
+  entry_conn->entry_cfg.isolation_flags = listener->entry_cfg.isolation_flags;
+  entry_conn->entry_cfg.session_group = listener->entry_cfg.session_group;
   entry_conn->nym_epoch = get_signewnym_epoch();
 
   if (connection_add(ENTRY_TO_CONN(entry_conn)) < 0) {
@@ -199,6 +199,7 @@ dnsserv_launch_request(const char *name, int reverse,
   /* Make a new dummy AP connection, and attach the request to it. */
   entry_conn = entry_connection_new(CONN_TYPE_AP, AF_INET);
   conn = ENTRY_TO_EDGE_CONN(entry_conn);
+  CONNECTION_AP_EXPECT_NONPENDING(entry_conn);
   conn->base_.state = AP_CONN_STATE_RESOLVE_WAIT;
 
   tor_addr_copy(&TO_CONN(conn)->addr, &control_conn->base_.addr);
@@ -232,9 +233,9 @@ dnsserv_launch_request(const char *name, int reverse,
 
   entry_conn->socks_request->listener_type = CONN_TYPE_CONTROL_LISTENER;
   entry_conn->original_dest_address = tor_strdup(name);
-  entry_conn->session_group = SESSION_GROUP_CONTROL_RESOLVE;
+  entry_conn->entry_cfg.session_group = SESSION_GROUP_CONTROL_RESOLVE;
   entry_conn->nym_epoch = get_signewnym_epoch();
-  entry_conn->isolation_flags = ISO_DEFAULT;
+  entry_conn->entry_cfg.isolation_flags = ISO_DEFAULT;
 
   if (connection_add(TO_CONN(conn))<0) {
     log_warn(LD_APP, "Couldn't register dummy connection for RESOLVE request");

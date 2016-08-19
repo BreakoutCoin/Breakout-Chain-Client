@@ -34,7 +34,6 @@
 #ifndef NO_FORKING
 
 #ifdef _WIN32
-#include <winsock2.h>
 #include <windows.h>
 #else
 #include <sys/types.h>
@@ -491,7 +490,7 @@ tinytest_format_hex_(const void *val_, unsigned long len)
 		return strdup("<allocation failure>");
 	cp = result;
 	for (i=0;i<len;++i) {
-		*cp++ = "0123456789ABCDEF"[val[i] >> 4];
+		*cp++ = "0123456789ABCDEF"[(val[i] >> 4)&0x0f];
 		*cp++ = "0123456789ABCDEF"[val[i] & 0x0f];
 	}
 	while (ellipses--)

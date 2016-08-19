@@ -1,6 +1,6 @@
 /* Copyright 2001-2004 Roger Dingledine.
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2013, The Tor Project, Inc. */
+ * Copyright (c) 2007-2016, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /** String describing which Tor Git repository version the source was
@@ -15,7 +15,7 @@ const char tor_git_revision[] =
 
 /**
  * \file tor_main.c
- * \brief Stub module containing a not_main() function. Allows unit
+ * \brief Stub module containing a main() function. Allows unit
  * test binary to link against main.c.
  **/
 
@@ -27,6 +27,10 @@ int tor_main(int argc, char *argv[]);
 int
 not_main(int argc, char *argv[])
 {
-  return tor_main(argc, argv);
+  int r = tor_main(argc, argv);
+  if (r < 0 || r > 255)
+    return 1;
+  else
+    return r;
 }
 
