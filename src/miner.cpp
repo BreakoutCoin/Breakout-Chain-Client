@@ -369,7 +369,7 @@ CBlock* CreateNewBlock(CWallet* pwallet, bool fProofOfStake, int64_t pFees[])
 
             // take all the scavengable fees
             // TODO: Maybe there is a more efficient way to do this? Need FillValuesIn/Out.
-            int64_t nTxFees;
+            int64_t nTxFees = 0;
             for (int i = 1; i < N_COLORS; ++i)
             {
                 int64_t txfee = tx.GetValueIn(mapInputs, i) - tx.GetValueOut(i);
