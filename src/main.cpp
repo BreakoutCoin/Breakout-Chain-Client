@@ -18,6 +18,9 @@
 #include <boost/filesystem.hpp>
 #include <boost/filesystem/fstream.hpp>
 
+// asdf
+#define DEBUGSTAKING 1
+
 using namespace std;
 using namespace boost;
 
@@ -1382,8 +1385,19 @@ struct AMOUNT GetProofOfStakeReward(CBlockIndex* pindexPrev, int nStakeColor)
             // calculate the reward based on instantaneous inflation rates
             // this may be more complicated for multiple staking currencies
             int64_t supply = pindexPrev->vMoneySupply[mintColor];
-            // multiply by 5% then divide by the number of blocks in a year (105192)
-            int64_t minReward = (5 * (supply / 100)) / 105192;
+            int64_t minReward;
+            if (pindexPrev->nTime < STAKING_FIX2_TIME)
+            {
+                // the original emission was too low by 1/2
+                minReward = (5 * (supply / 100)) / 105192;
+            }
+            else
+            {
+                // the original subsidy was 1/2 the correct amount for ~5% interest
+                nSubsidy += nSubsidy;
+                // multiply by 5% then divide by the number of blocks in a year (52596)
+                minReward = (5 * (supply / 100)) / 52596;
+            }
             if (nSubsidy < minReward)
             {
                nSubsidy = minReward;
@@ -3313,12 +3327,19 @@ bool CBlock::SignBlock(CWallet& wallet, int64_t nFees[])
     if (nSearchTime > nLastCoinStakeSearchTime)
     {
 
+#if DEBUGSTAKING
+        printf("CBlock::SignBlock: N_COLORS = %d\n", N_COLORS);
+#endif
+
         // randomly pick a color from all staking currencies with weight
         std::vector<int> vColors;
         for (int i = 1; i < N_COLORS; ++i)
         {
               if (!CanStake(i))
               {
+#if DEBUGSTAKING
+                    printf("CBlock::SignBlock: can't stake = %d\n", i);
+#endif
                     continue;
               }
 
@@ -3337,8 +3358,18 @@ bool CBlock::SignBlock(CWallet& wallet, int64_t nFees[])
         {
               return false;
         }
+
         int idx = rand() % vColors.size();
         int nColor = vColors[idx];
+
+#if DEBUGSTAKING
+        for (int j = 0; j < (int) vColors.size(); ++j)
+        {
+            int c = vColors[j];
+            printf("CBlock::SignBlock: vColors: %d (%s)\n", c, COLOR_TICKER[c]);
+        }
+        printf("CBlock::SignBlock: selected: %d\n", nColor);
+#endif
 
         // TODO: get rid of nSearchInterval
         int64_t nSearchInterval = 1;

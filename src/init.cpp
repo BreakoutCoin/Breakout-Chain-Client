@@ -250,6 +250,8 @@ std::string HelpMessage()
         "  -connect=<ip>          " + _("Connect only to the specified node(s)") + "\n" +
         "  -seednode=<ip>         " + _("Connect to a node to retrieve peer addresses, and disconnect") + "\n" +
         "  -externalip=<ip>       " + _("Specify your own public address") + "\n" +
+        "  -onlynet=<net>         " + _("Only connect to nodes in network <net> (IPv4, IPv6 or Tor)") + "\n" +
+
         "  -onionseed             " + _("Find peers using .onion seeds (default: 1 unless -connect)") + "\n" +
         "  -discover              " + _("Discover own IP address (default: 1 when listening and no -externalip)") + "\n" +
         "  -irc                   " + _("Find peers using internet relay chat (default: 0)") + "\n" +
@@ -476,6 +478,8 @@ bool AppInit2()
 
 #if TESTNET_BUILD
     fTestNet = GetBoolArg("-testnet", true);
+#else
+    fTestNet = GetBoolArg("-testnet");
 #endif
 
     if (fTestNet) {
@@ -925,27 +929,76 @@ bool AppInit2()
     if (nSocksVersion != 4 && nSocksVersion != 5)
         return InitError(strprintf(_("Unknown -socks proxy version requested: %d"), nSocksVersion));
 
-    do {
-        std::set<enum Network> nets;
-        nets.insert(
+    // built-in tor is enabled by default
+    bool fBuiltinTor = GetBoolArg("-builtintor", true);
+
+    // -onlynet indicates a specific network selection and not to use built in TOR
+    std::set<enum Network> setNets;
+    if (mapArgs.count("-onlynet"))
+    {
+        BOOST_FOREACH(std::string snet, mapMultiArgs["-onlynet"]) {
+            enum Network net = ParseNetwork(snet);
+            if (net == NET_UNROUTABLE)
+                return InitError(strprintf(_("Unknown network specified in -onlynet: '%s'"), snet.c_str()));
+            setNets.insert(net);
+            if (net == NET_TOR)
+            {
+                fBuiltinTor = true;
+            }
+        }
+    }
+    else   // default to built-in tor
+    {
+        setNets.insert(
             NET_TOR
         );
-        for (int n = 0; n < NET_MAX; n++) {
-            enum Network net = (enum Network)n;
-            if (!nets.count(net))
-                SetLimited(net);
+        fBuiltinTor = true;
+    }
+    for (int n = 0; n < NET_MAX; n++) {
+        enum Network net = (enum Network)n;
+        if (!setNets.count(net))
+            SetLimited(net);
+    }
+
+#if defined(USE_IPV6)
+#if ! USE_IPV6
+    for (std::set<enum Network>::iterator it = setNets.begin(); it != setNets.end(); ++it)
+    {
+        if (*it == NET_IPV6)
+        {
+            setNets.erase(it);
         }
-    } while (
-        false
-    );
+    }
+    SetLimited(NET_IPV6);
+#endif
+#endif
 
+    CService addrProxy;
+    bool fProxy = false;
+    if (mapArgs.count("-proxy")) {
+        addrProxy = CService(mapArgs["-proxy"], GetDefaultProxy());
+        if (!addrProxy.IsValid())
+            return InitError(strprintf(_("Invalid -proxy address: '%s'"), mapArgs["-proxy"].c_str()));
 
+        if (!IsLimited(NET_IPV4))
+            SetProxy(NET_IPV4, addrProxy, nSocksVersion);
+        if (nSocksVersion > 4) {
+#ifdef USE_IPV6
+            if (!IsLimited(NET_IPV6))
+                SetProxy(NET_IPV6, addrProxy, nSocksVersion);
+#endif
+            SetNameProxy(addrProxy, nSocksVersion);
+        }
+        fProxy = true;
+    }
+
+// if not using built in tor, check for external
+// TODO: internal and external tor are exclusive
+if (fBuiltinTor)
+{
     CService addrOnion;
-
     p2p_port = GetDefaultPort();
-
     onion_port = (unsigned short)GetArg("-torport", TOR_PORT);
-
     if (mapArgs.count("-tor") && mapArgs["-tor"] != "0") {
         addrOnion = CService(mapArgs["-tor"], onion_port);
         if (!addrOnion.IsValid())
@@ -953,44 +1006,86 @@ bool AppInit2()
     } else {
         addrOnion = CService("127.0.0.1", onion_port);
     }
-
-    if (true) {
+    SetProxy(NET_TOR, addrOnion, 5);
+    SetReachable(NET_TOR);
+}
+else
+{
+    // -tor can override normal proxy, -notor disables tor entirely
+    if (!(mapArgs.count("-tor") && mapArgs["-tor"] == "0") && (fProxy || mapArgs.count("-tor"))) {
+        CService addrOnion;
+        if (!mapArgs.count("-tor"))
+            addrOnion = addrProxy;
+        else
+            addrOnion = CService(mapArgs["-tor"], 9050);
+        if (!addrOnion.IsValid())
+            return InitError(strprintf(_("Invalid -tor address: '%s'"), mapArgs["-tor"].c_str()));
         SetProxy(NET_TOR, addrOnion, 5);
         SetReachable(NET_TOR);
     }
+}
 
 
     // see Step 2: parameter interactions for more information about these
+    fNoListen = !GetBoolArg("-listen", true);
+    fDiscover = GetBoolArg("-discover", true);
     fNameLookup = GetBoolArg("-dns", true);
 
     bool fBound = false;
-    if (true) {
-        if (true) {
-            do {
+
+    if (!fNoListen)
+    {
+        // TODO: use of -bind is not fully tested
+        std::string strError;
+        if (mapArgs.count("-bind")) {
+            BOOST_FOREACH(std::string strBind, mapMultiArgs["-bind"]) {
                 CService addrBind;
-                if (!Lookup("127.0.0.1", addrBind, GetListenPort(), false))
-                    return InitError(strprintf(_("Cannot resolve binding address: '%s'"),  "127.0.0.1"));
+                if (!Lookup(strBind.c_str(), addrBind, GetListenPort(), false))
+                    return InitError(strprintf(_("Cannot resolve -bind address: '%s'"), strBind.c_str()));
                 fBound |= Bind(addrBind);
-            } while (
-                false
-            );
+            }
+        } else {
+            struct in_addr inaddr_any;
+            inaddr_any.s_addr = INADDR_ANY;
+#ifdef USE_IPV6
+            if (!IsLimited(NET_IPV6))
+                fBound |= Bind(CService(in6addr_any, GetListenPort()), false);
+#endif
+            if (!IsLimited(NET_IPV4))
+                fBound |= Bind(CService(inaddr_any, GetListenPort()), !fBound);
         }
+
+        // in any case try to bind to 127.0.0.1 if using builtin tor
+        if (fBuiltinTor)
+        {
+            CService addrBind;
+            if (!Lookup("127.0.0.1", addrBind, GetListenPort(), false))
+            {
+                return InitError(strprintf(_("Cannot resolve binding address: '%s'"),  "127.0.0.1"));
+            }
+            fBound |= Bind(addrBind);
+        }
+
         if (!fBound)
+        {
             return InitError(_("Failed to listen on any port."));
+        }
     }
 
+    if (fBuiltinTor)
+    {
+        // uiInterface.InitMessage(_("Starting Tor..."));
 
-    // uiInterface.InitMessage(_("Starting Tor..."));
+        // start up tor
+        if (!(mapArgs.count("-tor") && mapArgs["-tor"] != "0")) {
+          if (!NewThread(StartTor, NULL))
+            InitError(_("Error: could not start tor"));
+        }
 
-    // start up tor
-    if (!(mapArgs.count("-tor") && mapArgs["-tor"] != "0")) {
-      if (!NewThread(StartTor, NULL))
-        InitError(_("Error: could not start tor"));
+        // uiInterface.InitMessage(_("Waiting for Tor initialization..."));
+        wait_initialized();
+        uiInterface.InitMessage(_("Tor Initialized."));
     }
-
-    // uiInterface.InitMessage(_("Waiting for Tor initialization..."));
-    wait_initialized();
-    uiInterface.InitMessage(_("Initialized."));
 
 
     if (mapArgs.count("-externalip"))
@@ -1001,7 +1096,9 @@ bool AppInit2()
                 return InitError(strprintf(_("Cannot resolve -externalip address: '%s'"), strAddr.c_str()));
             AddLocal(CService(strAddr, GetListenPort(), fNameLookup), LOCAL_MANUAL);
         }
-    } else {
+    }
+    else if (fBuiltinTor)
+    {
         string automatic_onion;
         filesystem::path const hostname_path = GetDataDir(
         ) / "onion" / "hostname";
@@ -1025,6 +1122,8 @@ bool AppInit2()
         AddOneShot(strDest);
 
 
+/* Reserve Balances */
+
     // default reserve balance for coins with a primary staking currency
     // and/or -defaultstake set
     if (mapArgs.count("-reservebalance"))
@@ -1040,7 +1139,7 @@ bool AppInit2()
     }
 
     // =========== these should be a loop (only 1 here) ======== //
-    // this will probably never be used because breakout has only one staking currency
+
     if (mapArgs.count("-reservebalance_brostake"))
     {
         int64_t nReserveBalance;

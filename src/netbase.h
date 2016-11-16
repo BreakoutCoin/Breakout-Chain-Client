@@ -22,6 +22,8 @@ extern unsigned short const TOR_PORT;
 extern unsigned short const P2P_PORT;
 extern unsigned short const P2P_PORT_TESTNET;
 
+extern unsigned short const DEFAULT_PROXY;
+extern unsigned short const DEFAULT_PROXY_TESTNET;
 
 enum Network
 {

@@ -26,7 +26,7 @@
 using namespace std;
 extern unsigned int nStakeMaxAge;
 
-unsigned int nStakeSplitAge = 2 * 24 * 60 * 60;
+int64_t nStakeSplitAge = 21 * 24 * 60 * 60;  // 21 days
 
 extern const int64_t STAKE_COMBINE_THRESHOLD[N_COLORS];
 
@@ -2852,8 +2852,7 @@ bool CWallet::FindStealthTransactions(const CTransaction& tx, mapValue_t& mapNar
 };
 
 // NovaCoin: get current stake weight for currency of nColor
-bool CWallet::GetStakeWeightByColor(int nColor, const CKeyStore& keystore,
-                                                            uint64_t& nWeight)
+bool CWallet::GetStakeWeightByColor(int nColor, const CKeyStore& keystore, uint64_t& nWeight)
 {
     // this check is to prevent crash when indexing vReserveBalance
     if (!CanStake(nColor))
@@ -2871,6 +2870,7 @@ bool CWallet::GetStakeWeightByColor(int nColor, const CKeyStore& keystore,
     if (nBalance <= nResBal)
         return false;
 
+
     vector<const CWalletTx*> vwtxPrev;
 
     set<pair<const CWalletTx*,unsigned int> > setCoins;
@@ -2880,8 +2880,10 @@ bool CWallet::GetStakeWeightByColor(int nColor, const CKeyStore& keystore,
                   GetTime(), nCoinbaseMaturity + 1, setCoins, nValueIn))
         return false;
 
+
     if (setCoins.empty())
         return false;
+
 
     int nStakeMinConfs = GetStakeMinConfirmations(nColor);
 
@@ -2894,7 +2896,7 @@ bool CWallet::GetStakeWeightByColor(int nColor, const CKeyStore& keystore,
         }
     }
 
-    nWeight *= WEIGHT_MULTIPLIER[nColor];
+    nWeight *= GetWeightMultiplier(nColor, pindexBest->nTime);
 
     return true;
 }
@@ -2923,6 +2925,7 @@ bool CWallet::CreateCoinStake(int nStakeColor, const CKeyStore& keystore,
                                 unsigned int nBits, int64_t nSearchInterval,
                                   int64_t nFees[], CTransaction& txMint, CTransaction& txStake, CKey& key)
 {
+
     if (!CanStake(nStakeColor))
     {
            return false;
@@ -3072,10 +3075,14 @@ bool CWallet::CreateCoinStake(int nStakeColor, const CKeyStore& keystore,
                 nStakeCredit += pcoin.first->vout[pcoin.second].nValue;
                 vwtxPrev.push_back(pcoin.first);
                 txStake.vout.push_back(CTxOut(0, nStakeColor, scriptPubKeyOut));
-                if (GetWeight(block.GetBlockTime(), (int64_t)txStake.nTime, nStakeColor) < nStakeSplitAge)
+                if (GetWeight(block.GetBlockTime(), (int64_t)txStake.nTime, nStakeColor, pindexPrev->nTime) < nStakeSplitAge)
+                {
                     txStake.vout.push_back(CTxOut(0, nStakeColor, scriptPubKeyOut)); //split stake
+                }
                 if (fDebug && GetBoolArg("-printcoinstake"))
+                {
                     printf("CreateCoinStake : added kernel type=%d\n", whichType);
+                }
                 fKernelFound = true;
                 break;
             }
@@ -3098,9 +3105,6 @@ bool CWallet::CreateCoinStake(int nStakeColor, const CKeyStore& keystore,
                                           pcoin.first->vout[pcoin.second].scriptPubKey == txStake.vout[1].scriptPubKey)) &&
             pcoin.first->GetHash() != txStake.vin[0].prevout.hash)
         {
-            // int64_t nTimeWeight = GetWeight((int64_t)pcoin.first->nTime,
-            //                                 (int64_t)txStake.nTime, nStakeColor);
-
             // Stop adding more inputs if already too many inputs
             if (txStake.vin.size() >= 100)
                 break;

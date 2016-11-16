@@ -19,6 +19,7 @@ INCLUDEPATHS= \
  -I"$(CURDIR)/tor/ext/trunnel" \
  -I"$(CURDIR)/tor/or" \
  -I"$(CURDIR)/tor/trunnel" \
+ -I"$(CUURDIR)/src/libcryptopp" \
  -I"/usr/include" \
  -I"$(INC_LINUX)" \
  -I"$(CURDIR)/leveldb/include" \

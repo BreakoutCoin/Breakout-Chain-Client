@@ -18,16 +18,19 @@ win32 {
 
 TEMPLATE = app
 TARGET = "BreakoutCoin"
-VERSION = 1.4.1.0
+VERSION = 1.4.5.0
 INCLUDEPATH += src src/json src/qt src/tor
 INCLUDEPATH += src/tor/adapter src/tor/common src/tor/ext
-INCLUDEPATH += src/tor/ext/curve25519_donna src/tor/or
-INCLUDEPATH += src/qt/qcgaugewidget
-INCLUDEPATH += src/qt/qcustomplot
+INCLUDEPATH += src/tor/ext/curve25519_donna src/tor/ext/ed25519/donna
+INCLUDEPATH += src/tor/ext/ed25519/ref10 src/tor/ext/keccak-tiny
+INCLUDEPATH += src/tor/ext/trunnel src/tor/or src/tor/trunnel
 QT += core gui
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets printsupport
 CONFIG += no_include_pwd
 CONFIG += thread
+QMAKE_CFLAGS += -std=gnu99
+QMAKE_CFLAGS_RELEASE += -std=gnu99
+
 
 win32 {
   contains(WINBITS, 32) {
@@ -194,23 +197,40 @@ LIBS += $$PWD/src/leveldb/libleveldb.a $$PWD/src/leveldb/libmemenv.a
     genleveldb.commands = cd $$PWD/src/leveldb && CC=$$QMAKE_CC CXX=$$QMAKE_CXX $(MAKE) OPT=\"$$QMAKE_CXXFLAGS $$QMAKE_CXXFLAGS_RELEASE\" libleveldb.a libmemenv.a
 } else {
     # make an educated guess about what the ranlib command is called
-    # isEmpty(QMAKE_RANLIB) {
-    #    QMAKE_RANLIB = $$replace(QMAKE_STRIP, strip, ranlib)
-    # }
+    isEmpty(QMAKE_RANLIB) {
+       QMAKE_RANLIB = $$replace(QMAKE_STRIP, strip, ranlib)
+    }
     LIBS += -lshlwapi
-    # genleveldb.commands = cd $$PWD/src/leveldb && CC=$$QMAKE_CC CXX=$$QMAKE_CXX TARGET_OS=OS_WINDOWS_CROSSCOMPILE $(MAKE) OPT=\"$$QMAKE_CXXFLAGS $$QMAKE_CXXFLAGS_RELEASE\" libleveldb.a libmemenv.a && $$QMAKE_RANLIB $$PWD/src/leveldb/libleveldb.a && $$QMAKE_RANLIB $$PWD/src/leveldb/libmemenv.a
+    genleveldb.commands = cd $$PWD/src/leveldb && CC=$$QMAKE_CC CXX=$$QMAKE_CXX TARGET_OS=OS_WINDOWS_CROSSCOMPILE $(MAKE) OPT=\"$$QMAKE_CXXFLAGS $$QMAKE_CXXFLAGS_RELEASE\" libleveldb.a libmemenv.a && $$QMAKE_RANLIB $$PWD/src/leveldb/libleveldb.a && $$QMAKE_RANLIB $$PWD/src/leveldb/libmemenv.a
 }
 genleveldb.target = $$PWD/src/leveldb/libleveldb.a
 genleveldb.depends = FORCE
 PRE_TARGETDEPS += $$PWD/src/leveldb/libleveldb.a
 QMAKE_EXTRA_TARGETS += genleveldb
 # Gross ugly hack that depends on qmake internals, unfortunately there is no other way to do it.
-# QMAKE_CLEAN += $$PWD/src/leveldb/libleveldb.a; cd $$PWD/src/leveldb ; $(MAKE) clean
+QMAKE_CLEAN += $$PWD/src/leveldb/libleveldb.a; cd $$PWD/src/leveldb ; $(MAKE) clean
 
-!macx:!win32 {
-  # cryptopp
-  LIBS += $$PWD/src/libcryptopp/libcryptopp.a
+
+
+# libcryptopp
+win32 {
+    isEmpty(QMAKE_RANLIB) {
+       QMAKE_RANLIB = $$replace(QMAKE_STRIP, strip, ranlib)
+    }
+    gencryptopp.commands = cd $$PWD/src/libcryptopp && CC=$$QMAKE_CC CXX=$$QMAKE_CXX TARGET_OS=OS_WINDOWS_CROSSCOMPILE $(MAKE) OPT=\"$$QMAKE_CXXFLAGS $$QMAKE_CXXFLAGS_RELEASE\" libcryptopp.a && $$QMAKE_RANLIB $$PWD/src/libcryptopp/libcryptopp.a
+} else {
+    gencryptopp.commands = cd $$PWD/src/libcryptopp && CC=$$QMAKE_CC CXX=$$QMAKE_CXX $(MAKE) OPT=\"$$QMAKE_CXXFLAGS $$QMAKE_CXXFLAGS_RELEASE\" libcryptopp.a
 }
+
+gencryptopp.target = $$PWD/src/libcryptopp/libcryptopp.a
+gencryptopp.depends = FORCE
+PRE_TARGETDEPS += $$PWD/src/libcryptopp/libcryptopp.a
+QMAKE_EXTRA_TARGETS += gencryptopp
+# Worse of an ugly hack than for leveldb, yes it should start with a ";"
+QMAKE_CLEAN += ; cd $$PWD/src/libcryptopp ; $(MAKE) clean
+
+LIBS += $$PWD/src/libcryptopp/libcryptopp.a
+
 
 !win32 {
     # for extra security against potential buffer overflows
@@ -347,7 +367,170 @@ HEADERS += \
     src/checkqueue.h \
     src/hash.h \
     src/limitedmap.h \
-    src/threadsafety.h
+    src/threadsafety.h \
+    src/tor/or/circuitmux_ewma.h \
+    src/tor/or/circuitbuild.h \
+    src/tor/or/channeltls.h \
+    src/tor/or/rendmid.h \
+    src/tor/or/rendclient.h \
+    src/tor/or/scheduler.h \
+    src/tor/or/dircollate.h \
+    src/tor/or/periodic.h \
+    src/tor/or/torcert.h \
+    src/tor/or/reasons.h \
+    src/tor/or/config.h \
+    src/tor/or/status.h \
+    src/tor/or/directory.h \
+    src/tor/or/ext_orport.h \
+    src/tor/or/connection_edge.h \
+    src/tor/or/routerset.h \
+    src/tor/or/ntmain.h \
+    src/tor/or/channel.h \
+    src/tor/or/dns.h \
+    src/tor/or/fp_pair.h \
+    src/tor/or/rephist.h \
+    src/tor/or/transports.h \
+    src/tor/or/or.h \
+    src/tor/or/routerparse.h \
+    src/tor/or/routerkeys.h \
+    src/tor/or/rendservice.h \
+    src/tor/or/onion_main.h \
+    src/tor/or/circuitmux.h \
+    src/tor/or/router.h \
+    src/tor/or/rendcache.h \
+    src/tor/or/geoip.h \
+    src/tor/or/circuitlist.h \
+    src/tor/or/eventdns_tor.h \
+    src/tor/or/dirvote.h \
+    src/tor/or/replaycache.h \
+    src/tor/or/keypin.h \
+    src/tor/or/networkstatus.h \
+    src/tor/or/routerlist.h \
+    src/tor/or/connection.h \
+    src/tor/or/onion_tap.h \
+    src/tor/or/confparse.h \
+    src/tor/or/rendcommon.h \
+    src/tor/or/relay.h \
+    src/tor/or/policies.h \
+    src/tor/or/command.h \
+    src/tor/or/buffers.h \
+    src/tor/or/circuitstats.h \
+    src/tor/or/dnsserv.h \
+    src/tor/or/onion_ntor.h \
+    src/tor/or/onion_fast.h \
+    src/tor/or/circuituse.h \
+    src/tor/or/cpuworker.h \
+    src/tor/or/connection_or.h \
+    src/tor/or/dirserv.h \
+    src/tor/or/hibernate.h \
+    src/tor/or/microdesc.h \
+    src/tor/or/entrynodes.h \
+    src/tor/or/circpathbias.h \
+    src/tor/or/dns_structs.h \
+    src/tor/or/control.h \
+    src/tor/or/onion.h \
+    src/tor/or/addressmap.h \
+    src/tor/or/statefile.h \
+    src/tor/or/nodelist.h \
+    src/tor/adapter/orconfig_win32.h \
+    src/tor/adapter/orconfig_linux.h \
+    src/tor/adapter/orconfig_apple.h \
+    src/tor/adapter/orconfig.h \
+    src/tor/adapter/breakout.h \
+    src/tor/trunnel/trunnel-local.h \
+    src/tor/trunnel/ed25519_cert.h \
+    src/tor/trunnel/link_handshake.h \
+    src/tor/trunnel/pwbox.h \
+    src/tor/ext/siphash.h \
+    src/tor/ext/ed25519/donna/ed25519.h \
+    src/tor/ext/ed25519/donna/ed25519-donna-impl-sse2.h \
+    src/tor/ext/ed25519/donna/regression.h \
+    src/tor/ext/ed25519/donna/ed25519-hash.h \
+    src/tor/ext/ed25519/donna/curve25519-donna-32bit.h \
+    src/tor/ext/ed25519/donna/curve25519-donna-64bit.h \
+    src/tor/ext/ed25519/donna/ed25519-donna-32bit-sse2.h \
+    src/tor/ext/ed25519/donna/curve25519-donna-sse2.h \
+    src/tor/ext/ed25519/donna/ed25519-donna-32bit-tables.h \
+    src/tor/ext/ed25519/donna/ed25519-donna-basepoint-table.h \
+    src/tor/ext/ed25519/donna/ed25519-hash-custom.h \
+    src/tor/ext/ed25519/donna/ed25519-donna-portable-identify.h \
+    src/tor/ext/ed25519/donna/ed25519-donna-64bit-x86-32bit.h \
+    src/tor/ext/ed25519/donna/curve25519-donna-helpers.h \
+    src/tor/ext/ed25519/donna/ed25519-donna-64bit-tables.h \
+    src/tor/ext/ed25519/donna/ed25519-donna-impl-base.h \
+    src/tor/ext/ed25519/donna/modm-donna-32bit.h \
+    src/tor/ext/ed25519/donna/ed25519-donna-portable.h \
+    src/tor/ext/ed25519/donna/test-ticks.h \
+    src/tor/ext/ed25519/donna/ed25519-donna.h \
+    src/tor/ext/ed25519/donna/ed25519_donna_tor.h \
+    src/tor/ext/ed25519/donna/modm-donna-64bit.h \
+    src/tor/ext/ed25519/donna/ed25519-randombytes.h \
+    src/tor/ext/ed25519/donna/ed25519-donna-64bit-sse2.h \
+    src/tor/ext/ed25519/donna/ed25519-donna-64bit-x86.h \
+    src/tor/ext/ed25519/donna/ed25519-randombytes-custom.h \
+    src/tor/ext/ed25519/donna/ed25519-donna-batchverify.h \
+    src/tor/ext/ed25519/ref10/base2.h \
+    src/tor/ext/ed25519/ref10/fe.h \
+    src/tor/ext/ed25519/ref10/sqrtm1.h \
+    src/tor/ext/ed25519/ref10/randombytes.h \
+    src/tor/ext/ed25519/ref10/d2.h \
+    src/tor/ext/ed25519/ref10/api.h \
+    src/tor/ext/ed25519/ref10/d.h \
+    src/tor/ext/ed25519/ref10/crypto_hash_sha512.h \
+    src/tor/ext/ed25519/ref10/crypto_uint64.h \
+    src/tor/ext/ed25519/ref10/pow22523.h \
+    src/tor/ext/ed25519/ref10/ge_sub.h \
+    src/tor/ext/ed25519/ref10/crypto_int64.h \
+    src/tor/ext/ed25519/ref10/base.h \
+    src/tor/ext/ed25519/ref10/pow225521.h \
+    src/tor/ext/ed25519/ref10/crypto_verify_32.h \
+    src/tor/ext/ed25519/ref10/ge_p2_dbl.h \
+    src/tor/ext/ed25519/ref10/ge_add.h \
+    src/tor/ext/ed25519/ref10/crypto_sign.h \
+    src/tor/ext/ed25519/ref10/ge_madd.h \
+    src/tor/ext/ed25519/ref10/ge_msub.h \
+    src/tor/ext/ed25519/ref10/crypto_int32.h \
+    src/tor/ext/ed25519/ref10/ed25519_ref10.h \
+    src/tor/ext/ed25519/ref10/crypto_uint32.h \
+    src/tor/ext/ed25519/ref10/sc.h \
+    src/tor/ext/ed25519/ref10/ge.h \
+    src/tor/ext/trunnel/trunnel.h \
+    src/tor/ext/trunnel/trunnel-impl.h \
+    src/tor/ext/tor_queue.h \
+    src/tor/ext/tor_readpassphrase.h \
+    src/tor/ext/tinytest_macros.h \
+    src/tor/ext/ht.h \
+    src/tor/ext/eventdns.h \
+    src/tor/ext/tinytest.h \
+    src/tor/ext/keccak-tiny/keccak-tiny.h \
+    src/tor/common/testsupport.h \
+    src/tor/common/crypto_curve25519.h \
+    src/tor/common/sandbox.h \
+    src/tor/common/backtrace.h \
+    src/tor/common/container.h \
+    src/tor/common/util_process.h \
+    src/tor/common/aes.h \
+    src/tor/common/torint.h \
+    src/tor/common/crypto_format.h \
+    src/tor/common/workqueue.h \
+    src/tor/common/crypto.h \
+    src/tor/common/memarea.h \
+    src/tor/common/di_ops.h \
+    src/tor/common/util_format.h \
+    src/tor/common/torgzip.h \
+    src/tor/common/torlog.h \
+    src/tor/common/compat_libevent.h \
+    src/tor/common/procmon.h \
+    src/tor/common/compat_openssl.h \
+    src/tor/common/tortls.h \
+    src/tor/common/tor_util.h \
+    src/tor/common/compat_threads.h \
+    src/tor/common/crypto_s2k.h \
+    src/tor/common/crypto_ed25519.h \
+    src/tor/common/crypto_pwbox.h \
+    src/tor/common/tor_compat.h \
+    src/tor/common/address.h
+
 
 SOURCES += \
     src/colors.cpp \
@@ -368,85 +551,151 @@ SOURCES += \
     src/json/json_spirit_reader.cpp \
     src/json/json_spirit_value.cpp \
     src/json/json_spirit_writer.cpp \
-    src/tor/common/address.c \
-    src/tor/or/addressmap.c \
-    src/tor/common/aes.c \
-    src/tor/common/backtrace.c \
-    src/tor/or/buffers.c \
-    src/tor/or/channel.c \
-    src/tor/or/channeltls.c \
-    src/tor/or/circpathbias.c \
-    src/tor/or/circuitbuild.c \
-    src/tor/or/circuitlist.c \
-    src/tor/or/circuitmux.c \
-    src/tor/or/circuitmux_ewma.c \
-    src/tor/or/circuitstats.c \
-    src/tor/or/circuituse.c \
-    src/tor/or/command.c \
-    src/tor/common/tor_compat.c \
-    src/tor/common/compat_libevent.c \
-    src/tor/or/config.c \
-    src/tor/or/config_codedigest.c \
-    src/tor/or/confparse.c \
-    src/tor/or/connection.c \
-    src/tor/or/connection_edge.c \
-    src/tor/or/connection_or.c \
-    src/tor/common/container.c \
-    src/tor/or/control.c \
-    src/tor/or/cpuworker.c \
-    src/tor/common/crypto.c \
-    src/tor/common/crypto_curve25519.c \
-    src/tor/common/crypto_format.c \
-    src/tor/ext/csiphash.c \
-    src/tor/ext/curve25519_donna/curve25519-donna.c \
-    src/tor/common/di_ops.c \
-    src/tor/or/directory.c \
-    src/tor/or/dirserv.c \
-    src/tor/or/dirvote.c \
-    src/tor/or/dns.c \
-    src/tor/or/dnsserv.c \
-    src/tor/or/entrynodes.c \
-    # src/tor/ext/eventdns.c \
-    src/tor/or/ext_orport.c \
-    src/tor/or/fp_pair.c \
-    src/tor/or/geoip.c \
-    src/tor/or/hibernate.c \
-    src/tor/common/log.c \
-    src/tor/common/memarea.c \
-    src/tor/common/mempool.c \
-    src/tor/or/microdesc.c \
-    src/tor/or/networkstatus.c \
-    src/tor/or/nodelist.c \
-    src/tor/or/onion.c \
-    src/tor/or/onion_fast.c \
-    src/tor/or/onion_main.c \
-    src/tor/or/onion_ntor.c \
-    src/tor/or/onion_tap.c \
-    src/tor/or/policies.c \
     src/tor/adapter/breakout.cpp \
-    src/tor/common/procmon.c \
-    src/tor/or/reasons.c \
-    src/tor/or/relay.c \
-    src/tor/or/rendclient.c \
-    src/tor/or/rendcommon.c \
-    src/tor/or/rendmid.c \
-    src/tor/or/rendservice.c \
+    src/tor/or/connection.c \
+    src/tor/or/rendcache.c \
+    src/tor/or/microdesc.c \
+    src/tor/or/onion.c \
+    src/tor/or/command.c \
+    src/tor/or/connection_edge.c \
     src/tor/or/rephist.c \
-    src/tor/or/replaycache.c \
-    src/tor/or/router.c \
+    src/tor/or/config.c \
+    src/tor/or/networkstatus.c \
+    src/tor/or/circuitmux_ewma.c \
+    src/tor/or/directory.c \
     src/tor/or/routerlist.c \
-    src/tor/or/routerparse.c \
-    src/tor/or/routerset.c \
-    src/tor/common/sandbox.c \
-    src/tor/or/statefile.c \
-    src/tor/or/status.c \
-    src/tor/common/tor_util.c \
-    src/tor/common/torgzip.c \
-    src/tor/common/tortls.c \
+    src/tor/or/channeltls.c \
+    src/tor/or/circuitmux.c \
     src/tor/or/tor_main.c \
+    src/tor/or/rendservice.c \
+    src/tor/or/confparse.c \
+    src/tor/or/scheduler.c \
+    src/tor/or/circuitbuild.c \
+    src/tor/or/policies.c \
+    src/tor/or/dirserv.c \
+    src/tor/or/onion_main.c \
+    src/tor/or/dns.c \
+    src/tor/or/status.c \
+    src/tor/or/rendclient.c \
+    src/tor/or/rendmid.c \
+    src/tor/or/rendcommon.c \
+    src/tor/or/circuitstats.c \
     src/tor/or/transports.c \
-    src/tor/common/util_codedigest.c \
+    src/tor/or/onion_ntor.c \
+    src/tor/or/cpuworker.c \
+    src/tor/or/control.c \
+    src/tor/or/dirvote.c \
+    src/tor/or/ntmain.c \
+    src/tor/or/routerparse.c \
+    src/tor/or/reasons.c \
+    src/tor/or/channel.c \
+    src/tor/or/periodic.c \
+    src/tor/or/nodelist.c \
+    src/tor/or/geoip.c \
+    src/tor/or/connection_or.c \
+    src/tor/or/ext_orport.c \
+    src/tor/or/addressmap.c \
+    src/tor/or/relay.c \
+    src/tor/or/statefile.c \
+    src/tor/or/hibernate.c \
+    src/tor/or/onion_fast.c \
+    src/tor/or/routerset.c \
+    src/tor/or/circpathbias.c \
+    src/tor/or/routerkeys.c \
+    src/tor/or/circuitlist.c \
+    src/tor/or/keypin.c \
+    src/tor/or/torcert.c \
+    src/tor/or/buffers.c \
+    src/tor/or/dnsserv.c \
+    src/tor/or/replaycache.c \
+    src/tor/or/fp_pair.c \
+    src/tor/or/circuituse.c \
+    src/tor/or/entrynodes.c \
+    src/tor/or/dircollate.c \
+    src/tor/or/router.c \
+    src/tor/or/onion_tap.c \
+    src/tor/trunnel/link_handshake.c \
+    src/tor/trunnel/ed25519_cert.c \
+    src/tor/trunnel/pwbox.c \
+    src/tor/ext/ed25519/donna/ed25519_tor.c \
+    src/tor/ext/ed25519/donna/test-internals.c \
+    src/tor/ext/ed25519/ref10/fe_neg.c \
+    src/tor/ext/ed25519/ref10/blinding.c \
+    src/tor/ext/ed25519/ref10/fe_0.c \
+    src/tor/ext/ed25519/ref10/fe_sq.c \
+    src/tor/ext/ed25519/ref10/ge_add.c \
+    src/tor/ext/ed25519/ref10/fe_isnegative.c \
+    src/tor/ext/ed25519/ref10/fe_sub.c \
+    src/tor/ext/ed25519/ref10/fe_isnonzero.c \
+    src/tor/ext/ed25519/ref10/ge_p3_tobytes.c \
+    src/tor/ext/ed25519/ref10/sign.c \
+    src/tor/ext/ed25519/ref10/fe_tobytes.c \
+    src/tor/ext/ed25519/ref10/fe_sq2.c \
+    src/tor/ext/ed25519/ref10/ge_frombytes.c \
+    src/tor/ext/ed25519/ref10/fe_1.c \
+    src/tor/ext/ed25519/ref10/ge_p1p1_to_p3.c \
+    src/tor/ext/ed25519/ref10/fe_pow22523.c \
+    src/tor/ext/ed25519/ref10/ge_tobytes.c \
+    src/tor/ext/ed25519/ref10/ge_msub.c \
+    src/tor/ext/ed25519/ref10/keyconv.c \
+    src/tor/ext/ed25519/ref10/ge_p3_dbl.c \
+    src/tor/ext/ed25519/ref10/ge_madd.c \
+    src/tor/ext/ed25519/ref10/ge_precomp_0.c \
+    src/tor/ext/ed25519/ref10/ge_double_scalarmult.c \
+    src/tor/ext/ed25519/ref10/fe_invert.c \
+    src/tor/ext/ed25519/ref10/fe_cmov.c \
+    src/tor/ext/ed25519/ref10/sc_reduce.c \
+    src/tor/ext/ed25519/ref10/ge_p3_to_cached.c \
+    src/tor/ext/ed25519/ref10/ge_p2_0.c \
+    src/tor/ext/ed25519/ref10/ge_p3_0.c \
+    src/tor/ext/ed25519/ref10/ge_scalarmult_base.c \
+    src/tor/ext/ed25519/ref10/fe_copy.c \
+    src/tor/ext/ed25519/ref10/keypair.c \
+    src/tor/ext/ed25519/ref10/fe_mul.c \
+    src/tor/ext/ed25519/ref10/sc_muladd.c \
+    src/tor/ext/ed25519/ref10/fe_add.c \
+    src/tor/ext/ed25519/ref10/fe_frombytes.c \
+    src/tor/ext/ed25519/ref10/ge_p2_dbl.c \
+    src/tor/ext/ed25519/ref10/open.c \
+    src/tor/ext/ed25519/ref10/ge_p3_to_p2.c \
+    src/tor/ext/ed25519/ref10/ge_sub.c \
+    src/tor/ext/ed25519/ref10/ge_p1p1_to_p2.c \
+    src/tor/ext/csiphash.c \
+    src/tor/ext/trunnel/trunnel.c \
+    src/tor/ext/readpassphrase.c \
+    src/tor/ext/strlcat.c \
+    src/tor/ext/strlcpy.c \
+    src/tor/ext/curve25519_donna/curve25519-donna.c \
+    src/tor/ext/OpenBSD_malloc_Linux.c \
+    src/tor/ext/eventdns.c \
+    src/tor/ext/keccak-tiny/keccak-tiny-unrolled.c \
+    src/tor/ext/tinytest.c \
     src/tor/common/util_process.c \
+    src/tor/common/crypto_curve25519.c \
+    src/tor/common/compat_libevent.c \
+    src/tor/common/torgzip.c \
+    src/tor/common/tor_util.c \
+    src/tor/common/aes.c \
+    src/tor/common/compat_winthreads.c \
+    src/tor/common/compat_pthreads.c \
+    src/tor/common/crypto.c \
+    src/tor/common/container.c \
+    src/tor/common/workqueue.c \
+    src/tor/common/util_format.c \
+    src/tor/common/backtrace.c \
+    src/tor/common/tortls.c \
+    src/tor/common/di_ops.c \
+    src/tor/common/crypto_s2k.c \
+    src/tor/common/memarea.c \
+    src/tor/common/crypto_pwbox.c \
+    src/tor/common/tor_compat.c \
+    src/tor/common/sandbox.c \
+    src/tor/common/crypto_ed25519.c \
+    src/tor/common/crypto_format.c \
+    src/tor/common/procmon.c \
+    src/tor/common/address.c \
+    src/tor/common/compat_threads.c \
+    src/tor/common/log.c \
     src/alert.cpp \
     src/version.cpp \
     src/sync.cpp \

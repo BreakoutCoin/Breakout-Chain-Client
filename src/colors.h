@@ -33,6 +33,11 @@
 // for Deck QPixmaps
 #define N_GUI_DECK_COLORS 53
 
+// fork times
+extern const int64_t STAKING_FIX1_TIME;
+extern const int64_t STAKING_FIX2_TIME;
+
+
 extern bool fTestNet;
 
 // extern const int N_COLORS;
@@ -233,6 +238,8 @@ bool CheckColor(int nColor);
 bool CanStake(int nColorIn);
 
 int GetStakeMinConfirmations(int nColor);
+
+int64_t GetWeightMultiplier(int nColor, int64_t nTimeBlockPrev);
 
 
 bool SplitQualifiedAddress(const std::string &qualAddress,

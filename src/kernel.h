@@ -39,7 +39,7 @@ unsigned int GetStakeModifierChecksum(const CBlockIndex* pindex);
 bool CheckStakeModifierCheckpoints(int nHeight, unsigned int nStakeModifierChecksum);
 
 // Get time weight using supplied timestamps
-int64_t GetWeight(int64_t nIntervalBeginning, int64_t nIntervalEnd, int nColor);
+int64_t GetWeight(int64_t nIntervalBeginning, int64_t nIntervalEnd, int nColor, int64_t nTimeBlockPrev);
 // Wrapper around CheckStakeKernelHash()
 // Also checks existence of kernel input and min age
 // Convenient for searching a kernel

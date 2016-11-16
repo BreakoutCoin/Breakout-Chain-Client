@@ -51,9 +51,6 @@ static const unsigned int LAUNCH_TIME = 1465542000;
 // Fri Jul  8 12:00:00 2016 PDT
 static const unsigned int BURN_PROTOCOL_START_TIME = 1468004400;
 
-// Wed Jul 20 00:00:00 2016 PDT
-static const unsigned int STAKING_FIX1_TIME = 1468998000;
-
 /** The maximum allowed size for a serialized block, in bytes (network rule) */
 static const unsigned int MAX_BLOCK_SIZE = 1000000;
 /** The maximum size for mined blocks */

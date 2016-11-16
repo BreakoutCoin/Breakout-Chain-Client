@@ -20,6 +20,7 @@ typedef std::map<int, unsigned int> MapModifierCheckpoints;
 static std::map<int, unsigned int> mapStakeModifierCheckpoints =
     boost::assign::map_list_of
         (         0, 0x7f061366u )
+        (     37500, 0x7ac1cf6bu )
     ;
 
 // Hard checkpoints of stake modifier checksums to ensure they are deterministic (testNet)
@@ -29,7 +30,7 @@ static std::map<int, unsigned int> mapStakeModifierCheckpointsTestNet =
     ;
 
 // Get time weight
-int64_t GetWeight(int64_t nIntervalBeginning, int64_t nIntervalEnd, int nColor)
+int64_t GetWeight(int64_t nIntervalBeginning, int64_t nIntervalEnd, int nColor, int64_t nTimeBlockPrev)
 {
     if (!CanStake(nColor))
     {
@@ -40,7 +41,7 @@ int64_t GetWeight(int64_t nIntervalBeginning, int64_t nIntervalEnd, int nColor)
     // this change increases active coins participating the hash and helps
     // to secure the network when proof-of-stake difficulty is low
     int64_t d = nIntervalEnd - nIntervalBeginning - nStakeMinAge;
-    return min(d, (int64_t)nStakeMaxAge) * WEIGHT_MULTIPLIER[nColor];
+    return min(d, (int64_t)nStakeMaxAge) * GetWeightMultiplier(nColor, nTimeBlockPrev);
 }
 
 // Get the last stake modifier and its generation time from a given block
@@ -258,6 +259,7 @@ uint256 ComputeStakeModifier(const CBlockIndex* pindexPrev, const uint256& kerne
 //
 bool CheckStakeKernelHash(CBlockIndex* pindexPrev, unsigned int nBits, const CBlock& blockFrom, const CTransaction& txPrev, const COutPoint& prevout, unsigned int nTimeTx, uint256& hashProofOfStake, uint256& targetProofOfStake, bool fPrintProofOfStake)
 {
+
     if (nTimeTx < txPrev.nTime)  // Transaction timestamp violation
         return error("CheckStakeKernelHash() : nTime violation");
 
@@ -303,10 +305,14 @@ bool CheckStakeKernelHash(CBlockIndex* pindexPrev, unsigned int nBits, const CBl
             hashProofOfStake.ToString().c_str());
     }
 
+    bnTarget *= GetWeightMultiplier(nColor, pindexPrev->nTime);
+
     // Now check if proof-of-stake hash meets target protocol
     if (CBigNum(hashProofOfStake) > bnTarget)
+    {
         return false;
-
+    }
+    
     if (fDebug && !fPrintProofOfStake)
     {
         printf("CheckStakeKernelHash() : using modifier %s at height=%d timestamp=%s for block from timestamp=%s\n",

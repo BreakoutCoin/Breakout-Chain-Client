@@ -21,6 +21,12 @@ static inline unsigned short GetDefaultPort(const bool testnet = fTestNet)
     return testnet ? P2P_PORT_TESTNET : P2P_PORT;
 }
 
+static inline unsigned short GetDefaultProxy(const bool testnet = fTestNet)
+{
+    return testnet ? DEFAULT_PROXY_TESTNET : DEFAULT_PROXY;
+}
+
+
 
 extern unsigned char pchMessageStart[4];
 

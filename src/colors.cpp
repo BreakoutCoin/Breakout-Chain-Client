@@ -2,6 +2,14 @@
 
 #include "colors.h"
 
+// fork times
+// Wed Jul 20 00:00:00 2016 PDT
+const int64_t STAKING_FIX1_TIME = 1468998000;
+
+// Tues Nov 28 00:00:00 2016 PDT
+const int64_t STAKING_FIX2_TIME = 1480320000;
+
+
 // number of colored coins in this multicurrency
 // none color is considered a color
 // outside of colors.h, use this define rather than hard coding
@@ -476,16 +484,24 @@ const int MINT_COLOR[N_COLORS] = { (int) BREAKOUT_COLOR_NONE,
                (int) BREAKOUT_COLOR_SISCOIN,
                (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
                (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
+               (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
+               (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
                // Diamonds
                (int) BREAKOUT_COLOR_SISCOIN,
+               (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
+               (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
                (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
                (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
                // Clubs
                (int) BREAKOUT_COLOR_SISCOIN,
                (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
                (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
+               (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
+               (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
                // Hearts
                (int) BREAKOUT_COLOR_SISCOIN,
+               (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
+               (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
                (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
                (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
                // SIS
@@ -618,14 +634,22 @@ const int64_t PRIORITY_MULTIPLIER[N_COLORS] = { 0, 1, 1, 1,
            100 * BASE_COIN,
            // Spades
            100 * BASE_COIN, 100 * BASE_COIN, 100 * BASE_COIN,
+           100 * BASE_COIN, 100 * BASE_COIN, 100 * BASE_COIN,
+           100 * BASE_COIN, 100 * BASE_COIN, 100 * BASE_COIN,
            100 * BASE_COIN, 100 * BASE_COIN, 100 * BASE_COIN, 100 * BASE_COIN,
            // Diamonds
+           100 * BASE_COIN, 100 * BASE_COIN, 100 * BASE_COIN,
+           100 * BASE_COIN, 100 * BASE_COIN, 100 * BASE_COIN,
            100 * BASE_COIN, 100 * BASE_COIN, 100 * BASE_COIN,
            100 * BASE_COIN, 100 * BASE_COIN, 100 * BASE_COIN, 100 * BASE_COIN,
            // Clubs
            100 * BASE_COIN, 100 * BASE_COIN, 100 * BASE_COIN,
+           100 * BASE_COIN, 100 * BASE_COIN, 100 * BASE_COIN,
+           100 * BASE_COIN, 100 * BASE_COIN, 100 * BASE_COIN,
            100 * BASE_COIN, 100 * BASE_COIN, 100 * BASE_COIN, 100 * BASE_COIN,
            // Hearts
+           100 * BASE_COIN, 100 * BASE_COIN, 100 * BASE_COIN,
+           100 * BASE_COIN, 100 * BASE_COIN, 100 * BASE_COIN,
            100 * BASE_COIN, 100 * BASE_COIN, 100 * BASE_COIN,
            100 * BASE_COIN, 100 * BASE_COIN, 100 * BASE_COIN, 100 * BASE_COIN,
            // SIS
@@ -643,17 +667,17 @@ static const int64_t nCW = COIN[BREAKOUT_COLOR_BROSTAKE] * 4096;
 //    "when brostake generates, it does so with a weight of 1"
 //    "and brocoin & atomic stakes with a weight of 0x (never stakes)"
 // IMPORTANT: make sure to take money supply into account right here, these are per coin
-//                                        -      BRX  BRO  BAM
-const int64_t WEIGHT_MULTIPLIER[N_COLORS] = { 0,       1,   0,   0,
+//                                            -   BRX  BRO  BAM
+const int64_t WEIGHT_MULTIPLIER[N_COLORS] = { 0,    1,   0,   0,
              // Joker
                            nCW,
-             // Spades     A  2  3  4  5  6  7  8  9 10  J  Q  K
+             // Spades      A    2    3    4    5    6    7    8    9   10    J    Q    K
                            nCW, nCW, nCW, nCW, nCW, nCW, nCW, nCW, nCW, nCW, nCW, nCW, nCW,
-             // Diamonds   A  2  3  4  5  6  7  8  9 10  J  Q  K
+             // Diamonds    A    2    3    4    5    6    7    8    9   10    J    Q    K
                            nCW, nCW, nCW, nCW, nCW, nCW, nCW, nCW, nCW, nCW, nCW, nCW, nCW,
-             // Clubs      A  2  3  4  5  6  7  8  9 10  J  Q  K
+             // Clubs       A    2    3    4    5    6    7    8    9   10    J    Q    K
                            nCW, nCW, nCW, nCW, nCW, nCW, nCW, nCW, nCW, nCW, nCW, nCW, nCW,
-             // Hearts     A  2  3  4  5  6  7  8  9 10  J  Q  K
+             // Hearts      A    2    3    4    5    6    7    8    9   10    J    Q    K
                            nCW, nCW, nCW, nCW, nCW, nCW, nCW, nCW, nCW, nCW, nCW, nCW, nCW,
              //            SIS
                            0 };
@@ -864,6 +888,16 @@ int GetStakeMinConfirmations(int nColor)
        return nStakeMinConfirmationsTestnet;
     }
     return nStakeMinConfirmations;
+}
+
+int64_t GetWeightMultiplier(int nColor, int64_t nTimeBlockPrev)
+{
+    if (IsDeck(nColor) && (nTimeBlockPrev >= STAKING_FIX2_TIME))
+    {
+        // make it a little easier to stake the cards
+        return WEIGHT_MULTIPLIER[nColor] * 256;
+    }
+    return WEIGHT_MULTIPLIER[nColor];
 }
 
 
