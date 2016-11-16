@@ -18,9 +18,6 @@
 #include <boost/filesystem.hpp>
 #include <boost/filesystem/fstream.hpp>
 
-// asdf
-#define DEBUGSTAKING 1
-
 using namespace std;
 using namespace boost;
 
@@ -3327,19 +3324,12 @@ bool CBlock::SignBlock(CWallet& wallet, int64_t nFees[])
     if (nSearchTime > nLastCoinStakeSearchTime)
     {
 
-#if DEBUGSTAKING
-        printf("CBlock::SignBlock: N_COLORS = %d\n", N_COLORS);
-#endif
-
         // randomly pick a color from all staking currencies with weight
         std::vector<int> vColors;
         for (int i = 1; i < N_COLORS; ++i)
         {
               if (!CanStake(i))
               {
-#if DEBUGSTAKING
-                    printf("CBlock::SignBlock: can't stake = %d\n", i);
-#endif
                     continue;
               }
 
@@ -3361,15 +3351,6 @@ bool CBlock::SignBlock(CWallet& wallet, int64_t nFees[])
 
         int idx = rand() % vColors.size();
         int nColor = vColors[idx];
-
-#if DEBUGSTAKING
-        for (int j = 0; j < (int) vColors.size(); ++j)
-        {
-            int c = vColors[j];
-            printf("CBlock::SignBlock: vColors: %d (%s)\n", c, COLOR_TICKER[c]);
-        }
-        printf("CBlock::SignBlock: selected: %d\n", nColor);
-#endif
 
         // TODO: get rid of nSearchInterval
         int64_t nSearchInterval = 1;
