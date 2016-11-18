@@ -240,11 +240,11 @@ std::string HelpMessage()
         "  -timeout=<n>           " + _("Specify connection timeout in milliseconds (default: 5000)") + "\n" +
         "  -proxy=<ip:port>       " + _("Connect through socks proxy") + "\n" +
         "  -socks=<n>             " + _("Select the version of socks proxy to use (4-5, default: 5)") + "\n" +
-        "  -tor=<ip:port>         " + _("Use proxy to reach tor hidden services (default: same as -proxy)") + "\n"
+        "  -torext=<ip:port>      " + _("Use proxy to reach tor hidden services (default: same as -proxy)") + "\n"
         "  -dns                   " + _("Allow DNS lookups for -addnode, -seednode and -connect") + "\n" +
         "  -port=<port>           " + strprintf(_("Listen for connections on <port> (default: %d or testnet: %d)"),
                                                                           (int) P2P_PORT, (int) P2P_PORT_TESTNET) + "\n" +
-        "  -torport=<port>        " + _("Connect to Tor through <torport> (default: 48155)") + "\n" +
+        "  -torport=<port>        " + _("Connect to internal Tor through <torport> (default: 48155)") + "\n" +
         "  -maxconnections=<n>    " + _("Maintain at most <n> connections to peers (default: 125)") + "\n" +
         "  -addnode=<ip>          " + _("Add a node to connect to and attempt to keep the connection open") + "\n" +
         "  -connect=<ip>          " + _("Connect only to the specified node(s)") + "\n" +
@@ -929,21 +929,33 @@ bool AppInit2()
     if (nSocksVersion != 4 && nSocksVersion != 5)
         return InitError(strprintf(_("Unknown -socks proxy version requested: %d"), nSocksVersion));
 
-    // built-in tor is enabled by default
-    bool fBuiltinTor = GetBoolArg("-builtintor", true);
+    // built-in tor is enabled by default (but set to true elsewhere)
+    bool fBuiltinTor = false;
+    bool fExternalTor = false;
 
     // -onlynet indicates a specific network selection and not to use built in TOR
     std::set<enum Network> setNets;
     if (mapArgs.count("-onlynet"))
     {
         BOOST_FOREACH(std::string snet, mapMultiArgs["-onlynet"]) {
-            enum Network net = ParseNetwork(snet);
-            if (net == NET_UNROUTABLE)
-                return InitError(strprintf(_("Unknown network specified in -onlynet: '%s'"), snet.c_str()));
-            setNets.insert(net);
-            if (net == NET_TOR)
+            // torext doesn't map to unique network, so do this manually
+            if (snet == "torext")
             {
-                fBuiltinTor = true;
+                setNets.insert(NET_TOR);
+                fExternalTor = true;
+            }
+            else
+            {
+                enum Network net = ParseNetwork(snet);
+                if (net == NET_UNROUTABLE)
+                {
+                    return InitError(strprintf(_("Unknown network specified in -onlynet: '%s'"), snet.c_str()));
+                }
+                setNets.insert(net);
+                if (net == NET_TOR)
+                {
+                    fBuiltinTor = true;
+                }
             }
         }
     }
@@ -993,7 +1005,7 @@ bool AppInit2()
     }
 
 // if not using built in tor, check for external
-// TODO: internal and external tor are exclusive
+// this test means that internal and external tor are exclusive
 if (fBuiltinTor)
 {
     CService addrOnion;
@@ -1011,16 +1023,30 @@ if (fBuiltinTor)
 }
 else
 {
-    // -tor can override normal proxy, -notor disables tor entirely
-    if (!(mapArgs.count("-tor") && mapArgs["-tor"] == "0") && (fProxy || mapArgs.count("-tor"))) {
+    // -torext can override normal proxy, -notorext disables tor entirely
+    if (!(mapArgs.count("-torext") && mapArgs["-torext"] == "0") &&
+        (fProxy || mapArgs.count("-torext") || fExternalTor)) {
         CService addrOnion;
-        if (!mapArgs.count("-tor"))
-            addrOnion = addrProxy;
+        if (!mapArgs.count("-torext"))
+        {
+            if (fExternalTor)
+            {
+                return InitError(std::string("Specify -torext address (e.g. '127.0.0.1:9150')"));
+            }
+            else
+            {
+                addrOnion = addrProxy;
+            }
+        }
         else
-            addrOnion = CService(mapArgs["-tor"], 9050);
+        {
+            addrOnion = CService(mapArgs["-torext"], 9050);
+        }
         if (!addrOnion.IsValid())
-            return InitError(strprintf(_("Invalid -tor address: '%s'"), mapArgs["-tor"].c_str()));
-        SetProxy(NET_TOR, addrOnion, 5);
+        {
+            return InitError(strprintf(_("Invalid -torext address: '%s'"), mapArgs["-torext"].c_str()));
+        }
+        SetProxy(NET_TOR, addrOnion);
         SetReachable(NET_TOR);
     }
 }
@@ -1037,8 +1063,10 @@ else
     {
         // TODO: use of -bind is not fully tested
         std::string strError;
-        if (mapArgs.count("-bind")) {
-            BOOST_FOREACH(std::string strBind, mapMultiArgs["-bind"]) {
+        if (mapArgs.count("-bind"))
+        {
+            BOOST_FOREACH(std::string strBind, mapMultiArgs["-bind"])
+            {
                 CService addrBind;
                 if (!Lookup(strBind.c_str(), addrBind, GetListenPort(), false))
                     return InitError(strprintf(_("Cannot resolve -bind address: '%s'"), strBind.c_str()));
@@ -1052,11 +1080,13 @@ else
                 fBound |= Bind(CService(in6addr_any, GetListenPort()), false);
 #endif
             if (!IsLimited(NET_IPV4))
+            {
                 fBound |= Bind(CService(inaddr_any, GetListenPort()), !fBound);
+            }
         }
 
         // in any case try to bind to 127.0.0.1 if using builtin tor
-        if (fBuiltinTor)
+        if (fBuiltinTor || fExternalTor)
         {
             CService addrBind;
             if (!Lookup("127.0.0.1", addrBind, GetListenPort(), false))
