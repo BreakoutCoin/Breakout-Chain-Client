@@ -60,3 +60,5 @@ src/libcryptopp/adhoc.cpp
 src/libcryptopp/cryptest.exe
 src/libcryptopp/libcryptopp.a
 
+# archives
+*.tar
