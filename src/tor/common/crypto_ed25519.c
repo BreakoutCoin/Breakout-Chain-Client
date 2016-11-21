@@ -591,8 +591,11 @@ pick_ed25519_impl(void)
 {
   ed25519_impl = &impl_donna;
 
+// TODO: figure out ed25519 for windows
+#ifndef _WIN32
   if (ed25519_impl_spot_check() == 0)
     return;
+#endif
 
   log_warn(LD_CRYPTO, "The Ed25519-donna implementation seems broken; using "
            "the ref10 implementation.");

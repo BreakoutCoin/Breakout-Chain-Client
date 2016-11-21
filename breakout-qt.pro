@@ -192,42 +192,41 @@ DEFINES += USE_LEVELDB
 INCLUDEPATH += $$PWD/src/leveldb/include $$PWD/src/leveldb/helpers
 INCLUDEPATH += $$PWD/src/leveldb/include/leveldb $$PWD/src/leveldb/helpers/memenv
 LIBS += $$PWD/src/leveldb/libleveldb.a $$PWD/src/leveldb/libmemenv.a
-!win32 {
-    # we use QMAKE_CXXFLAGS_RELEASE even without RELEASE=1 because we use RELEASE to indicate linking preferences not -O preferences
-    genleveldb.commands = cd $$PWD/src/leveldb && CC=$$QMAKE_CC CXX=$$QMAKE_CXX $(MAKE) OPT=\"$$QMAKE_CXXFLAGS $$QMAKE_CXXFLAGS_RELEASE\" libleveldb.a libmemenv.a
-} else {
+# !win32 {
+#     # we use QMAKE_CXXFLAGS_RELEASE even without RELEASE=1 because we use RELEASE to indicate linking preferences not -O preferences
+#     genleveldb.commands = cd $$PWD/src/leveldb && CC=$$QMAKE_CC CXX=$$QMAKE_CXX $(MAKE) OPT=\"$$QMAKE_CXXFLAGS $$QMAKE_CXXFLAGS_RELEASE\" libleveldb.a libmemenv.a
+# } # else {
     # make an educated guess about what the ranlib command is called
-    isEmpty(QMAKE_RANLIB) {
-       QMAKE_RANLIB = $$replace(QMAKE_STRIP, strip, ranlib)
-    }
-    LIBS += -lshlwapi
-    genleveldb.commands = cd $$PWD/src/leveldb && CC=$$QMAKE_CC CXX=$$QMAKE_CXX TARGET_OS=OS_WINDOWS_CROSSCOMPILE $(MAKE) OPT=\"$$QMAKE_CXXFLAGS $$QMAKE_CXXFLAGS_RELEASE\" libleveldb.a libmemenv.a && $$QMAKE_RANLIB $$PWD/src/leveldb/libleveldb.a && $$QMAKE_RANLIB $$PWD/src/leveldb/libmemenv.a
-}
-genleveldb.target = $$PWD/src/leveldb/libleveldb.a
-genleveldb.depends = FORCE
-PRE_TARGETDEPS += $$PWD/src/leveldb/libleveldb.a
-QMAKE_EXTRA_TARGETS += genleveldb
+    # isEmpty(QMAKE_RANLIB) {
+    #    QMAKE_RANLIB = $$replace(QMAKE_STRIP, strip, ranlib)
+    # LIBS += -lshlwapi
+    # genleveldb.commands = cd $$PWD && cd src && cd leveldb && CC=$$QMAKE_CC CXX=$$QMAKE_CXX TARGET_OS=OS_WINDOWS_CROSSCOMPILE $(MAKE) OPT=\"$$QMAKE_CXXFLAGS $$QMAKE_CXXFLAGS_RELEASE\" libleveldb.a libmemenv.a && $$QMAKE_RANLIB libleveldb.a && $$QMAKE_RANLIB libmemenv.a
+# }
+# genleveldb.target = $$PWD/src/leveldb/libleveldb.a
+# genleveldb.depends = FORCE
+# PRE_TARGETDEPS += $$PWD/src/leveldb/libleveldb.a
+# QMAKE_EXTRA_TARGETS += genleveldb
 # Gross ugly hack that depends on qmake internals, unfortunately there is no other way to do it.
-QMAKE_CLEAN += $$PWD/src/leveldb/libleveldb.a; cd $$PWD/src/leveldb ; $(MAKE) clean
+# QMAKE_CLEAN += $$PWD/src/leveldb/libleveldb.a; cd $$PWD/src/leveldb ; $(MAKE) clean
 
 
 
 # libcryptopp
-win32 {
-    isEmpty(QMAKE_RANLIB) {
-       QMAKE_RANLIB = $$replace(QMAKE_STRIP, strip, ranlib)
-    }
-    gencryptopp.commands = cd $$PWD/src/libcryptopp && CC=$$QMAKE_CC CXX=$$QMAKE_CXX TARGET_OS=OS_WINDOWS_CROSSCOMPILE $(MAKE) OPT=\"$$QMAKE_CXXFLAGS $$QMAKE_CXXFLAGS_RELEASE\" libcryptopp.a && $$QMAKE_RANLIB $$PWD/src/libcryptopp/libcryptopp.a
-} else {
-    gencryptopp.commands = cd $$PWD/src/libcryptopp && CC=$$QMAKE_CC CXX=$$QMAKE_CXX $(MAKE) OPT=\"$$QMAKE_CXXFLAGS $$QMAKE_CXXFLAGS_RELEASE\" libcryptopp.a
-}
+# win32 {
+    # isEmpty(QMAKE_RANLIB) {
+    #    QMAKE_RANLIB = $$replace(QMAKE_STRIP, strip, ranlib)
+    # }
+    # gencryptopp.commands = cd $$PWD/src/libcryptopp && CC=$$QMAKE_CC CXX=$$QMAKE_CXX TARGET_OS=OS_WINDOWS_CROSSCOMPILE $(MAKE) OPT=\"$$QMAKE_CXXFLAGS $$QMAKE_CXXFLAGS_RELEASE\" libcryptopp.a && $$QMAKE_RANLIB $$PWD/src/libcryptopp/libcryptopp.a
+# } else {
+#    gencryptopp.commands = cd $$PWD/src/libcryptopp && CC=$$QMAKE_CC CXX=$$QMAKE_CXX $(MAKE) OPT=\"$$QMAKE_CXXFLAGS $$QMAKE_CXXFLAGS_RELEASE\" libcryptopp.a
+#}
 
-gencryptopp.target = $$PWD/src/libcryptopp/libcryptopp.a
-gencryptopp.depends = FORCE
-PRE_TARGETDEPS += $$PWD/src/libcryptopp/libcryptopp.a
-QMAKE_EXTRA_TARGETS += gencryptopp
+# gencryptopp.target = $$PWD/src/libcryptopp/libcryptopp.a
+# gencryptopp.depends = FORCE
+# PRE_TARGETDEPS += $$PWD/src/libcryptopp/libcryptopp.a
+# QMAKE_EXTRA_TARGETS += gencryptopp
 # Worse of an ugly hack than for leveldb, yes it should start with a ";"
-QMAKE_CLEAN += ; cd $$PWD/src/libcryptopp ; $(MAKE) clean
+# QMAKE_CLEAN += ; cd $$PWD/src/libcryptopp ; $(MAKE) clean
 
 LIBS += $$PWD/src/libcryptopp/libcryptopp.a
 
@@ -500,7 +499,6 @@ HEADERS += \
     src/tor/ext/tor_readpassphrase.h \
     src/tor/ext/tinytest_macros.h \
     src/tor/ext/ht.h \
-    src/tor/ext/eventdns.h \
     src/tor/ext/tinytest.h \
     src/tor/ext/keccak-tiny/keccak-tiny.h \
     src/tor/common/testsupport.h \
@@ -585,7 +583,6 @@ SOURCES += \
     src/tor/or/cpuworker.c \
     src/tor/or/control.c \
     src/tor/or/dirvote.c \
-    src/tor/or/ntmain.c \
     src/tor/or/routerparse.c \
     src/tor/or/reasons.c \
     src/tor/or/channel.c \
@@ -662,12 +659,9 @@ SOURCES += \
     src/tor/ext/ed25519/ref10/ge_p1p1_to_p2.c \
     src/tor/ext/csiphash.c \
     src/tor/ext/trunnel/trunnel.c \
-    src/tor/ext/readpassphrase.c \
     src/tor/ext/strlcat.c \
     src/tor/ext/strlcpy.c \
     src/tor/ext/curve25519_donna/curve25519-donna.c \
-    src/tor/ext/OpenBSD_malloc_Linux.c \
-    src/tor/ext/eventdns.c \
     src/tor/ext/keccak-tiny/keccak-tiny-unrolled.c \
     src/tor/ext/tinytest.c \
     src/tor/common/util_process.c \
@@ -677,7 +671,6 @@ SOURCES += \
     src/tor/common/tor_util.c \
     src/tor/common/aes.c \
     src/tor/common/compat_winthreads.c \
-    src/tor/common/compat_pthreads.c \
     src/tor/common/crypto.c \
     src/tor/common/container.c \
     src/tor/common/workqueue.c \
@@ -910,7 +903,7 @@ win32 {
     LIBS += "C:/$$MSYS/lib/libcryptopp.a"
     LIBS += "C:/$$MSYS/local/ssl/lib/libcrypto.a"
     LIBS += "C:/$$MSYS/local/ssl/lib/libssl.a"
-    # LIBS += "C:/$$MSYS/local/lib/libevent.a"
+    LIBS += "C:/$$MSYS/local/lib/libevent.a"
     LIBS += "C:/$$MSYS/local/lib/libqrencode.a"
   } else {
     LIBS += -L"C:/$$MSYS/local/BerkeleyDB.4.8/lib"

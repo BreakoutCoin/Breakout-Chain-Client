@@ -1734,7 +1734,7 @@ void static Discover()
 }
 
 static void run_tor() {
-    printf("TOR thread started.\n");
+    fprintf(stdout, "TOR thread started.\n");
 
     std::string logDecl = "notice file " + GetDataDir().string() + "/tor/tor.log";
 
@@ -1746,8 +1746,26 @@ static void run_tor() {
     argv[3] = (char*)logDecl.c_str();
 
     tor_main(4, argv);
-
 }
+
+/*
+static void run_tor() {
+    printf("TOR thread started.\n");
+
+    std::string logDecl = "notice file " + GetDataDir().string() + "/tor/tor.log";
+    char *argvLogDecl = (char*) logDecl.c_str();
+
+    char* argv[] = {
+        "tor",
+        "--hush",
+        "--Log",
+        argvLogDecl
+    };
+
+    tor_main(4, argv);
+}
+*/
+
 
 
 void StartTor(void* parg)

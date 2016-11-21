@@ -19,11 +19,13 @@ const char tor_git_revision[] =
  * test binary to link against main.c.
  **/
 
-int tor_main(int argc, char *argv[]);
+// int tor_main(int argc, char *argv[]);
 
 /** We keep not_main() in a separate file so that our unit tests can use
  * functions from main.c)
  */
+
+/*
 int
 not_main(int argc, char *argv[])
 {
@@ -33,4 +35,5 @@ not_main(int argc, char *argv[])
   else
     return r;
 }
+*/
 

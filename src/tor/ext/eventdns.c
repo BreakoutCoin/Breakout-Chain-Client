@@ -97,8 +97,8 @@
 #include "eventdns.h"
 
 #ifdef _WIN32
-#include <windows.h>
 #include <winsock2.h>
+#include <windows.h>
 #include <iphlpapi.h>
 #else
 #include <sys/socket.h>
@@ -3235,7 +3235,7 @@ config_nameserver_from_reg_key(HKEY key, const TCHAR *subkey)
 	if (RegQueryValueEx(key, subkey, 0, &type, (LPBYTE)buf, &bufsz)
 		== ERROR_SUCCESS && bufsz > 1) {
 		wcstombs(ansibuf,(wchar_t*)buf,MAX_PATH);/*XXXX UNICODE */
-		abuf[MAX_PATH-1] = '\0';
+		// ansibuf[MAX_PATH-1] = '\0';
 		status = evdns_nameserver_ip_add_line(ansibuf);
 	}
 

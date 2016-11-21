@@ -93,12 +93,14 @@ SecureZeroMemory(PVOID ptr, SIZE_T cnt)
   while (cnt--)
     *vcptr++ = 0;
 }
+
 #endif
 #elif defined(HAVE_READPASSPHRASE_H)
 #include <readpassphrase.h>
 #else
 #include "tor_readpassphrase.h"
 #endif
+
 
 #ifndef HAVE_GETTIMEOFDAY
 #ifdef HAVE_FTIME

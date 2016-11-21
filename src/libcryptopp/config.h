@@ -61,9 +61,9 @@
 
 // Define this if you want or need the library's memcpy_s and memmove_s.
 //   See http://github.com/weidai11/cryptopp/issues/28.
-// #if !defined(CRYPTOPP_WANT_SECURE_LIB)
-// # define CRYPTOPP_WANT_SECURE_LIB
-// #endif
+#if !defined(CRYPTOPP_WANT_SECURE_LIB)
+# define CRYPTOPP_WANT_SECURE_LIB
+#endif
 
 // File system code to write to GZIP archive.
 #if !defined(GZIP_OS_CODE)

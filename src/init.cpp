@@ -1104,7 +1104,7 @@ else
 
     if (fBuiltinTor)
     {
-        // uiInterface.InitMessage(_("Starting Tor..."));
+        uiInterface.InitMessage(_("Starting Tor..."));
 
         // start up tor
         if (!(mapArgs.count("-tor") && mapArgs["-tor"] != "0")) {
@@ -1112,7 +1112,7 @@ else
             InitError(_("Error: could not start tor"));
         }
 
-        // uiInterface.InitMessage(_("Waiting for Tor initialization..."));
+        uiInterface.InitMessage(_("Waiting for Tor initialization..."));
         wait_initialized();
         uiInterface.InitMessage(_("Tor Initialized."));
     }

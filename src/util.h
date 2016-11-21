@@ -77,6 +77,17 @@ void LogStackTrace();
   #define PRIpdd    "td"
 #endif
 
+#ifdef PRId64
+#if defined(_MSC_VER) || defined(__MSVCRT__)
+#undef PRId64
+#define PRId64 "I64d"
+#undef PRIu64
+#define PRIu64 "I64u"
+#undef PRIx64
+#define PRIx64 "I64x"
+#endif
+#endif
+
 // This is needed because the foreach macro can't get over the comma in pair<t1, t2>
 #define PAIRTYPE(t1, t2)    std::pair<t1, t2>
 

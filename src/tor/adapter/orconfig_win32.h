@@ -235,7 +235,7 @@
 /* Define to 1 iff unaligned int access is allowed */
 #define UNALIGNED_INT_ACCESS_OK
 
-#define HAVE_EVENT_H
+#define HAVE_EVENT_H 1
 
 /* Define to 1 iff we represent negative integers with two's complement */
 #define USING_TWOS_COMPLEMENT
@@ -249,10 +249,10 @@
 #define HAVE_STRUCT_IN6_ADDR
 #define RSHIFT_DOES_SIGN_EXTEND
 #define FLEXIBLE_ARRAY_MEMBER 0
-#define HAVE_EVENT2_EVENT_H
+#define HAVE_EVENT2_EVENT_H 1
 #define SHARE_DATADIR ""
-#define HAVE_EVENT2_DNS_H
-#define HAVE_EVENT_BASE_LOOPEXIT
+#define HAVE_EVENT2_DNS_H 1
+#define HAVE_EVENT_BASE_LOOPEXIT 1
 #define CURVE25519_ENABLED
 #define USE_CURVE25519_DONNA
 
@@ -266,7 +266,7 @@
 #define STDERR_FILENO 2
 #endif
 
-#define WINVER 0x0501
-#define _WIN32_WINNT 0x0501
+#define WINVER 0x0502
+#define _WIN32_WINNT 0x0502
 #define WIN32_LEAN_AND_MEAN 1
 
