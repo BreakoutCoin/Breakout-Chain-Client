@@ -3587,32 +3587,6 @@ tor_main(int argc, char *argv[])
 {
   int result = 0;
 
-#if defined (WINCE)
-  WCHAR path [MAX_PATH] = {0};
-  WCHAR fullpath [MAX_PATH] = {0};
-  PWCHAR p = NULL;
-  FILE* redir = NULL;
-  FILE* redirdbg = NULL;
-
-  // this is to facilitate debugging by opening
-  // a file on a folder shared by the wm emulator.
-  // if no flashcard (real or emulated) is present,
-  // log files will be written in the root folder
-  if (find_flashcard_path(path,MAX_PATH) == -1) {
-    redir = _wfreopen( L"\\stdout.log", L"w", stdout );
-    redirdbg = _wfreopen( L"\\stderr.log", L"w", stderr );
-  } else {
-    swfprintf(fullpath,L"\\%s\\tor",path);
-    CreateDirectory(fullpath,NULL);
-
-    swfprintf(fullpath,L"\\%s\\tor\\stdout.log",path);
-    redir = _wfreopen( fullpath, L"w", stdout );
-
-    swfprintf(fullpath,L"\\%s\\tor\\stderr.log",path);
-    redirdbg = _wfreopen( fullpath, L"w", stderr );
-  }
-#endif
-
 #ifdef _WIN32
   /* Call SetProcessDEPPolicy to permanently enable DEP.
      The function will not resolve on earlier versions of Windows,

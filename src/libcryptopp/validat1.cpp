@@ -165,6 +165,8 @@ bool TestSettings()
 
 	word32 w;
 
+// These changes are in the newest cryptopp repos as of adding them here.
+
       const byte s[] = "\x01\x02\x03\x04";
 
 #if (CRYPTOPP_MSC_VERSION >= 1400)

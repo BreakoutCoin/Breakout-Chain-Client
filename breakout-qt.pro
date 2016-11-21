@@ -187,6 +187,7 @@ contains(BITCOIN_NEED_QT_PLUGINS, 1) {
     QTPLUGIN += qcncodecs qjpcodecs qtwcodecs qkrcodecs qtaccessiblewidgets
 }
 
+# TODO: figure out windows correct path specification for manual make steps
 # LevelDB
 DEFINES += USE_LEVELDB
 INCLUDEPATH += $$PWD/src/leveldb/include $$PWD/src/leveldb/helpers

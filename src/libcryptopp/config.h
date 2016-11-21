@@ -61,6 +61,7 @@
 
 // Define this if you want or need the library's memcpy_s and memmove_s.
 //   See http://github.com/weidai11/cryptopp/issues/28.
+// Breakout: This is preferred because windows is not guaranteed to supply memmove_s.
 #if !defined(CRYPTOPP_WANT_SECURE_LIB)
 # define CRYPTOPP_WANT_SECURE_LIB
 #endif

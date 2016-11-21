@@ -353,7 +353,6 @@ crypto_early_init(void)
       return -1;
     curve25519_init();
     ed25519_init();
-return(0);
   }
   return 0;
 }

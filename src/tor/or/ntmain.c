@@ -9,7 +9,7 @@
  * \brief Entry points for running/configuring Tor as Windows Service.
  */
 
-// #ifdef _WIN32
+#ifdef _WIN32
 
 #include "or.h"
 #include "config.h"
@@ -773,5 +773,4 @@ nt_service_parse_options(int argc, char **argv, int *should_exit)
   return 0;
 }
 
-// #endif
-
+#endif

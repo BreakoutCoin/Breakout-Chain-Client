@@ -1748,26 +1748,6 @@ static void run_tor() {
     tor_main(4, argv);
 }
 
-/*
-static void run_tor() {
-    printf("TOR thread started.\n");
-
-    std::string logDecl = "notice file " + GetDataDir().string() + "/tor/tor.log";
-    char *argvLogDecl = (char*) logDecl.c_str();
-
-    char* argv[] = {
-        "tor",
-        "--hush",
-        "--Log",
-        argvLogDecl
-    };
-
-    tor_main(4, argv);
-}
-*/
-
-
-
 void StartTor(void* parg)
 {
     // Make this thread recognisable as the tor thread
