@@ -880,7 +880,6 @@ macx {
            -framework AppKit
    DEFINES += MAC_OSX MSG_NOSIGNAL=0
    ICON = src/qt/res/icons/bitcoin.icns
-   TARGET = "BreakoutCoin"
    # QMAKE_CFLAGS_THREAD += -pthread
    # QMAKE_LFLAGS_THREAD += -pthread
    # QMAKE_CXXFLAGS_THREAD += -pthread

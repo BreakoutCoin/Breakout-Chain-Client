@@ -460,7 +460,7 @@ bool AppInit2()
 
     nNodeLifespan = GetArg("-addrlifespan", 7);
     fUseFastIndex = GetBoolArg("-fastindex", true);
-    nMinerSleep = GetArg("-minersleep", 500);
+    nMinerSleep = GetArg("-minersleep", 500);  // in milliseconds
 
     CheckpointsMode = Checkpoints::STRICT;
     std::string strCpMode = GetArg("-cppolicy", "strict");
@@ -1004,52 +1004,52 @@ bool AppInit2()
         fProxy = true;
     }
 
-// if not using built in tor, check for external
-// this test means that internal and external tor are exclusive
-if (fBuiltinTor)
-{
-    CService addrOnion;
-    p2p_port = GetDefaultPort();
-    onion_port = (unsigned short)GetArg("-torport", TOR_PORT);
-    if (mapArgs.count("-tor") && mapArgs["-tor"] != "0") {
-        addrOnion = CService(mapArgs["-tor"], onion_port);
-        if (!addrOnion.IsValid())
-            return InitError(strprintf(_("Invalid -tor address: '%s'"), mapArgs["-tor"].c_str()));
-    } else {
-        addrOnion = CService("127.0.0.1", onion_port);
-    }
-    SetProxy(NET_TOR, addrOnion, 5);
-    SetReachable(NET_TOR);
-}
-else
-{
-    // -torext can override normal proxy, -notorext disables tor entirely
-    if (!(mapArgs.count("-torext") && mapArgs["-torext"] == "0") &&
-        (fProxy || mapArgs.count("-torext") || fExternalTor)) {
+    // if not using built in tor, check for external
+    // this test means that internal and external tor are exclusive
+    if (fBuiltinTor)
+    {
         CService addrOnion;
-        if (!mapArgs.count("-torext"))
-        {
-            if (fExternalTor)
+        p2p_port = GetDefaultPort();
+        onion_port = (unsigned short)GetArg("-torport", TOR_PORT);
+        if (mapArgs.count("-tor") && mapArgs["-tor"] != "0") {
+            addrOnion = CService(mapArgs["-tor"], onion_port);
+            if (!addrOnion.IsValid())
+                return InitError(strprintf(_("Invalid -tor address: '%s'"), mapArgs["-tor"].c_str()));
+        } else {
+            addrOnion = CService("127.0.0.1", onion_port);
+        }
+        SetProxy(NET_TOR, addrOnion, 5);
+        SetReachable(NET_TOR);
+    }
+    else
+    {
+        // -torext can override normal proxy, -notorext disables tor entirely
+        if (!(mapArgs.count("-torext") && mapArgs["-torext"] == "0") &&
+            (fProxy || mapArgs.count("-torext") || fExternalTor)) {
+            CService addrOnion;
+            if (!mapArgs.count("-torext"))
             {
-                return InitError(std::string("Specify -torext address (e.g. '127.0.0.1:9150')"));
+                if (fExternalTor)
+                {
+                    return InitError(std::string("Specify -torext address (e.g. '127.0.0.1:9150')"));
+                }
+                else
+                {
+                    addrOnion = addrProxy;
+                }
             }
             else
             {
-                addrOnion = addrProxy;
+                addrOnion = CService(mapArgs["-torext"], 9050);
             }
+            if (!addrOnion.IsValid())
+            {
+                return InitError(strprintf(_("Invalid -torext address: '%s'"), mapArgs["-torext"].c_str()));
+            }
+            SetProxy(NET_TOR, addrOnion);
+            SetReachable(NET_TOR);
         }
-        else
-        {
-            addrOnion = CService(mapArgs["-torext"], 9050);
-        }
-        if (!addrOnion.IsValid())
-        {
-            return InitError(strprintf(_("Invalid -torext address: '%s'"), mapArgs["-torext"].c_str()));
-        }
-        SetProxy(NET_TOR, addrOnion);
-        SetReachable(NET_TOR);
     }
-}
 
 
     // see Step 2: parameter interactions for more information about these
