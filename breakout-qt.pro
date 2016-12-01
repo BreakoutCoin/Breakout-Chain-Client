@@ -523,7 +523,7 @@ HEADERS += \
     src/tor/common/compat_openssl.h \
     src/tor/common/tortls.h \
     src/tor/common/tor_util.h \
-    src/tor/common/compat_threads.h \
+    src/tor/common/compat_pthreads.h \
     src/tor/common/crypto_s2k.h \
     src/tor/common/crypto_ed25519.h \
     src/tor/common/crypto_pwbox.h \
@@ -689,6 +689,7 @@ SOURCES += \
     src/tor/common/procmon.c \
     src/tor/common/address.c \
     src/tor/common/compat_threads.c \
+    src/tor/common/compat_pthreads.c \
     src/tor/common/log.c \
     src/alert.cpp \
     src/version.cpp \
