@@ -384,7 +384,6 @@ HEADERS += \
     src/tor/or/ext_orport.h \
     src/tor/or/connection_edge.h \
     src/tor/or/routerset.h \
-    src/tor/or/ntmain.h \
     src/tor/or/channel.h \
     src/tor/or/dns.h \
     src/tor/or/fp_pair.h \
