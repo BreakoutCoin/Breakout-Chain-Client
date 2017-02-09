@@ -36,6 +36,7 @@ static const int DATABASE_VERSION = 70508;
 // 61007: added burn protocol (1.4.0.0)
 // 61008: staking improvement (1.4.2.0)
 // 61009: card staking and BRK inflation correction (1.4.5.0)
+//        createmultisigaddress (1.4.6.0)
 static const int PROTOCOL_VERSION = 61009;
 
 // earlier versions not supported as of Feb 2012, and are disconnected

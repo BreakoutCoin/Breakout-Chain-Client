@@ -15,6 +15,7 @@
 
 #define TESTNET_BUILD 0
 
+// N_COLORS includes COLOR_NONE
 #define N_COLORS 58
 #define N_COLOR_BYTES 1
 

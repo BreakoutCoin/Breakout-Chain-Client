@@ -1182,42 +1182,13 @@ Value sendmany(const Array& params, bool fHelp)
     return wtx.GetHash().GetHex();
 }
 
-Value addmultisigaddress(const Array& params, bool fHelp)
+/**
+ * Used by addmultisigaddress / createmultisig:
+ */
+CScript _createmultisig_redeemScript(const Array& params)
 {
-    if (fHelp || params.size() < 2 || params.size() > 4)
-    {
-        string msg = "addmultisigaddress <nrequired> <'[\"key\",\"key\"]'> [account] [ticker]\n"
-            "Add a nrequired-to-sign multisignature address to the wallet\"\n"
-            "each key is a breakout address or hex-encoded public key\n"
-            "If [account] is specified, assign address to [account].\n"
-            "If [ticker] is not given, then the default currency is used.\n";
-
-        throw runtime_error(msg);
-    }
-
-    checkDefaultCurrency();
-
     int nRequired = params[0].get_int();
     const Array& keys = params[1].get_array();
-    string strAccount;
-    if (params.size() > 2)
-        strAccount = AccountFromValue(params[2]);
-
-    int nColor;
-    if (params.size() > 3)
-    {
-        std::string strTicker = params[3].get_str();
-        if (!GetColorFromTicker(strTicker, nColor))
-        {
-            throw runtime_error(
-                     strprintf("ticker %s is not valid\n", strTicker.c_str()));
-        }
-    }
-    else
-    {
-        nColor = nDefaultCurrency;
-    }
-
 
     // Gather public keys
     if (nRequired < 1)
@@ -1226,6 +1197,10 @@ Value addmultisigaddress(const Array& params, bool fHelp)
         throw runtime_error(
             strprintf("not enough keys supplied "
                       "(got %"PRIszu" keys, but need at least %d to redeem)", keys.size(), nRequired));
+    if (keys.size() > MAX_MULTISIG_KEYS)
+        throw runtime_error(
+            strprintf("Number of addresses involved in the multisignature address creation > %d\nReduce the number",
+                                             (int)MAX_MULTISIG_KEYS));
     std::vector<CPubKey> pubkeys;
     pubkeys.resize(keys.size());
     for (unsigned int i = 0; i < keys.size(); i++)
@@ -1264,8 +1239,58 @@ Value addmultisigaddress(const Array& params, bool fHelp)
     }
 
     // Construct using pay-to-script-hash:
-    CScript inner;
-    inner.SetMultisig(nRequired, pubkeys);
+    CScript result;
+    result.SetMultisig(nRequired, pubkeys);
+
+    if (result.size() > MAX_SCRIPT_ELEMENT_SIZE)
+        throw runtime_error(
+                strprintf("redeemScript exceeds size limit: %d > %d",
+                                 (int) result.size(), MAX_SCRIPT_ELEMENT_SIZE).c_str());
+
+    return result;
+}
+
+
+
+Value addmultisigaddress(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() < 2 || params.size() > 4)
+    {
+        string msg = "addmultisigaddress <nrequired> <'[\"key\",\"key\"]'> [account] [ticker]\n"
+            "Add a nrequired-to-sign multisignature address to the wallet\"\n"
+            "each key is a breakout address or hex-encoded public key\n"
+            "If [account] is specified, assign address to [account].\n"
+            "If [ticker] is not given, then the default currency is used.\n";
+
+        throw runtime_error(msg);
+    }
+
+    checkDefaultCurrency();
+
+    string strAccount;
+    if (params.size() > 2)
+    {
+        strAccount = AccountFromValue(params[2]);
+    }
+
+    int nColor;
+
+    if (params.size() > 3)
+    {
+        std::string strTicker = params[3].get_str();
+        if (!GetColorFromTicker(strTicker, nColor))
+        {
+            throw runtime_error(
+                     strprintf("ticker %s is not valid\n", strTicker.c_str()));
+        }
+    }
+    else
+    {
+        nColor = nDefaultCurrency;
+    }
+
+    CScript inner = _createmultisig_redeemScript(params);
+
     CScriptID innerID = inner.GetID();
     if (!pwalletMain->AddCScript(inner))
           throw runtime_error("AddCScript() failed");
@@ -1273,6 +1298,48 @@ Value addmultisigaddress(const Array& params, bool fHelp)
     pwalletMain->SetAddressBookName(innerID, nColor, strAccount);
     return CBitcoinAddress(innerID, nColor).ToString();
 }
+
+Value createmultisigaddress(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() < 2 || params.size() > 3)
+    {
+        string msg = "createmultisigaddress <nrequired> <'[\"key\",\"key\"]'> [ticker]\n"
+            "Creates a nrequired-to-sign multisignature address to the wallet\"\n"
+            "each key is a breakout address or hex-encoded public key\n"
+            "If [ticker] is not given, then the default currency is used.\n";
+
+        throw runtime_error(msg);
+    }
+
+    checkDefaultCurrency();
+
+    int nColor;
+
+    if (params.size() > 2)
+    {
+        std::string strTicker = params[2].get_str();
+        if (!GetColorFromTicker(strTicker, nColor))
+        {
+            throw runtime_error(
+                     strprintf("ticker %s is not valid\n", strTicker.c_str()));
+        }
+    }
+    else
+    {
+        nColor = nDefaultCurrency;
+    }
+
+    CScript inner = _createmultisig_redeemScript(params);
+    CScriptID innerID = inner.GetID();
+    CBitcoinAddress address(innerID, nColor);
+
+    Object result;
+    result.push_back(Pair("address", address.ToString()));
+    result.push_back(Pair("redeemScript", HexStr(inner.begin(), inner.end())));
+
+    return result;
+}
+
 
 Value addredeemscript(const Array& params, bool fHelp)
 {
