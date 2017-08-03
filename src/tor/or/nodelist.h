@@ -55,6 +55,11 @@ void node_get_address_string(const node_t *node, char *cp, size_t len);
 long node_get_declared_uptime(const node_t *node);
 time_t node_get_published_on(const node_t *node);
 const smartlist_t *node_get_declared_family(const node_t *node);
+const ed25519_public_key_t *node_get_ed25519_id(const node_t *node);
+int node_ed25519_id_matches(const node_t *node,
+                            const ed25519_public_key_t *id);
+int node_supports_ed25519_link_authentication(const node_t *node);
+const uint8_t *node_get_rsa_id_digest(const node_t *node);
 
 int node_has_ipv6_addr(const node_t *node);
 int node_has_ipv6_orport(const node_t *node);
@@ -89,6 +94,8 @@ int node_is_unreliable(const node_t *router, int need_uptime,
 int router_exit_policy_all_nodes_reject(const tor_addr_t *addr, uint16_t port,
                                         int need_uptime);
 void router_set_status(const char *digest, int up);
+int addrs_in_same_network_family(const tor_addr_t *a1,
+                                 const tor_addr_t *a2);
 
 /** router_have_minimum_dir_info tests to see if we have enough
  * descriptor information to create circuits.
@@ -118,7 +125,8 @@ typedef enum {
    * create exit and internal paths, circuits, streams, ... */
   CONSENSUS_PATH_EXIT = 1
 } consensus_path_type_t;
-consensus_path_type_t router_have_consensus_path(void);
+
+MOCK_DECL(consensus_path_type_t, router_have_consensus_path, (void));
 
 void router_dir_info_changed(void);
 const char *get_dir_info_status_string(void);

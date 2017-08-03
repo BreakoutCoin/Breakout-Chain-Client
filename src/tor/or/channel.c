@@ -8,6 +8,32 @@
  * transfer cells from Tor instance to Tor instance.
  * Currently, there is only one implementation of the channel abstraction: in
  * channeltls.c.
+ *
+ * Channels are a higher-level abstraction than or_connection_t: In general,
+ * any means that two Tor relays use to exchange cells, or any means that a
+ * relay and a client use to exchange cells, is a channel.
+ *
+ * Channels differ from pluggable transports in that they do not wrap an
+ * underlying protocol over which cells are transmitted: they <em>are</em> the
+ * underlying protocol.
+ *
+ * This module defines the generic parts of the channel_t interface, and
+ * provides the machinery necessary for specialized implementations to be
+ * created.  At present, there is one specialized implementation in
+ * channeltls.c, which uses connection_or.c to send cells over a TLS
+ * connection.
+ *
+ * Every channel implementation is responsible for being able to transmit
+ * cells that are added to it with channel_write_cell() and related functions,
+ * and to receive incoming cells with the channel_queue_cell() and related
+ * functions.  See the channel_t documentation for more information.
+ *
+ * When new cells arrive on a channel, they are passed to cell handler
+ * functions, which can be set by channel_set_cell_handlers()
+ * functions. (Tor's cell handlers are in command.c.)
+ *
+ * Tor flushes cells to channels from relay.c in
+ * channel_flush_from_first_active_circuit().
  **/
 
 /*
@@ -122,7 +148,7 @@ STATIC uint64_t estimated_total_queue_size = 0;
  * If more than one channel exists, follow the next_with_same_id pointer
  * as a linked list.
  */
-HT_HEAD(channel_idmap, channel_idmap_entry_s) channel_identity_map =
+static HT_HEAD(channel_idmap, channel_idmap_entry_s) channel_identity_map =
   HT_INITIALIZER();
 
 typedef struct channel_idmap_entry_s {
@@ -145,9 +171,9 @@ channel_idmap_eq(const channel_idmap_entry_t *a,
 }
 
 HT_PROTOTYPE(channel_idmap, channel_idmap_entry_s, node, channel_idmap_hash,
-             channel_idmap_eq);
+             channel_idmap_eq)
 HT_GENERATE2(channel_idmap, channel_idmap_entry_s, node, channel_idmap_hash,
-             channel_idmap_eq, 0.5,  tor_reallocarray_, tor_free_);
+             channel_idmap_eq, 0.5,  tor_reallocarray_, tor_free_)
 
 static cell_queue_entry_t * cell_queue_entry_dup(cell_queue_entry_t *q);
 #if 0
@@ -707,26 +733,61 @@ channel_find_by_global_id(uint64_t global_identifier)
   return rv;
 }
 
-/**
- * Find channel by digest of the remote endpoint
- *
- * This function looks up a channel by the digest of its remote endpoint in
- * the channel digest map.  It's possible that more than one channel to a
- * given endpoint exists.  Use channel_next_with_digest() to walk the list.
- */
+/** Return true iff <b>chan</b> matches <b>rsa_id_digest</b> and <b>ed_id</b>.
+ * as its identity keys.  If either is NULL, do not check for a match. */
+static int
+channel_remote_identity_matches(const channel_t *chan,
+                                const char *rsa_id_digest,
+                                const ed25519_public_key_t *ed_id)
+{
+  if (BUG(!chan))
+    return 0;
+  if (rsa_id_digest) {
+    if (tor_memneq(rsa_id_digest, chan->identity_digest, DIGEST_LEN))
+      return 0;
+  }
+  if (ed_id) {
+    if (tor_memneq(ed_id->pubkey, chan->ed25519_identity.pubkey,
+                   ED25519_PUBKEY_LEN))
+      return 0;
+  }
+  return 1;
+}
 
+/**
+ * Find channel by RSA/Ed25519 identity of of the remote endpoint
+ *
+ * This function looks up a channel by the digest of its remote endpoint's RSA
+ * identity key.  If <b>ed_id</b> is provided and nonzero, only a channel
+ * matching the <b>ed_id</b> will be returned.
+ *
+ * It's possible that more than one channel to a given endpoint exists.  Use
+ * channel_next_with_rsa_identity() to walk the list of channels; make sure
+ * to test for Ed25519 identity match too (as appropriate)
+ */
 channel_t *
-channel_find_by_remote_digest(const char *identity_digest)
+channel_find_by_remote_identity(const char *rsa_id_digest,
+                                const ed25519_public_key_t *ed_id)
 {
   channel_t *rv = NULL;
   channel_idmap_entry_t *ent, search;
 
-  tor_assert(identity_digest);
+  tor_assert(rsa_id_digest); /* For now, we require that every channel have
+                              * an RSA identity, and that every lookup
+                              * contain an RSA identity */
+  if (ed_id && ed25519_public_key_is_zero(ed_id)) {
+    /* Treat zero as meaning "We don't care about the presence or absence of
+     * an Ed key", not "There must be no Ed key". */
+    ed_id = NULL;
+  }
 
-  memcpy(search.digest, identity_digest, DIGEST_LEN);
+  memcpy(search.digest, rsa_id_digest, DIGEST_LEN);
   ent = HT_FIND(channel_idmap, &channel_identity_map, &search);
   if (ent) {
     rv = TOR_LIST_FIRST(&ent->channel_list);
+  }
+  while (rv && ! channel_remote_identity_matches(rv, rsa_id_digest, ed_id)) {
+    rv = channel_next_with_rsa_identity(rv);
   }
 
   return rv;
@@ -740,7 +801,7 @@ channel_find_by_remote_digest(const char *identity_digest)
  */
 
 channel_t *
-channel_next_with_digest(channel_t *chan)
+channel_next_with_rsa_identity(channel_t *chan)
 {
   tor_assert(chan);
 
@@ -838,7 +899,7 @@ channel_free(channel_t *chan)
   }
 
   /* Call a free method if there is one */
-  if (chan->free) chan->free(chan);
+  if (chan->free_fn) chan->free_fn(chan);
 
   channel_clear_remote_end(chan);
 
@@ -878,7 +939,7 @@ channel_listener_free(channel_listener_t *chan_l)
   tor_assert(!(chan_l->registered));
 
   /* Call a free method if there is one */
-  if (chan_l->free) chan_l->free(chan_l);
+  if (chan_l->free_fn) chan_l->free_fn(chan_l);
 
   /*
    * We're in CLOSED or ERROR, so the incoming channel queue is already
@@ -916,7 +977,7 @@ channel_force_free(channel_t *chan)
   }
 
   /* Call a free method if there is one */
-  if (chan->free) chan->free(chan);
+  if (chan->free_fn) chan->free_fn(chan);
 
   channel_clear_remote_end(chan);
 
@@ -958,7 +1019,7 @@ channel_listener_force_free(channel_listener_t *chan_l)
             chan_l);
 
   /* Call a free method if there is one */
-  if (chan_l->free) chan_l->free(chan_l);
+  if (chan_l->free_fn) chan_l->free_fn(chan_l);
 
   /*
    * The incoming list just gets emptied and freed; we request close on
@@ -1407,10 +1468,10 @@ channel_clear_identity_digest(channel_t *chan)
  * This function sets the identity digest of the remote endpoint for a
  * channel; this is intended for use by the lower layer.
  */
-
 void
 channel_set_identity_digest(channel_t *chan,
-                            const char *identity_digest)
+                            const char *identity_digest,
+                            const ed25519_public_key_t *ed_identity)
 {
   int was_in_digest_map, should_be_in_digest_map, state_not_in_map;
 
@@ -1448,6 +1509,11 @@ channel_set_identity_digest(channel_t *chan,
   } else {
     memset(chan->identity_digest, 0,
            sizeof(chan->identity_digest));
+  }
+  if (ed_identity) {
+    memcpy(&chan->ed25519_identity, ed_identity, sizeof(*ed_identity));
+  } else {
+    memset(&chan->ed25519_identity, 0, sizeof(*ed_identity));
   }
 
   /* Put it in the digest map if we should */
@@ -1712,7 +1778,7 @@ channel_get_cell_queue_entry_size(channel_t *chan, cell_queue_entry_t *q)
       rv = get_cell_network_size(chan->wide_circ_ids);
       break;
     default:
-      tor_assert(1);
+      tor_assert_nonfatal_unreached_once();
   }
 
   return rv;
@@ -1812,6 +1878,39 @@ channel_write_cell_queue_entry(channel_t *chan, cell_queue_entry_t *q)
   }
 }
 
+/** Write a generic cell type to a channel
+ *
+ * Write a generic cell to a channel. It is called by channel_write_cell(),
+ * channel_write_var_cell() and channel_write_packed_cell() in order to reduce
+ * code duplication. Notice that it takes cell as pointer of type void,
+ * this can be dangerous because no type check is performed.
+ */
+
+void
+channel_write_cell_generic_(channel_t *chan, const char *cell_type,
+                            void *cell, cell_queue_entry_t *q)
+{
+
+  tor_assert(chan);
+  tor_assert(cell);
+
+  if (CHANNEL_IS_CLOSING(chan)) {
+    log_debug(LD_CHANNEL, "Discarding %c %p on closing channel %p with "
+              "global ID "U64_FORMAT, *cell_type, cell, chan,
+              U64_PRINTF_ARG(chan->global_identifier));
+    tor_free(cell);
+    return;
+  }
+  log_debug(LD_CHANNEL,
+            "Writing %c %p to channel %p with global ID "
+            U64_FORMAT, *cell_type,
+            cell, chan, U64_PRINTF_ARG(chan->global_identifier));
+
+  channel_write_cell_queue_entry(chan, q);
+  /* Update the queue size estimate */
+  channel_update_xmit_queue_size(chan);
+}
+
 /**
  * Write a cell to a channel
  *
@@ -1825,29 +1924,9 @@ void
 channel_write_cell(channel_t *chan, cell_t *cell)
 {
   cell_queue_entry_t q;
-
-  tor_assert(chan);
-  tor_assert(cell);
-
-  if (CHANNEL_IS_CLOSING(chan)) {
-    log_debug(LD_CHANNEL, "Discarding cell_t %p on closing channel %p with "
-              "global ID "U64_FORMAT, cell, chan,
-              U64_PRINTF_ARG(chan->global_identifier));
-    tor_free(cell);
-    return;
-  }
-
-  log_debug(LD_CHANNEL,
-            "Writing cell_t %p to channel %p with global ID "
-            U64_FORMAT,
-            cell, chan, U64_PRINTF_ARG(chan->global_identifier));
-
   q.type = CELL_QUEUE_FIXED;
   q.u.fixed.cell = cell;
-  channel_write_cell_queue_entry(chan, &q);
-
-  /* Update the queue size estimate */
-  channel_update_xmit_queue_size(chan);
+  channel_write_cell_generic_(chan, "cell_t", cell, &q);
 }
 
 /**
@@ -1862,30 +1941,9 @@ void
 channel_write_packed_cell(channel_t *chan, packed_cell_t *packed_cell)
 {
   cell_queue_entry_t q;
-
-  tor_assert(chan);
-  tor_assert(packed_cell);
-
-  if (CHANNEL_IS_CLOSING(chan)) {
-    log_debug(LD_CHANNEL, "Discarding packed_cell_t %p on closing channel %p "
-              "with global ID "U64_FORMAT, packed_cell, chan,
-              U64_PRINTF_ARG(chan->global_identifier));
-    packed_cell_free(packed_cell);
-    return;
-  }
-
-  log_debug(LD_CHANNEL,
-            "Writing packed_cell_t %p to channel %p with global ID "
-            U64_FORMAT,
-            packed_cell, chan,
-            U64_PRINTF_ARG(chan->global_identifier));
-
   q.type = CELL_QUEUE_PACKED;
   q.u.packed.packed_cell = packed_cell;
-  channel_write_cell_queue_entry(chan, &q);
-
-  /* Update the queue size estimate */
-  channel_update_xmit_queue_size(chan);
+  channel_write_cell_generic_(chan, "packed_cell_t", packed_cell, &q);
 }
 
 /**
@@ -1901,30 +1959,9 @@ void
 channel_write_var_cell(channel_t *chan, var_cell_t *var_cell)
 {
   cell_queue_entry_t q;
-
-  tor_assert(chan);
-  tor_assert(var_cell);
-
-  if (CHANNEL_IS_CLOSING(chan)) {
-    log_debug(LD_CHANNEL, "Discarding var_cell_t %p on closing channel %p "
-              "with global ID "U64_FORMAT, var_cell, chan,
-              U64_PRINTF_ARG(chan->global_identifier));
-    var_cell_free(var_cell);
-    return;
-  }
-
-  log_debug(LD_CHANNEL,
-            "Writing var_cell_t %p to channel %p with global ID "
-            U64_FORMAT,
-            var_cell, chan,
-            U64_PRINTF_ARG(chan->global_identifier));
-
   q.type = CELL_QUEUE_VAR;
   q.u.var.var_cell = var_cell;
-  channel_write_cell_queue_entry(chan, &q);
-
-  /* Update the queue size estimate */
-  channel_update_xmit_queue_size(chan);
+  channel_write_cell_generic_(chan, "var_cell_t", var_cell, &q);
 }
 
 /**
@@ -2281,121 +2318,120 @@ channel_flush_some_cells_from_outgoing_queue(channel_t *chan,
       free_q = 0;
       handed_off = 0;
 
-      if (1) {
-        /* Figure out how big it is for statistical purposes */
-        cell_size = channel_get_cell_queue_entry_size(chan, q);
-        /*
-         * Okay, we have a good queue entry, try to give it to the lower
-         * layer.
-         */
-        switch (q->type) {
-          case CELL_QUEUE_FIXED:
-            if (q->u.fixed.cell) {
-              if (chan->write_cell(chan,
-                    q->u.fixed.cell)) {
-                ++flushed;
-                channel_timestamp_xmit(chan);
-                ++(chan->n_cells_xmitted);
-                chan->n_bytes_xmitted += cell_size;
-                free_q = 1;
-                handed_off = 1;
-              }
-              /* Else couldn't write it; leave it on the queue */
-            } else {
-              /* This shouldn't happen */
-              log_info(LD_CHANNEL,
-                       "Saw broken cell queue entry of type CELL_QUEUE_FIXED "
-                       "with no cell on channel %p "
-                       "(global ID " U64_FORMAT ").",
-                       chan, U64_PRINTF_ARG(chan->global_identifier));
-              /* Throw it away */
-              free_q = 1;
-              handed_off = 0;
-            }
-            break;
-         case CELL_QUEUE_PACKED:
-            if (q->u.packed.packed_cell) {
-              if (chan->write_packed_cell(chan,
-                    q->u.packed.packed_cell)) {
-                ++flushed;
-                channel_timestamp_xmit(chan);
-                ++(chan->n_cells_xmitted);
-                chan->n_bytes_xmitted += cell_size;
-                free_q = 1;
-                handed_off = 1;
-              }
-              /* Else couldn't write it; leave it on the queue */
-            } else {
-              /* This shouldn't happen */
-              log_info(LD_CHANNEL,
-                       "Saw broken cell queue entry of type CELL_QUEUE_PACKED "
-                       "with no cell on channel %p "
-                       "(global ID " U64_FORMAT ").",
-                       chan, U64_PRINTF_ARG(chan->global_identifier));
-              /* Throw it away */
-              free_q = 1;
-              handed_off = 0;
-            }
-            break;
-         case CELL_QUEUE_VAR:
-            if (q->u.var.var_cell) {
-              if (chan->write_var_cell(chan,
-                    q->u.var.var_cell)) {
-                ++flushed;
-                channel_timestamp_xmit(chan);
-                ++(chan->n_cells_xmitted);
-                chan->n_bytes_xmitted += cell_size;
-                free_q = 1;
-                handed_off = 1;
-              }
-              /* Else couldn't write it; leave it on the queue */
-            } else {
-              /* This shouldn't happen */
-              log_info(LD_CHANNEL,
-                       "Saw broken cell queue entry of type CELL_QUEUE_VAR "
-                       "with no cell on channel %p "
-                       "(global ID " U64_FORMAT ").",
-                       chan, U64_PRINTF_ARG(chan->global_identifier));
-              /* Throw it away */
-              free_q = 1;
-              handed_off = 0;
-            }
-            break;
-          default:
-            /* Unknown type, log and free it */
-            log_info(LD_CHANNEL,
-                     "Saw an unknown cell queue entry type %d on channel %p "
-                     "(global ID " U64_FORMAT "; ignoring it."
-                     "  Someone should fix this.",
-                     q->type, chan, U64_PRINTF_ARG(chan->global_identifier));
+      /* Figure out how big it is for statistical purposes */
+      cell_size = channel_get_cell_queue_entry_size(chan, q);
+      /*
+       * Okay, we have a good queue entry, try to give it to the lower
+       * layer.
+       */
+      switch (q->type) {
+      case CELL_QUEUE_FIXED:
+        if (q->u.fixed.cell) {
+          if (chan->write_cell(chan,
+                               q->u.fixed.cell)) {
+            ++flushed;
+            channel_timestamp_xmit(chan);
+            ++(chan->n_cells_xmitted);
+            chan->n_bytes_xmitted += cell_size;
             free_q = 1;
-            handed_off = 0;
+            handed_off = 1;
+          }
+          /* Else couldn't write it; leave it on the queue */
+        } else {
+          /* This shouldn't happen */
+          log_info(LD_CHANNEL,
+                   "Saw broken cell queue entry of type CELL_QUEUE_FIXED "
+                   "with no cell on channel %p "
+                   "(global ID " U64_FORMAT ").",
+                   chan, U64_PRINTF_ARG(chan->global_identifier));
+          /* Throw it away */
+          free_q = 1;
+          handed_off = 0;
         }
+        break;
+      case CELL_QUEUE_PACKED:
+        if (q->u.packed.packed_cell) {
+          if (chan->write_packed_cell(chan,
+                                      q->u.packed.packed_cell)) {
+            ++flushed;
+            channel_timestamp_xmit(chan);
+            ++(chan->n_cells_xmitted);
+            chan->n_bytes_xmitted += cell_size;
+            free_q = 1;
+            handed_off = 1;
+          }
+          /* Else couldn't write it; leave it on the queue */
+        } else {
+          /* This shouldn't happen */
+          log_info(LD_CHANNEL,
+                   "Saw broken cell queue entry of type CELL_QUEUE_PACKED "
+                   "with no cell on channel %p "
+                   "(global ID " U64_FORMAT ").",
+                   chan, U64_PRINTF_ARG(chan->global_identifier));
+          /* Throw it away */
+          free_q = 1;
+          handed_off = 0;
+        }
+        break;
+      case CELL_QUEUE_VAR:
+        if (q->u.var.var_cell) {
+          if (chan->write_var_cell(chan,
+                                   q->u.var.var_cell)) {
+            ++flushed;
+            channel_timestamp_xmit(chan);
+            ++(chan->n_cells_xmitted);
+            chan->n_bytes_xmitted += cell_size;
+            free_q = 1;
+            handed_off = 1;
+          }
+          /* Else couldn't write it; leave it on the queue */
+        } else {
+          /* This shouldn't happen */
+          log_info(LD_CHANNEL,
+                   "Saw broken cell queue entry of type CELL_QUEUE_VAR "
+                   "with no cell on channel %p "
+                   "(global ID " U64_FORMAT ").",
+                   chan, U64_PRINTF_ARG(chan->global_identifier));
+          /* Throw it away */
+          free_q = 1;
+          handed_off = 0;
+        }
+        break;
+      default:
+        /* Unknown type, log and free it */
+        log_info(LD_CHANNEL,
+                 "Saw an unknown cell queue entry type %d on channel %p "
+                 "(global ID " U64_FORMAT "; ignoring it."
+                 "  Someone should fix this.",
+                 q->type, chan, U64_PRINTF_ARG(chan->global_identifier));
+        free_q = 1;
+        handed_off = 0;
+      }
 
+      /*
+       * if free_q is set, we used it and should remove the queue entry;
+       * we have to do the free down here so TOR_SIMPLEQ_REMOVE_HEAD isn't
+       * accessing freed memory
+       */
+      if (free_q) {
+        TOR_SIMPLEQ_REMOVE_HEAD(&chan->outgoing_queue, next);
         /*
-         * if free_q is set, we used it and should remove the queue entry;
-         * we have to do the free down here so TOR_SIMPLEQ_REMOVE_HEAD isn't
-         * accessing freed memory
+         * ...and we handed a cell off to the lower layer, so we should
+         * update the counters.
          */
-        if (free_q) {
-          TOR_SIMPLEQ_REMOVE_HEAD(&chan->outgoing_queue, next);
-          /*
-           * ...and we handed a cell off to the lower layer, so we should
-           * update the counters.
-           */
-          ++n_channel_cells_passed_to_lower_layer;
-          --n_channel_cells_in_queues;
-          n_channel_bytes_passed_to_lower_layer += cell_size;
-          n_channel_bytes_in_queues -= cell_size;
-          channel_assert_counter_consistency();
-          /* Update the channel's queue size too */
-          chan->bytes_in_queue -= cell_size;
-          /* Finally, free q */
-          cell_queue_entry_free(q, handed_off);
-          q = NULL;
-        }
+        ++n_channel_cells_passed_to_lower_layer;
+        --n_channel_cells_in_queues;
+        n_channel_bytes_passed_to_lower_layer += cell_size;
+        n_channel_bytes_in_queues -= cell_size;
+        channel_assert_counter_consistency();
+        /* Update the channel's queue size too */
+        chan->bytes_in_queue -= cell_size;
+        /* Finally, free q */
+        cell_queue_entry_free(q, handed_off);
+        q = NULL;
+      } else {
         /* No cell removed from list, so we can't go on any further */
-        else break;
+        break;
       }
     }
   }
@@ -2541,16 +2577,6 @@ channel_do_open_actions(channel_t *chan)
   if (started_here) {
     circuit_build_times_network_is_live(get_circuit_build_times_mutable());
     rep_hist_note_connect_succeeded(chan->identity_digest, now);
-    if (entry_guard_register_connect_status(
-          chan->identity_digest, 1, 0, now) < 0) {
-      /* Close any circuits pending on this channel. We leave it in state
-       * 'open' though, because it didn't actually *fail* -- we just
-       * chose not to use it. */
-      log_debug(LD_OR,
-                "New entry guard was reachable, but closing this "
-                "connection so we can retry the earlier entry guards.");
-      close_origin_circuits = 1;
-    }
     router_set_status(chan->identity_digest, 1);
   } else {
     /* only report it to the geoip module if it's not a known router */
@@ -3223,9 +3249,10 @@ channel_free_all(void)
 
 channel_t *
 channel_connect(const tor_addr_t *addr, uint16_t port,
-                const char *id_digest)
+                const char *id_digest,
+                const ed25519_public_key_t *ed_id)
 {
-  return channel_tls_connect(addr, port, id_digest);
+  return channel_tls_connect(addr, port, id_digest, ed_id);
 }
 
 /**
@@ -3298,7 +3325,8 @@ channel_is_better(time_t now, channel_t *a, channel_t *b,
  */
 
 channel_t *
-channel_get_for_extend(const char *digest,
+channel_get_for_extend(const char *rsa_id_digest,
+                       const ed25519_public_key_t *ed_id,
                        const tor_addr_t *target_addr,
                        const char **msg_out,
                        int *launch_out)
@@ -3311,14 +3339,14 @@ channel_get_for_extend(const char *digest,
   tor_assert(msg_out);
   tor_assert(launch_out);
 
-  chan = channel_find_by_remote_digest(digest);
+  chan = channel_find_by_remote_identity(rsa_id_digest, ed_id);
 
   /* Walk the list, unrefing the old one and refing the new at each
    * iteration.
    */
-  for (; chan; chan = channel_next_with_digest(chan)) {
+  for (; chan; chan = channel_next_with_rsa_identity(chan)) {
     tor_assert(tor_memeq(chan->identity_digest,
-                         digest, DIGEST_LEN));
+                         rsa_id_digest, DIGEST_LEN));
 
    if (CHANNEL_CONDEMNED(chan))
       continue;
@@ -3326,6 +3354,11 @@ channel_get_for_extend(const char *digest,
     /* Never return a channel on which the other end appears to be
      * a client. */
     if (channel_is_client(chan)) {
+      continue;
+    }
+
+    /* The Ed25519 key has to match too */
+    if (!channel_remote_identity_matches(chan, rsa_id_digest, ed_id)) {
       continue;
     }
 
@@ -3510,7 +3543,7 @@ channel_dump_statistics, (channel_t *chan, int severity))
   have_remote_addr = channel_get_addr_if_possible(chan, &remote_addr);
   if (have_remote_addr) {
     char *actual = tor_strdup(channel_get_actual_remote_descr(chan));
-    remote_addr_str = tor_dup_addr(&remote_addr);
+    remote_addr_str = tor_addr_to_str_dup(&remote_addr);
     tor_log(severity, LD_GENERAL,
         " * Channel " U64_FORMAT " says its remote address"
         " is %s, and gives a canonical description of \"%s\" and an "
@@ -4500,6 +4533,81 @@ channel_set_circid_type,(channel_t *chan,
   }
 }
 
+/** Helper for channel_update_bad_for_new_circs(): Perform the
+ * channel_update_bad_for_new_circs operation on all channels in <b>lst</b>,
+ * all of which MUST have the same RSA ID.  (They MAY have different
+ * Ed25519 IDs.) */
+static void
+channel_rsa_id_group_set_badness(struct channel_list_s *lst, int force)
+{
+  /*XXXX This function should really be about channels. 15056 */
+  channel_t *chan;
+
+  /* First, get a minimal list of the ed25519 identites */
+  smartlist_t *ed_identities = smartlist_new();
+  TOR_LIST_FOREACH(chan, lst, next_with_same_id) {
+    uint8_t *id_copy =
+      tor_memdup(&chan->ed25519_identity.pubkey, DIGEST256_LEN);
+    smartlist_add(ed_identities, id_copy);
+  }
+  smartlist_sort_digests256(ed_identities);
+  smartlist_uniq_digests256(ed_identities);
+
+  /* Now, for each Ed identity, build a smartlist and find the best entry on
+   * it.  */
+  smartlist_t *or_conns = smartlist_new();
+  SMARTLIST_FOREACH_BEGIN(ed_identities, const uint8_t *, ed_id) {
+    TOR_LIST_FOREACH(chan, lst, next_with_same_id) {
+      channel_tls_t *chantls = BASE_CHAN_TO_TLS(chan);
+      if (tor_memneq(ed_id, &chan->ed25519_identity.pubkey, DIGEST256_LEN))
+        continue;
+      or_connection_t *orconn = chantls->conn;
+      if (orconn) {
+        tor_assert(orconn->chan == chantls);
+        smartlist_add(or_conns, orconn);
+      }
+    }
+
+    connection_or_group_set_badness_(or_conns, force);
+    smartlist_clear(or_conns);
+  } SMARTLIST_FOREACH_END(ed_id);
+
+  /* XXXX 15056 we may want to do something special with connections that have
+   * no set Ed25519 identity! */
+
+  smartlist_free(or_conns);
+
+  SMARTLIST_FOREACH(ed_identities, uint8_t *, ed_id, tor_free(ed_id));
+  smartlist_free(ed_identities);
+}
+
+/** Go through all the channels (or if <b>digest</b> is non-NULL, just
+ * the OR connections with that digest), and set the is_bad_for_new_circs
+ * flag based on the rules in connection_or_group_set_badness() (or just
+ * always set it if <b>force</b> is true).
+ */
+void
+channel_update_bad_for_new_circs(const char *digest, int force)
+{
+  if (digest) {
+    channel_idmap_entry_t *ent;
+    channel_idmap_entry_t search;
+    memset(&search, 0, sizeof(search));
+    memcpy(search.digest, digest, DIGEST_LEN);
+    ent = HT_FIND(channel_idmap, &channel_identity_map, &search);
+    if (ent) {
+      channel_rsa_id_group_set_badness(&ent->channel_list, force);
+    }
+    return;
+  }
+
+  /* no digest; just look at everything. */
+  channel_idmap_entry_t **iter;
+  HT_FOREACH(iter, channel_idmap, &channel_identity_map) {
+    channel_rsa_id_group_set_badness(&(*iter)->channel_list, force);
+  }
+}
+
 /**
  * Update the estimated number of bytes queued to transmit for this channel,
  * and notify the scheduler.  The estimate includes both the channel queue and
@@ -4524,8 +4632,8 @@ channel_update_xmit_queue_size(channel_t *chan)
   /* Next, adjust by the overhead factor, if any is available */
   if (chan->get_overhead_estimate) {
     overhead = chan->get_overhead_estimate(chan);
-    if (overhead >= 1.0f) {
-      queued *= overhead;
+    if (overhead >= 1.0) {
+      queued = (uint64_t)(queued * overhead);
     } else {
       /* Ignore silly overhead factors */
       log_notice(LD_CHANNEL, "Ignoring silly overhead factor %f", overhead);

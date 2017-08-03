@@ -44,7 +44,7 @@
 #undef HAVE_INET_ATON
 
 /* Define to 1 if you have the <inttypes.h> header file. */
-/* #define HAVE_INTTYPES_H */
+#define HAVE_INTTYPES_H 1
 
 /* Define to 1 if you have the <limits.h> header file. */
 #define HAVE_LIMITS_H
@@ -241,7 +241,7 @@
 #define USING_TWOS_COMPLEMENT
 
 /* Version number of package */
-#define VERSION "0.2.8.6"
+#define VERSION "0.3.0.9"
 
 
 
@@ -266,7 +266,13 @@
 #define STDERR_FILENO 2
 #endif
 
+#ifndef WINVER
 #define WINVER 0x0502
+#endif
+
+#ifndef _WIN32_WINNT
 #define _WIN32_WINNT 0x0502
+#endif
+
 #define WIN32_LEAN_AND_MEAN 1
 

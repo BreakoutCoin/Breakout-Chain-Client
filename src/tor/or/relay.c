@@ -8,6 +8,41 @@
  * \file relay.c
  * \brief Handle relay cell encryption/decryption, plus packaging and
  *    receiving from circuits, plus queuing on circuits.
+ *
+ * This is a core modules that makes Tor work. It's responsible for
+ * dealing with RELAY cells (the ones that travel more than one hop along a
+ * circuit), by:
+ *  <ul>
+ *   <li>constructing relays cells,
+ *   <li>encrypting relay cells,
+ *   <li>decrypting relay cells,
+ *   <li>demultiplexing relay cells as they arrive on a connection,
+ *   <li>queueing relay cells for retransmission,
+ *   <li>or handling relay cells that are for us to receive (as an exit or a
+ *   client).
+ *  </ul>
+ *
+ * RELAY cells are generated throughout the code at the client or relay side,
+ * using relay_send_command_from_edge() or one of the functions like
+ * connection_edge_send_command() that calls it.  Of particular interest is
+ * connection_edge_package_raw_inbuf(), which takes information that has
+ * arrived on an edge connection socket, and packages it as a RELAY_DATA cell
+ * -- this is how information is actually sent across the Tor network.  The
+ * cryptography for these functions is handled deep in
+ * circuit_package_relay_cell(), which either adds a single layer of
+ * encryption (if we're an exit), or multiple layers (if we're the origin of
+ * the circuit).  After construction and encryption, the RELAY cells are
+ * passed to append_cell_to_circuit_queue(), which queues them for
+ * transmission and tells the circuitmux (see circuitmux.c) that the circuit
+ * is waiting to send something.
+ *
+ * Incoming RELAY cells arrive at circuit_receive_relay_cell(), called from
+ * command.c.  There they are decrypted and, if they are for us, are passed to
+ * connection_edge_process_relay_cell(). If they're not for us, they're
+ * re-queued for retransmission again with append_cell_to_circuit_queue().
+ *
+ * The connection_edge_process_relay_cell() function handles all the different
+ * types of relay cells, launching requests or transmitting data as needed.
  **/
 
 #define RELAY_PRIVATE
@@ -25,6 +60,7 @@
 #include "connection_or.h"
 #include "control.h"
 #include "geoip.h"
+#include "hs_cache.h"
 #include "onion_main.h"
 #include "networkstatus.h"
 #include "nodelist.h"
@@ -255,12 +291,12 @@ circuit_receive_relay_cell(cell_t *cell, circuit_t *circ,
     if (! CIRCUIT_IS_ORIGIN(circ) &&
         TO_OR_CIRCUIT(circ)->rend_splice &&
         cell_direction == CELL_DIRECTION_OUT) {
-      or_circuit_t *splice = TO_OR_CIRCUIT(circ)->rend_splice;
+      or_circuit_t *splice_ = TO_OR_CIRCUIT(circ)->rend_splice;
       tor_assert(circ->purpose == CIRCUIT_PURPOSE_REND_ESTABLISHED);
-      tor_assert(splice->base_.purpose == CIRCUIT_PURPOSE_REND_ESTABLISHED);
-      cell->circ_id = splice->p_circ_id;
+      tor_assert(splice_->base_.purpose == CIRCUIT_PURPOSE_REND_ESTABLISHED);
+      cell->circ_id = splice_->p_circ_id;
       cell->command = CELL_RELAY; /* can't be relay_early anyway */
-      if ((reason = circuit_receive_relay_cell(cell, TO_CIRCUIT(splice),
+      if ((reason = circuit_receive_relay_cell(cell, TO_CIRCUIT(splice_),
                                                CELL_DIRECTION_IN)) < 0) {
         log_warn(LD_REND, "Error relaying cell across rendezvous; closing "
                  "circuits");
@@ -559,11 +595,11 @@ relay_command_to_string(uint8_t command)
  * If you can't send the cell, mark the circuit for close and return -1. Else
  * return 0.
  */
-int
-relay_send_command_from_edge_(streamid_t stream_id, circuit_t *circ,
-                              uint8_t relay_command, const char *payload,
-                              size_t payload_len, crypt_path_t *cpath_layer,
-                              const char *filename, int lineno)
+MOCK_IMPL(int,
+relay_send_command_from_edge_,(streamid_t stream_id, circuit_t *circ,
+                               uint8_t relay_command, const char *payload,
+                               size_t payload_len, crypt_path_t *cpath_layer,
+                               const char *filename, int lineno))
 {
   cell_t cell;
   relay_header_t rh;
@@ -575,14 +611,14 @@ relay_send_command_from_edge_(streamid_t stream_id, circuit_t *circ,
 
   memset(&cell, 0, sizeof(cell_t));
   cell.command = CELL_RELAY;
-  if (cpath_layer) {
+  if (CIRCUIT_IS_ORIGIN(circ)) {
+    tor_assert(cpath_layer);
     cell.circ_id = circ->n_circ_id;
     cell_direction = CELL_DIRECTION_OUT;
-  } else if (! CIRCUIT_IS_ORIGIN(circ)) {
+  } else {
+    tor_assert(! cpath_layer);
     cell.circ_id = TO_OR_CIRCUIT(circ)->p_circ_id;
     cell_direction = CELL_DIRECTION_IN;
-  } else {
-    return -1;
   }
 
   memset(&rh, 0, sizeof(rh));
@@ -1374,7 +1410,7 @@ connection_edge_process_relay_cell_not_open(
     /* This is definitely a success, so forget about any pending data we
      * had sent. */
     if (entry_conn->pending_optimistic_data) {
-      generic_buffer_free(entry_conn->pending_optimistic_data);
+      buf_free(entry_conn->pending_optimistic_data);
       entry_conn->pending_optimistic_data = NULL;
     }
 
@@ -1499,7 +1535,8 @@ connection_edge_process_relay_cell(cell_t *cell, circuit_t *circ,
                "Begin cell for known stream. Dropping.");
         return 0;
       }
-      if (rh.command == RELAY_COMMAND_BEGIN_DIR) {
+      if (rh.command == RELAY_COMMAND_BEGIN_DIR &&
+          circ->purpose != CIRCUIT_PURPOSE_S_REND_JOINED) {
         /* Assign this circuit and its app-ward OR connection a unique ID,
          * so that we can measure download times. The local edge and dir
          * connection will be assigned the same ID when they are created
@@ -1876,7 +1913,7 @@ connection_edge_package_raw_inbuf(edge_connection_t *conn, int package_partial,
     entry_conn->sending_optimistic_data != NULL;
 
   if (PREDICT_UNLIKELY(sending_from_optimistic)) {
-    bytes_to_process = generic_buffer_len(entry_conn->sending_optimistic_data);
+    bytes_to_process = buf_datalen(entry_conn->sending_optimistic_data);
     if (PREDICT_UNLIKELY(!bytes_to_process)) {
       log_warn(LD_BUG, "sending_optimistic_data was non-NULL but empty");
       bytes_to_process = connection_get_inbuf_len(TO_CONN(conn));
@@ -1904,9 +1941,9 @@ connection_edge_package_raw_inbuf(edge_connection_t *conn, int package_partial,
     /* XXXX We could be more efficient here by sometimes packing
      * previously-sent optimistic data in the same cell with data
      * from the inbuf. */
-    generic_buffer_get(entry_conn->sending_optimistic_data, payload, length);
-    if (!generic_buffer_len(entry_conn->sending_optimistic_data)) {
-        generic_buffer_free(entry_conn->sending_optimistic_data);
+    fetch_from_buf(payload, length, entry_conn->sending_optimistic_data);
+    if (!buf_datalen(entry_conn->sending_optimistic_data)) {
+        buf_free(entry_conn->sending_optimistic_data);
         entry_conn->sending_optimistic_data = NULL;
     }
   } else {
@@ -1921,8 +1958,8 @@ connection_edge_package_raw_inbuf(edge_connection_t *conn, int package_partial,
     /* This is new optimistic data; remember it in case we need to detach and
        retry */
     if (!entry_conn->pending_optimistic_data)
-      entry_conn->pending_optimistic_data = generic_buffer_new();
-    generic_buffer_add(entry_conn->pending_optimistic_data, payload, length);
+      entry_conn->pending_optimistic_data = buf_new();
+    write_to_buf(payload, length, entry_conn->pending_optimistic_data);
   }
 
   if (connection_edge_send_command(conn, RELAY_COMMAND_DATA,
@@ -2320,14 +2357,12 @@ cell_queue_append_packed_copy(circuit_t *circ, cell_queue_t *queue,
                               int exitward, const cell_t *cell,
                               int wide_circ_ids, int use_stats)
 {
-  struct timeval now;
   packed_cell_t *copy = packed_cell_copy(cell, wide_circ_ids);
   (void)circ;
   (void)exitward;
   (void)use_stats;
-  tor_gettimeofday_cached_monotonic(&now);
 
-  copy->inserted_time = (uint32_t)tv_to_msec(&now);
+  copy->inserted_time = (uint32_t) monotime_coarse_absolute_msec();
 
   cell_queue_append(queue, copy);
 }
@@ -2406,9 +2441,7 @@ cell_queues_check_size(void)
       if (rend_cache_total > get_options()->MaxMemInQueues / 5) {
         const size_t bytes_to_remove =
           rend_cache_total - (size_t)(get_options()->MaxMemInQueues / 10);
-        rend_cache_clean_v2_descs_as_dir(time(NULL), bytes_to_remove);
-        alloc -= rend_cache_total;
-        alloc += rend_cache_get_total_allocation();
+        alloc -= hs_cache_handle_oom(time(NULL), bytes_to_remove);
       }
       circuits_handle_oom(alloc);
       return 1;
@@ -2456,7 +2489,7 @@ update_circuit_on_cmux_(circuit_t *circ, cell_direction_t direction,
 
   /* Cmux sanity check */
   if (! circuitmux_is_circuit_attached(cmux, circ)) {
-    log_warn(LD_BUG, "called on non-attachd circuit from %s:%d",
+    log_warn(LD_BUG, "called on non-attached circuit from %s:%d",
              file, lineno);
     return;
   }
@@ -2525,7 +2558,7 @@ set_streams_blocked_on_circ(circuit_t *circ, channel_t *chan,
       edge->edge_blocked_on_circ = block;
     }
 
-    if (!conn->read_event && !HAS_BUFFEREVENT(conn)) {
+    if (!conn->read_event) {
       /* This connection is a placeholder for something; probably a DNS
        * request.  It can't actually stop or start reading.*/
       continue;
@@ -2615,6 +2648,15 @@ channel_flush_from_first_active_circuit, (channel_t *chan, int max))
     }
 
     /* Circuitmux told us this was active, so it should have cells */
+    if (/*BUG(*/ queue->n == 0 /*)*/) {
+      log_warn(LD_BUG, "Found a supposedly active circuit with no cells "
+               "to send. Trying to recover.");
+      circuitmux_set_num_cells(cmux, circ, 0);
+      if (! circ->marked_for_close)
+        circuit_mark_for_close(circ, END_CIRC_REASON_INTERNAL);
+      continue;
+    }
+
     tor_assert(queue->n > 0);
 
     /*
@@ -2628,9 +2670,8 @@ channel_flush_from_first_active_circuit, (channel_t *chan, int max))
     if (get_options()->CellStatistics ||
         get_options()->TestingEnableCellStatsEvent) {
       uint32_t msec_waiting;
-      struct timeval tvnow;
-      tor_gettimeofday_cached(&tvnow);
-      msec_waiting = ((uint32_t)tv_to_msec(&tvnow)) - cell->inserted_time;
+      uint32_t msec_now = (uint32_t)monotime_coarse_absolute_msec();
+      msec_waiting = msec_now - cell->inserted_time;
 
       if (get_options()->CellStatistics && !CIRCUIT_IS_ORIGIN(circ)) {
         or_circ = TO_OR_CIRCUIT(circ);

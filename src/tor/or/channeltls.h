@@ -29,7 +29,8 @@ struct channel_tls_s {
 #endif /* TOR_CHANNEL_INTERNAL_ */
 
 channel_t * channel_tls_connect(const tor_addr_t *addr, uint16_t port,
-                                const char *id_digest);
+                                const char *id_digest,
+                                const ed25519_public_key_t *ed_id);
 channel_listener_t * channel_tls_get_listener(void);
 channel_listener_t * channel_tls_start_listener(void);
 channel_t * channel_tls_handle_incoming(or_connection_t *orconn);
@@ -51,6 +52,14 @@ void channel_tls_update_marks(or_connection_t *conn);
 
 /* Cleanup at shutdown */
 void channel_tls_free_all(void);
+
+extern uint64_t stats_n_authorize_cells_processed;
+extern uint64_t stats_n_authenticate_cells_processed;
+extern uint64_t stats_n_versions_cells_processed;
+extern uint64_t stats_n_netinfo_cells_processed;
+extern uint64_t stats_n_vpadding_cells_processed;
+extern uint64_t stats_n_certs_cells_processed;
+extern uint64_t stats_n_auth_challenge_cells_processed;
 
 #ifdef CHANNELTLS_PRIVATE
 STATIC void channel_tls_process_certs_cell(var_cell_t *cell,

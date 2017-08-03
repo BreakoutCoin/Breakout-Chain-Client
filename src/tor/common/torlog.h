@@ -99,8 +99,10 @@
 #define LD_CHANNEL   (1u<<21)
 /** Scheduler */
 #define LD_SCHED     (1u<<22)
+/** Guard nodes */
+#define LD_GUARD     (1u<<23)
 /** Number of logging domains in the code. */
-#define N_LOGGING_DOMAINS 23
+#define N_LOGGING_DOMAINS 24
 
 /** This log message is not safe to send to a callback-based logger
  * immediately.  Used as a flag, not a log domain. */
@@ -108,6 +110,11 @@
 /** This log message should not include a function name, even if it otherwise
  * would. Used as a flag, not a log domain. */
 #define LD_NOFUNCNAME (1u<<30)
+
+#ifdef TOR_UNIT_TESTS
+/** This log message should not be intercepted by mock_saving_logv */
+#define LD_NO_MOCK (1u<<29)
+#endif
 
 /** Mask of zero or more log domains, OR'd together. */
 typedef uint32_t log_domain_mask_t;
@@ -176,7 +183,7 @@ void log_fn_ratelim_(struct ratelim_t *ratelim, int severity,
                      const char *format, ...)
   CHECK_PRINTF(5,6);
 
-#if defined(__GNUC__)
+#if defined(__GNUC__) && __GNUC__ <= 3
 
 /* These are the GCC varidaic macros, so that older versions of GCC don't
  * break. */

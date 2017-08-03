@@ -39,8 +39,6 @@
 
 #if defined(USE_LIBSECCOMP)
 
-#define _GNU_SOURCE
-
 #include <sys/mman.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
@@ -138,6 +136,9 @@ static int filter_nopar_gen[] = {
 #ifdef HAVE_PIPE
     SCMP_SYS(pipe),
 #endif
+#ifdef __NR_fchmod
+    SCMP_SYS(fchmod),
+#endif
     SCMP_SYS(fcntl),
     SCMP_SYS(fstat),
 #ifdef __NR_fstat64
@@ -157,6 +158,7 @@ static int filter_nopar_gen[] = {
 #ifdef __NR_getgid32
     SCMP_SYS(getgid32),
 #endif
+    SCMP_SYS(getpid),
 #ifdef __NR_getrlimit
     SCMP_SYS(getrlimit),
 #endif
@@ -186,10 +188,16 @@ static int filter_nopar_gen[] = {
     SCMP_SYS(read),
     SCMP_SYS(rt_sigreturn),
     SCMP_SYS(sched_getaffinity),
+#ifdef __NR_sched_yield
+    SCMP_SYS(sched_yield),
+#endif
     SCMP_SYS(sendmsg),
     SCMP_SYS(set_robust_list),
 #ifdef __NR_setrlimit
     SCMP_SYS(setrlimit),
+#endif
+#ifdef __NR_sigaltstack
+    SCMP_SYS(sigaltstack),
 #endif
 #ifdef __NR_sigreturn
     SCMP_SYS(sigreturn),
@@ -840,7 +848,7 @@ sb_epoll_ctl(scmp_filter_ctx ctx, sandbox_cfg_t *filter)
 }
 
 /**
- * Function responsible for setting up the fcntl64 syscall for
+ * Function responsible for setting up the prctl syscall for
  * the seccomp filter sandbox.
  *
  * NOTE: if multiple filters need to be added, the PR_SECCOMP parameter needs
@@ -861,7 +869,7 @@ sb_prctl(scmp_filter_ctx ctx, sandbox_cfg_t *filter)
 }
 
 /**
- * Function responsible for setting up the fcntl64 syscall for
+ * Function responsible for setting up the mprotect syscall for
  * the seccomp filter sandbox.
  *
  * NOTE: does not NEED to be here.. currently only occurs before filter; will
@@ -1260,7 +1268,7 @@ prot_strings(scmp_filter_ctx ctx, sandbox_cfg_t* cfg)
 
 /**
  * Auxiliary function used in order to allocate a sandbox_cfg_t element and set
- * it's values according the the parameter list. All elements are initialised
+ * its values according the parameter list. All elements are initialised
  * with the 'prot' field set to false, as the pointer is not protected at this
  * point.
  */
@@ -1462,7 +1470,7 @@ static HT_HEAD(getaddrinfo_cache, cached_getaddrinfo_item_t)
 
 HT_PROTOTYPE(getaddrinfo_cache, cached_getaddrinfo_item_t, node,
              cached_getaddrinfo_item_hash,
-             cached_getaddrinfo_items_eq);
+             cached_getaddrinfo_items_eq)
 HT_GENERATE2(getaddrinfo_cache, cached_getaddrinfo_item_t, node,
              cached_getaddrinfo_item_hash,
              cached_getaddrinfo_items_eq,
@@ -1538,7 +1546,7 @@ sandbox_getaddrinfo(const char *name, const char *servname,
     return err;
   }
 
-  /* Otherwise, the sanbox is on.  If we have an item, yield its cached
+  /* Otherwise, the sandbox is on.  If we have an item, yield its cached
      result. */
   if (item) {
     *res = item->res;
@@ -1575,13 +1583,14 @@ sandbox_add_addrinfo(const char *name)
 void
 sandbox_free_getaddrinfo_cache(void)
 {
-  cached_getaddrinfo_item_t **next, **item;
+  cached_getaddrinfo_item_t **next, **item, *this;
 
   for (item = HT_START(getaddrinfo_cache, &getaddrinfo_cache);
        item;
        item = next) {
+    this = *item;
     next = HT_NEXT_RMV(getaddrinfo_cache, &getaddrinfo_cache, item);
-    cached_getaddrinfo_item_free(*item);
+    cached_getaddrinfo_item_free(this);
   }
 
   HT_CLEAR(getaddrinfo_cache, &getaddrinfo_cache);

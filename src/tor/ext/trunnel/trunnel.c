@@ -1,4 +1,4 @@
-/* trunnel.c -- copied from Trunnel v1.4.4
+/* trunnel.c -- copied from Trunnel v1.5.1
  * https://gitweb.torproject.org/trunnel.git
  * You probably shouldn't edit this file.
  */
@@ -10,9 +10,9 @@
  * See trunnel-impl.h for documentation of these functions.
  */
 
+#include "trunnel-impl.h"
 #include <stdlib.h>
 #include <string.h>
-#include "trunnel-impl.h"
 
 #if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__) && \
 	__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
@@ -31,7 +31,7 @@
 #    define IS_LITTLE_ENDIAN
 #  endif
 #else
-# if defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+# if defined(__FreeBSD__) || defined(__NetBSD__) || defined(OpenBSD)
 #  include <sys/endian.h>
 # else
 #  include <endian.h>

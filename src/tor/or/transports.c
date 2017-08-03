@@ -91,13 +91,13 @@
 
 #define PT_PRIVATE
 #include "or.h"
+#include "bridges.h"
 #include "config.h"
 #include "circuitbuild.h"
 #include "transports.h"
 #include "tor_util.h"
 #include "router.h"
 #include "statefile.h"
-#include "entrynodes.h"
 #include "connection_or.h"
 #include "ext_orport.h"
 #include "control.h"
@@ -430,7 +430,7 @@ add_transport_to_proxy(const char *transport, managed_proxy_t *mp)
 {
   tor_assert(mp->transports_to_launch);
   if (!smartlist_contains_string(mp->transports_to_launch, transport))
-    smartlist_add(mp->transports_to_launch, tor_strdup(transport));
+    smartlist_add_strdup(mp->transports_to_launch, transport);
 }
 
 /** Called when a SIGHUP occurs. Returns true if managed proxy
@@ -480,7 +480,6 @@ proxy_needs_restart(const managed_proxy_t *mp)
  *  preparations and then flag its state so that it will be relaunched
  *  in the next tick. */
 static void
-
 proxy_prepare_for_restart(managed_proxy_t *mp)
 {
   transport_t *t_tmp = NULL;
@@ -1270,7 +1269,7 @@ get_transport_options_for_server_proxy(const managed_proxy_t *mp)
 
 /** Return the string that tor should place in TOR_PT_SERVER_BINDADDR
  *  while configuring the server managed proxy in <b>mp</b>. The
- *  string is stored in the heap, and it's the the responsibility of
+ *  string is stored in the heap, and it's the responsibility of
  *  the caller to deallocate it after its use. */
 static char *
 get_bindaddr_for_server_proxy(const managed_proxy_t *mp)
@@ -1322,7 +1321,7 @@ create_managed_proxy_environment(const managed_proxy_t *mp)
     tor_free(state_tmp);
   }
 
-  smartlist_add(envs, tor_strdup("TOR_PT_MANAGED_TRANSPORT_VER=1"));
+  smartlist_add_strdup(envs, "TOR_PT_MANAGED_TRANSPORT_VER=1");
 
   {
     char *transports_to_launch =
@@ -1363,7 +1362,7 @@ create_managed_proxy_environment(const managed_proxy_t *mp)
       }
     }
 
-    /* XXX024 Remove the '=' here once versions of obfsproxy which
+    /* XXXX Remove the '=' here once versions of obfsproxy which
      * assert that this env var exists are sufficiently dead.
      *
      * (If we remove this line entirely, some joker will stick this
@@ -1425,7 +1424,7 @@ create_managed_proxy_environment(const managed_proxy_t *mp)
  *
  * Requires that proxy_argv have at least one element. */
 STATIC managed_proxy_t *
-managed_proxy_create(const smartlist_t *transport_list,
+managed_proxy_create(const smartlist_t *with_transport_list,
                      char **proxy_argv, int is_server)
 {
   managed_proxy_t *mp = tor_malloc_zero(sizeof(managed_proxy_t));
@@ -1436,7 +1435,7 @@ managed_proxy_create(const smartlist_t *transport_list,
   mp->proxy_uri = get_pt_proxy_uri();
 
   mp->transports_to_launch = smartlist_new();
-  SMARTLIST_FOREACH(transport_list, const char *, transport,
+  SMARTLIST_FOREACH(with_transport_list, const char *, transport,
                     add_transport_to_proxy(transport, mp));
 
   /* register the managed proxy */
@@ -1460,7 +1459,7 @@ managed_proxy_create(const smartlist_t *transport_list,
  * elements, containing at least one element.
  **/
 MOCK_IMPL(void,
-pt_kickstart_proxy, (const smartlist_t *transport_list,
+pt_kickstart_proxy, (const smartlist_t *with_transport_list,
                      char **proxy_argv, int is_server))
 {
   managed_proxy_t *mp=NULL;
@@ -1473,7 +1472,7 @@ pt_kickstart_proxy, (const smartlist_t *transport_list,
   mp = get_managed_proxy_by_argv_and_type(proxy_argv, is_server);
 
   if (!mp) { /* we haven't seen this proxy before */
-    managed_proxy_create(transport_list, proxy_argv, is_server);
+    managed_proxy_create(with_transport_list, proxy_argv, is_server);
 
   } else { /* known proxy. add its transport to its transport list */
     if (mp->was_around_before_config_read) {
@@ -1490,14 +1489,14 @@ pt_kickstart_proxy, (const smartlist_t *transport_list,
       /* For each new transport, check if the managed proxy used to
          support it before the SIGHUP. If that was the case, make sure
          it doesn't get removed because we might reuse it. */
-      SMARTLIST_FOREACH_BEGIN(transport_list, const char *, transport) {
+      SMARTLIST_FOREACH_BEGIN(with_transport_list, const char *, transport) {
         old_transport = transport_get_by_name(transport);
         if (old_transport)
           old_transport->marked_for_removal = 0;
       } SMARTLIST_FOREACH_END(transport);
     }
 
-    SMARTLIST_FOREACH(transport_list, const char *, transport,
+    SMARTLIST_FOREACH(with_transport_list, const char *, transport,
                       add_transport_to_proxy(transport, mp));
     free_execve_args(proxy_argv);
   }
@@ -1611,7 +1610,7 @@ pt_get_extra_info_descriptor_string(void)
       uint32_t external_ip_address = 0;
       if (tor_addr_is_null(&t->addr) &&
           router_pick_published_address(get_options(),
-                                        &external_ip_address) >= 0) {
+                                        &external_ip_address, 0) >= 0) {
         tor_addr_t addr;
         tor_addr_from_ipv4h(&addr, external_ip_address);
         addrport = fmt_addrport(&addr, t->port);

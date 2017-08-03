@@ -69,7 +69,7 @@ microdesc_eq_(microdesc_t *a, microdesc_t *b)
 }
 
 HT_PROTOTYPE(microdesc_map, microdesc_t, node,
-             microdesc_hash_, microdesc_eq_);
+             microdesc_hash_, microdesc_eq_)
 HT_GENERATE2(microdesc_map, microdesc_t, node,
              microdesc_hash_, microdesc_eq_, 0.6,
              tor_reallocarray_, tor_free_)
@@ -108,6 +108,7 @@ dump_microdescriptor(int fd, microdesc_t *md, size_t *annotation_len_out)
   md->off = tor_fd_getpos(fd);
   written = write_all(fd, md->body, md->bodylen, 0);
   if (written != (ssize_t)md->bodylen) {
+    written = written < 0 ? 0 : written;
     log_warn(LD_DIR,
              "Couldn't dump microdescriptor (wrote %ld out of %lu): %s",
              (long)written, (unsigned long)md->bodylen,
@@ -916,20 +917,9 @@ update_microdescs_from_networkstatus(time_t now)
 int
 we_use_microdescriptors_for_circuits(const or_options_t *options)
 {
-  int ret = options->UseMicrodescriptors;
-  if (ret == -1) {
-    /* UseMicrodescriptors is "auto"; we need to decide: */
-    /* If we are configured to use bridges and none of our bridges
-     * know what a microdescriptor is, the answer is no. */
-    if (options->UseBridges && !any_bridge_supports_microdescriptors())
-      return 0;
-    /* Otherwise, we decide that we'll use microdescriptors iff we are
-     * not a server, and we're not autofetching everything. */
-    /* XXX023 what does not being a server have to do with it? also there's
-     * a partitioning issue here where bridges differ from clients. */
-    ret = !server_mode(options) && !options->FetchUselessDescriptors;
-  }
-  return ret;
+  if (options->UseMicrodescriptors == 0)
+    return 0; /* the user explicitly picked no */
+  return 1; /* yes and auto both mean yes */
 }
 
 /** Return true iff we should try to download microdescriptors at all. */

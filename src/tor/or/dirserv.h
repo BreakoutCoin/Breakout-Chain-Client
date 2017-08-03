@@ -47,8 +47,6 @@ enum was_router_added_t dirserv_add_descriptor(routerinfo_t *ri,
 void dirserv_set_router_is_running(routerinfo_t *router, time_t now);
 int list_server_status_v1(smartlist_t *routers, char **router_status_out,
                           int for_controller);
-int dirserv_dump_directory_to_string(char **dir_out,
-                                     crypto_pk_t *private_key);
 char *dirserv_get_flag_thresholds_line(void);
 void dirserv_compute_bridge_flag_thresholds(void);
 
@@ -75,7 +73,8 @@ int dirserv_get_routerdescs(smartlist_t *descs_out, const char *key,
                             const char **msg);
 void dirserv_orconn_tls_done(const tor_addr_t *addr,
                              uint16_t or_port,
-                             const char *digest_rcvd);
+                             const char *digest_rcvd,
+                             const ed25519_public_key_t *ed_id_rcvd);
 int dirserv_should_launch_reachability_test(const routerinfo_t *ri,
                                             const routerinfo_t *ri_old);
 void dirserv_single_reachability_test(time_t now, routerinfo_t *router);
@@ -98,7 +97,9 @@ size_t dirserv_estimate_data_size(smartlist_t *fps, int is_serverdescs,
 size_t dirserv_estimate_microdesc_size(const smartlist_t *fps, int compressed);
 
 char *routerstatus_format_entry(
-                              const routerstatus_t *rs, const char *platform,
+                              const routerstatus_t *rs,
+                              const char *version,
+                              const char *protocols,
                               routerstatus_format_type_t format,
                               const vote_routerstatus_t *vrs);
 void dirserv_free_all(void);

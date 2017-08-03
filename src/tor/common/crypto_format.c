@@ -123,6 +123,10 @@ crypto_read_tagged_contents_from_file(const char *fname,
   return r;
 }
 
+/** Encode <b>pkey</b> as a base64-encoded string, without trailing "="
+ * characters, in the buffer <b>output</b>, which must have at least
+ * CURVE25519_BASE64_PADDED_LEN+1 bytes available.  Return 0 on success, -1 on
+ * failure. */
 int
 curve25519_public_to_base64(char *output,
                             const curve25519_public_key_t *pkey)
@@ -135,6 +139,9 @@ curve25519_public_to_base64(char *output,
   return 0;
 }
 
+/** Try to decode a base64-encoded curve25519 public key from <b>input</b>
+ * into the object at <b>pkey</b>. Return 0 on success, -1 on failure.
+ * Accepts keys with or without a trailing "=". */
 int
 curve25519_public_from_base64(curve25519_public_key_t *pkey,
                               const char *input)
@@ -152,6 +159,27 @@ curve25519_public_from_base64(curve25519_public_key_t *pkey,
   } else {
     return -1;
   }
+}
+
+/** For logging convenience: Convert <b>pkey</b> to a statically allocated
+ * base64 string and return it. Not threadsafe. Format not meant to be
+ * computer-readable; it may change in the future. Subsequent calls invalidate
+ * previous returns. */
+const char *
+ed25519_fmt(const ed25519_public_key_t *pkey)
+{
+  static char formatted[ED25519_BASE64_LEN+1];
+  if (pkey) {
+    if (ed25519_public_key_is_zero(pkey)) {
+      strlcpy(formatted, "<unset>", sizeof(formatted));
+    } else {
+      int r = ed25519_public_to_base64(formatted, pkey);
+      tor_assert(!r);
+    }
+  } else {
+    strlcpy(formatted, "<null>", sizeof(formatted));
+  }
+  return formatted;
 }
 
 /** Try to decode the string <b>input</b> into an ed25519 public key. On

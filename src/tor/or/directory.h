@@ -49,7 +49,8 @@ MOCK_DECL(void, directory_initiate_command_routerstatus,
                  const char *resource,
                  const char *payload,
                  size_t payload_len,
-                 time_t if_modified_since));
+                 time_t if_modified_since,
+                 struct circuit_guard_state_t *guard_state));
 
 void directory_initiate_command_routerstatus_rend(const routerstatus_t *status,
                                                   uint8_t dir_purpose,
@@ -59,7 +60,8 @@ void directory_initiate_command_routerstatus_rend(const routerstatus_t *status,
                                                   const char *payload,
                                                   size_t payload_len,
                                                   time_t if_modified_since,
-                                                const rend_data_t *rend_query);
+                                    const rend_data_t *rend_query,
+                                    struct circuit_guard_state_t *guard_state);
 
 int parse_http_response(const char *headers, int *code, time_t *date,
                         compress_method_t *compression, char **response);
@@ -77,7 +79,8 @@ void directory_initiate_command(const tor_addr_t *or_addr, uint16_t or_port,
                                 dir_indirection_t indirection,
                                 const char *resource,
                                 const char *payload, size_t payload_len,
-                                time_t if_modified_since);
+                                time_t if_modified_since,
+                                struct circuit_guard_state_t *guard_state);
 
 #define DSR_HEX       (1<<0)
 #define DSR_BASE64    (1<<1)
@@ -114,9 +117,15 @@ static inline int
 download_status_is_ready(download_status_t *dls, time_t now,
                          int max_failures)
 {
-  int under_failure_limit = (dls->n_download_failures <= max_failures
-                             && dls->n_download_attempts <= max_failures);
-  return (under_failure_limit && dls->next_attempt_at <= now);
+  if (dls->backoff == DL_SCHED_DETERMINISTIC) {
+    /* Deterministic schedules can hit an endpoint; exponential backoff
+     * schedules just wait longer and longer. */
+    int under_failure_limit = (dls->n_download_failures <= max_failures
+                               && dls->n_download_attempts <= max_failures);
+    if (!under_failure_limit)
+      return 0;
+  }
+  return dls->next_attempt_at <= now;
 }
 
 static void download_status_mark_impossible(download_status_t *dl);
@@ -132,21 +141,38 @@ int download_status_get_n_failures(const download_status_t *dls);
 int download_status_get_n_attempts(const download_status_t *dls);
 time_t download_status_get_next_attempt_at(const download_status_t *dls);
 
+int purpose_needs_anonymity(uint8_t dir_purpose, uint8_t router_purpose,
+                            const char *resource);
+
+#ifdef DIRECTORY_PRIVATE
+
+struct get_handler_args_t;
+STATIC int handle_get_hs_descriptor_v3(dir_connection_t *conn,
+                                       const struct get_handler_args_t *args);
+STATIC int directory_handle_command(dir_connection_t *conn);
+
+#endif
+
 #ifdef TOR_UNIT_TESTS
-/* Used only by directory.c and test_dir.c */
+/* Used only by test_dir.c */
 
 STATIC int parse_http_url(const char *headers, char **url);
-STATIC int purpose_needs_anonymity(uint8_t dir_purpose,
-                                   uint8_t router_purpose);
 STATIC dirinfo_type_t dir_fetch_type(int dir_purpose, int router_purpose,
                                      const char *resource);
-STATIC int directory_handle_command_get(dir_connection_t *conn,
-                                        const char *headers,
-                                        const char *req_body,
-                                        size_t req_body_len);
+MOCK_DECL(STATIC int, directory_handle_command_get,(dir_connection_t *conn,
+                                                    const char *headers,
+                                                    const char *req_body,
+                                                    size_t req_body_len));
+MOCK_DECL(STATIC int, directory_handle_command_post,(dir_connection_t *conn,
+                                                     const char *headers,
+                                                     const char *body,
+                                                     size_t body_len));
 STATIC int download_status_schedule_get_delay(download_status_t *dls,
                                               const smartlist_t *schedule,
+                                              int min_delay, int max_delay,
                                               time_t now);
+
+STATIC int handle_post_hs_descriptor(const char *url, const char *body);
 
 STATIC char* authdir_type_to_string(dirinfo_type_t auth);
 STATIC const char * dir_conn_purpose_to_string(int purpose);
@@ -154,6 +180,14 @@ STATIC int should_use_directory_guards(const or_options_t *options);
 STATIC zlib_compression_level_t choose_compression_level(ssize_t n_bytes);
 STATIC const smartlist_t *find_dl_schedule(download_status_t *dls,
                                            const or_options_t *options);
+STATIC void find_dl_min_and_max_delay(download_status_t *dls,
+                                      const or_options_t *options,
+                                      int *min, int *max);
+STATIC int next_random_exponential_delay(int delay, int max_delay);
+
+STATIC int parse_hs_version_from_post(const char *url, const char *prefix,
+                                      const char **end_pos);
+
 #endif
 
 #endif

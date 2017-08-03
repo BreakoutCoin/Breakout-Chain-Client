@@ -12,9 +12,11 @@
 #include "circuitbuild.h"
 #include "config.h"
 #include "control.h"
+#include "hs_common.h"
 #include "rendclient.h"
 #include "rendcommon.h"
 #include "rendmid.h"
+#include "hs_intropoint.h"
 #include "rendservice.h"
 #include "rephist.h"
 #include "router.h"
@@ -211,7 +213,7 @@ rend_encode_v2_intro_points(char **encoded, rend_service_descriptor_t *desc)
       goto done;
     }
     /* Assemble everything for this introduction point. */
-    address = tor_dup_addr(&info->addr);
+    address = tor_addr_to_str_dup(&info->addr);
     res = tor_snprintf(unenc + unenc_written, unenc_len - unenc_written,
                          "introduction-point %s\n"
                          "ip-address %s\n"
@@ -720,6 +722,22 @@ rend_valid_descriptor_id(const char *query)
   return 0;
 }
 
+/** Return true iff <b>client_name</b> is a syntactically valid name
+ * for rendezvous client authentication. */
+int
+rend_valid_client_name(const char *client_name)
+{
+  size_t len = strlen(client_name);
+  if (len < 1 || len > REND_CLIENTNAME_MAX_LEN) {
+    return 0;
+  }
+  if (strspn(client_name, REND_LEGAL_CLIENTNAME_CHARACTERS) != len) {
+    return 0;
+  }
+
+  return 1;
+}
+
 /** Called when we get a rendezvous-related relay cell on circuit
  * <b>circ</b>.  Dispatch on rendezvous relay command. */
 void
@@ -745,7 +763,7 @@ rend_process_relay_cell(circuit_t *circ, const crypt_path_t *layer_hint,
   switch (command) {
     case RELAY_COMMAND_ESTABLISH_INTRO:
       if (or_circ)
-        r = rend_mid_establish_intro(or_circ,payload,length);
+        r = hs_intro_received_establish_intro(or_circ,payload,length);
       break;
     case RELAY_COMMAND_ESTABLISH_RENDEZVOUS:
       if (or_circ)
@@ -753,7 +771,7 @@ rend_process_relay_cell(circuit_t *circ, const crypt_path_t *layer_hint,
       break;
     case RELAY_COMMAND_INTRODUCE1:
       if (or_circ)
-        r = rend_mid_introduce(or_circ,payload,length);
+        r = hs_intro_received_introduce1(or_circ,payload,length);
       break;
     case RELAY_COMMAND_INTRODUCE2:
       if (origin_circ)
@@ -786,124 +804,6 @@ rend_process_relay_cell(circuit_t *circ, const crypt_path_t *layer_hint,
   if (r == -2)
     log_info(LD_PROTOCOL, "Dropping cell (type %d) for wrong circuit type.",
              command);
-}
-
-/** Allocate and return a new rend_data_t with the same
- * contents as <b>query</b>. */
-rend_data_t *
-rend_data_dup(const rend_data_t *data)
-{
-  rend_data_t *data_dup;
-  tor_assert(data);
-  data_dup = tor_memdup(data, sizeof(rend_data_t));
-  data_dup->hsdirs_fp = smartlist_new();
-  SMARTLIST_FOREACH(data->hsdirs_fp, char *, fp,
-                    smartlist_add(data_dup->hsdirs_fp,
-                                  tor_memdup(fp, DIGEST_LEN)));
-  return data_dup;
-}
-
-/** Compute descriptor ID for each replicas and save them. A valid onion
- * address must be present in the <b>rend_data</b>.
- *
- * Return 0 on success else -1. */
-static int
-compute_desc_id(rend_data_t *rend_data)
-{
-  int ret = 0;
-  unsigned replica;
-  time_t now = time(NULL);
-
-  tor_assert(rend_data);
-
-  /* Compute descriptor ID for each replicas. */
-  for (replica = 0; replica < ARRAY_LENGTH(rend_data->descriptor_id);
-       replica++) {
-    ret = rend_compute_v2_desc_id(rend_data->descriptor_id[replica],
-                                  rend_data->onion_address,
-                                  rend_data->descriptor_cookie,
-                                  now, replica);
-    if (ret < 0) {
-      goto end;
-    }
-  }
-
- end:
-  return ret;
-}
-
-/** Allocate and initialize a rend_data_t object for a service using the
- * given arguments. Only the <b>onion_address</b> is not optional.
- *
- * Return a valid rend_data_t pointer. */
-rend_data_t *
-rend_data_service_create(const char *onion_address, const char *pk_digest,
-                         const uint8_t *cookie, rend_auth_type_t auth_type)
-{
-  rend_data_t *rend_data = tor_malloc_zero(sizeof(*rend_data));
-
-  /* We need at least one else the call is wrong. */
-  tor_assert(onion_address != NULL);
-
-  if (pk_digest) {
-    memcpy(rend_data->rend_pk_digest, pk_digest,
-           sizeof(rend_data->rend_pk_digest));
-  }
-  if (cookie) {
-    memcpy(rend_data->rend_cookie, cookie,
-           sizeof(rend_data->rend_cookie));
-  }
-
-  strlcpy(rend_data->onion_address, onion_address,
-          sizeof(rend_data->onion_address));
-  rend_data->auth_type = auth_type;
-  /* Won't be used but still need to initialize it for rend_data dup and
-   * free. */
-  rend_data->hsdirs_fp = smartlist_new();
-
-  return rend_data;
-}
-
-/** Allocate and initialize a rend_data_t object for a client request using
- * the given arguments.  Either an onion address or a descriptor ID is
- * needed. Both can be given but only the onion address will be used to make
- * the descriptor fetch.
- *
- * Return a valid rend_data_t pointer or NULL on error meaning the
- * descriptor IDs couldn't be computed from the given data. */
-rend_data_t *
-rend_data_client_create(const char *onion_address, const char *desc_id,
-                        const char *cookie, rend_auth_type_t auth_type)
-{
-  rend_data_t *rend_data = tor_malloc_zero(sizeof(*rend_data));
-
-  /* We need at least one else the call is wrong. */
-  tor_assert(onion_address != NULL || desc_id != NULL);
-
-  if (cookie) {
-    memcpy(rend_data->descriptor_cookie, cookie,
-           sizeof(rend_data->descriptor_cookie));
-  }
-  if (desc_id) {
-    memcpy(rend_data->desc_id_fetch, desc_id,
-           sizeof(rend_data->desc_id_fetch));
-  }
-  if (onion_address) {
-    strlcpy(rend_data->onion_address, onion_address,
-            sizeof(rend_data->onion_address));
-    if (compute_desc_id(rend_data) < 0) {
-      goto error;
-    }
-  }
-
-  rend_data->auth_type = auth_type;
-  rend_data->hsdirs_fp = smartlist_new();
-
-  return rend_data;
-
- error:
-  rend_data_free(rend_data);
-  return NULL;
 }
 
 /** Determine the routers that are responsible for <b>id</b> (binary) and
@@ -939,5 +839,193 @@ hid_serv_get_responsible_directories(smartlist_t *responsible_dirs,
   /* Even though we don't have the desired number of hidden service
    * directories, be happy if we got any. */
   return smartlist_len(responsible_dirs) ? 0 : -1;
+}
+
+/* Length of the 'extended' auth cookie used to encode auth type before
+ * base64 encoding. */
+#define REND_DESC_COOKIE_LEN_EXT (REND_DESC_COOKIE_LEN + 1)
+/* Length of the zero-padded auth cookie when base64 encoded. These two
+ * padding bytes always (A=) are stripped off of the returned cookie. */
+#define REND_DESC_COOKIE_LEN_EXT_BASE64 (REND_DESC_COOKIE_LEN_BASE64 + 2)
+
+/** Encode a client authorization descriptor cookie.
+ * The result of this function is suitable for use in the HidServAuth
+ * option.  The trailing padding characters are removed, and the
+ * auth type is encoded into the cookie.
+ *
+ * Returns a new base64-encoded cookie. This function cannot fail.
+ * The caller is responsible for freeing the returned value.
+ */
+char *
+rend_auth_encode_cookie(const uint8_t *cookie_in, rend_auth_type_t auth_type)
+{
+  uint8_t extended_cookie[REND_DESC_COOKIE_LEN_EXT];
+  char *cookie_out = tor_malloc_zero(REND_DESC_COOKIE_LEN_EXT_BASE64 + 1);
+  int re;
+
+  tor_assert(cookie_in);
+
+  memcpy(extended_cookie, cookie_in, REND_DESC_COOKIE_LEN);
+  extended_cookie[REND_DESC_COOKIE_LEN] = ((int)auth_type - 1) << 4;
+  re = base64_encode(cookie_out, REND_DESC_COOKIE_LEN_EXT_BASE64 + 1,
+                     (const char *) extended_cookie, REND_DESC_COOKIE_LEN_EXT,
+                     0);
+  tor_assert(re == REND_DESC_COOKIE_LEN_EXT_BASE64);
+
+  /* Remove the trailing 'A='.  Auth type is encoded in the high bits
+   * of the last byte, so the last base64 character will always be zero
+   * (A).  This is subtly different behavior from base64_encode_nopad. */
+  cookie_out[REND_DESC_COOKIE_LEN_BASE64] = '\0';
+  memwipe(extended_cookie, 0, sizeof(extended_cookie));
+  return cookie_out;
+}
+
+/** Decode a base64-encoded client authorization descriptor cookie.
+ * The descriptor_cookie can be truncated to REND_DESC_COOKIE_LEN_BASE64
+ * characters (as given to clients), or may include the two padding
+ * characters (as stored by the service).
+ *
+ * The result is stored in REND_DESC_COOKIE_LEN bytes of cookie_out.
+ * The rend_auth_type_t decoded from the cookie is stored in the
+ * optional auth_type_out parameter.
+ *
+ * Return 0 on success, or -1 on error.  The caller is responsible for
+ * freeing the returned err_msg.
+ */
+int
+rend_auth_decode_cookie(const char *cookie_in, uint8_t *cookie_out,
+                        rend_auth_type_t *auth_type_out, char **err_msg_out)
+{
+  uint8_t descriptor_cookie_decoded[REND_DESC_COOKIE_LEN_EXT + 1] = { 0 };
+  char descriptor_cookie_base64ext[REND_DESC_COOKIE_LEN_EXT_BASE64 + 1];
+  const char *descriptor_cookie = cookie_in;
+  char *err_msg = NULL;
+  int auth_type_val = 0;
+  int res = -1;
+  int decoded_len;
+
+  size_t len = strlen(descriptor_cookie);
+  if (len == REND_DESC_COOKIE_LEN_BASE64) {
+    /* Add a trailing zero byte to make base64-decoding happy. */
+    tor_snprintf(descriptor_cookie_base64ext,
+                 sizeof(descriptor_cookie_base64ext),
+                 "%sA=", descriptor_cookie);
+    descriptor_cookie = descriptor_cookie_base64ext;
+  } else if (len != REND_DESC_COOKIE_LEN_EXT_BASE64) {
+    tor_asprintf(&err_msg, "Authorization cookie has wrong length: %s",
+                 escaped(cookie_in));
+    goto err;
+  }
+
+  decoded_len = base64_decode((char *) descriptor_cookie_decoded,
+                              sizeof(descriptor_cookie_decoded),
+                              descriptor_cookie,
+                              REND_DESC_COOKIE_LEN_EXT_BASE64);
+  if (decoded_len != REND_DESC_COOKIE_LEN &&
+      decoded_len != REND_DESC_COOKIE_LEN_EXT) {
+    tor_asprintf(&err_msg, "Authorization cookie has invalid characters: %s",
+                 escaped(cookie_in));
+    goto err;
+  }
+
+  if (auth_type_out) {
+    auth_type_val = (descriptor_cookie_decoded[REND_DESC_COOKIE_LEN] >> 4) + 1;
+    if (auth_type_val < 1 || auth_type_val > 2) {
+      tor_asprintf(&err_msg, "Authorization cookie type is unknown: %s",
+                   escaped(cookie_in));
+      goto err;
+    }
+    *auth_type_out = auth_type_val == 1 ? REND_BASIC_AUTH : REND_STEALTH_AUTH;
+  }
+
+  memcpy(cookie_out, descriptor_cookie_decoded, REND_DESC_COOKIE_LEN);
+  res = 0;
+ err:
+  if (err_msg_out) {
+    *err_msg_out = err_msg;
+  } else {
+    tor_free(err_msg);
+  }
+  memwipe(descriptor_cookie_decoded, 0, sizeof(descriptor_cookie_decoded));
+  memwipe(descriptor_cookie_base64ext, 0, sizeof(descriptor_cookie_base64ext));
+  return res;
+}
+
+/* Is this a rend client or server that allows direct (non-anonymous)
+ * connections?
+ * Clients must be specifically compiled and configured in this mode.
+ * Onion services can be configured to start in this mode.
+ * Prefer rend_client_allow_non_anonymous_connection() or
+ * rend_service_allow_non_anonymous_connection() whenever possible, so that
+ * checks are specific to Single Onion Services or Tor2web. */
+int
+rend_allow_non_anonymous_connection(const or_options_t* options)
+{
+  return (rend_client_allow_non_anonymous_connection(options)
+          || rend_service_allow_non_anonymous_connection(options));
+}
+
+/* Is this a rend client or server in non-anonymous mode?
+ * Clients must be specifically compiled in this mode.
+ * Onion services can be configured to start in this mode.
+ * Prefer rend_client_non_anonymous_mode_enabled() or
+ * rend_service_non_anonymous_mode_enabled() whenever possible, so that checks
+ * are specific to Single Onion Services or Tor2web. */
+int
+rend_non_anonymous_mode_enabled(const or_options_t *options)
+{
+  return (rend_client_non_anonymous_mode_enabled(options)
+          || rend_service_non_anonymous_mode_enabled(options));
+}
+
+/* Make sure that tor only builds one-hop circuits when they would not
+ * compromise user anonymity.
+ *
+ * One-hop circuits are permitted in Tor2web or Single Onion modes.
+ *
+ * Tor2web or Single Onion modes are also allowed to make multi-hop circuits.
+ * For example, single onion HSDir circuits are 3-hop to prevent denial of
+ * service.
+ */
+void
+assert_circ_anonymity_ok(origin_circuit_t *circ,
+                         const or_options_t *options)
+{
+  tor_assert(options);
+  tor_assert(circ);
+  tor_assert(circ->build_state);
+
+  if (circ->build_state->onehop_tunnel) {
+    tor_assert(rend_allow_non_anonymous_connection(options));
+  }
+}
+
+/* Return 1 iff the given <b>digest</b> of a permenanent hidden service key is
+ * equal to the digest in the origin circuit <b>ocirc</b> of its rend data .
+ * If the rend data doesn't exist, 0 is returned. This function is agnostic to
+ * the rend data version. */
+int
+rend_circuit_pk_digest_eq(const origin_circuit_t *ocirc,
+                          const uint8_t *digest)
+{
+  size_t rend_pk_digest_len;
+  const uint8_t *rend_pk_digest;
+
+  tor_assert(ocirc);
+  tor_assert(digest);
+
+  if (ocirc->rend_data == NULL) {
+    goto no_match;
+  }
+
+  rend_pk_digest = rend_data_get_pk_digest(ocirc->rend_data,
+                                           &rend_pk_digest_len);
+  if (tor_memeq(rend_pk_digest, digest, rend_pk_digest_len)) {
+    goto match;
+  }
+ no_match:
+  return 0;
+ match:
+  return 1;
 }
 

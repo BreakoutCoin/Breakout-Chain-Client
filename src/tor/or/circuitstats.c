@@ -9,6 +9,18 @@
  *
  * \brief Maintains and analyzes statistics about circuit built times, so we
  * can tell how long we may need to wait for a fast circuit to be constructed.
+ *
+ * By keeping these statistics, a client learns when it should time out a slow
+ * circuit for being too slow, and when it should keep a circuit open in order
+ * to wait for it to complete.
+ *
+ * The information here is kept in a circuit_built_times_t structure, which is
+ * currently a singleton, but doesn't need to be.  It's updated by calls to
+ * circuit_build_times_count_timeout() from circuituse.c,
+ * circuit_build_times_count_close() from circuituse.c, and
+ * circuit_build_times_add_time() from circuitbuild.c, and inspected by other
+ * calls into this module, mostly from circuitlist.c.  Observations are
+ * persisted to disk via the or_state_t-related calls.
  */
 
 #define CIRCUITSTATS_PRIVATE
@@ -21,6 +33,8 @@
 #include "control.h"
 #include "onion_main.h"
 #include "networkstatus.h"
+#include "rendclient.h"
+#include "rendservice.h"
 #include "statefile.h"
 
 #undef log
@@ -81,27 +95,53 @@ get_circuit_build_timeout_ms(void)
 
 /**
  * This function decides if CBT learning should be disabled. It returns
- * true if one or more of the following four conditions are met:
+ * true if one or more of the following conditions are met:
  *
  *  1. If the cbtdisabled consensus parameter is set.
  *  2. If the torrc option LearnCircuitBuildTimeout is false.
  *  3. If we are a directory authority
  *  4. If we fail to write circuit build time history to our state file.
+ *  5. If we are compiled or configured in Tor2web mode
+ *  6. If we are configured in Single Onion mode
  */
 int
-circuit_build_times_disabled(void)
+circuit_build_times_disabled(const or_options_t *options)
+{
+  return circuit_build_times_disabled_(options, 0);
+}
+
+/** As circuit_build_times_disabled, but take options as an argument. */
+int
+circuit_build_times_disabled_(const or_options_t *options,
+                              int ignore_consensus)
 {
   if (unit_tests) {
     return 0;
   } else {
-    int consensus_disabled = networkstatus_get_param(NULL, "cbtdisabled",
+    int consensus_disabled =
+      ignore_consensus ? 0 : networkstatus_get_param(NULL, "cbtdisabled",
                                                      0, 0, 1);
-    int config_disabled = !get_options()->LearnCircuitBuildTimeout;
-    int dirauth_disabled = get_options()->AuthoritativeDir;
+    int config_disabled = !options->LearnCircuitBuildTimeout;
+    int dirauth_disabled = options->AuthoritativeDir;
     int state_disabled = did_last_state_file_write_fail() ? 1 : 0;
+    /* LearnCircuitBuildTimeout and Tor2web/Single Onion Services are
+     * incompatible in two ways:
+     *
+     * - LearnCircuitBuildTimeout results in a low CBT, which
+     *   Single Onion use of one-hop intro and rendezvous circuits lowers
+     *   much further, producing *far* too many timeouts.
+     *
+     * - The adaptive CBT code does not update its timeout estimate
+     *   using build times for single-hop circuits.
+     *
+     * If we fix both of these issues someday, we should test
+     * these modes with LearnCircuitBuildTimeout on again. */
+    int tor2web_disabled = rend_client_allow_non_anonymous_connection(options);
+    int single_onion_disabled = rend_service_allow_non_anonymous_connection(
+                                                                      options);
 
     if (consensus_disabled || config_disabled || dirauth_disabled ||
-           state_disabled) {
+        state_disabled || tor2web_disabled || single_onion_disabled) {
 #if 0
       log_debug(LD_CIRC,
                "CircuitBuildTime learning is disabled. "
@@ -309,7 +349,6 @@ circuit_build_times_min_timeout(void)
               "circuit_build_times_min_timeout() called, cbtmintimeout is %d",
               num);
   }
-
   return num;
 }
 
@@ -386,7 +425,7 @@ circuit_build_times_new_consensus_params(circuit_build_times_t *cbt,
    * update if we aren't.
    */
 
-  if (!circuit_build_times_disabled()) {
+  if (!circuit_build_times_disabled(get_options())) {
     num = circuit_build_times_recent_circuit_count(ns);
 
     if (num > 0) {
@@ -462,14 +501,15 @@ static double
 circuit_build_times_get_initial_timeout(void)
 {
   double timeout;
+  const or_options_t *options = get_options();
 
   /*
    * Check if we have LearnCircuitBuildTimeout, and if we don't,
    * always use CircuitBuildTimeout, no questions asked.
    */
-  if (!unit_tests && get_options()->CircuitBuildTimeout) {
-    timeout = get_options()->CircuitBuildTimeout*1000;
-    if (get_options()->LearnCircuitBuildTimeout &&
+  if (!unit_tests && options->CircuitBuildTimeout) {
+    timeout = options->CircuitBuildTimeout*1000;
+    if (!circuit_build_times_disabled(options) &&
         timeout < circuit_build_times_min_timeout()) {
       log_warn(LD_CIRC, "Config CircuitBuildTimeout too low. Setting to %ds",
                circuit_build_times_min_timeout()/1000);
@@ -511,7 +551,7 @@ circuit_build_times_init(circuit_build_times_t *cbt)
    * Check if we really are using adaptive timeouts, and don't keep
    * track of this stuff if not.
    */
-  if (!circuit_build_times_disabled()) {
+  if (!circuit_build_times_disabled(get_options())) {
     cbt->liveness.num_recent_circs =
       circuit_build_times_recent_circuit_count(NULL);
     cbt->liveness.timeouts_after_firsthop =
@@ -578,18 +618,18 @@ circuit_build_times_rewind_history(circuit_build_times_t *cbt, int n)
  * array is full.
  */
 int
-circuit_build_times_add_time(circuit_build_times_t *cbt, build_time_t time)
+circuit_build_times_add_time(circuit_build_times_t *cbt, build_time_t btime)
 {
-  if (time <= 0 || time > CBT_BUILD_TIME_MAX) {
+  if (btime <= 0 || btime > CBT_BUILD_TIME_MAX) {
     log_warn(LD_BUG, "Circuit build time is too large (%u)."
-                      "This is probably a bug.", time);
+                      "This is probably a bug.", btime);
     tor_fragile_assert();
     return -1;
   }
 
-  log_debug(LD_CIRC, "Adding circuit build time %u", time);
+  log_debug(LD_CIRC, "Adding circuit build time %u", btime);
 
-  cbt->circuit_build_times[cbt->build_times_idx] = time;
+  cbt->circuit_build_times[cbt->build_times_idx] = btime;
   cbt->build_times_idx = (cbt->build_times_idx + 1) % CBT_NCIRCUITS_TO_OBSERVE;
   if (cbt->total_build_times < CBT_NCIRCUITS_TO_OBSERVE)
     cbt->total_build_times++;
@@ -875,7 +915,7 @@ circuit_build_times_parse_state(circuit_build_times_t *cbt,
   int err = 0;
   circuit_build_times_init(cbt);
 
-  if (circuit_build_times_disabled()) {
+  if (circuit_build_times_disabled(get_options())) {
     return 0;
   }
 
@@ -1400,7 +1440,7 @@ circuit_build_times_network_check_changed(circuit_build_times_t *cbt)
 
 #define MAX_TIMEOUT ((int32_t) (INT32_MAX/2))
   /* Check to see if this has happened before. If so, double the timeout
-   * to give people on abysmally bad network connections a shot at access */
+   * to give clients on abysmally bad network connections a shot at access */
   if (cbt->timeout_ms >= circuit_build_times_get_initial_timeout()) {
     if (cbt->timeout_ms > MAX_TIMEOUT || cbt->close_ms > MAX_TIMEOUT) {
       log_warn(LD_CIRC, "Insanely large circuit build timeout value. "
@@ -1476,7 +1516,7 @@ circuit_build_times_count_close(circuit_build_times_t *cbt,
                                 int did_onehop,
                                 time_t start_time)
 {
-  if (circuit_build_times_disabled()) {
+  if (circuit_build_times_disabled(get_options())) {
     cbt->close_ms = cbt->timeout_ms
                   = circuit_build_times_get_initial_timeout();
     return 0;
@@ -1507,7 +1547,7 @@ void
 circuit_build_times_count_timeout(circuit_build_times_t *cbt,
                                   int did_onehop)
 {
-  if (circuit_build_times_disabled()) {
+  if (circuit_build_times_disabled(get_options())) {
     cbt->close_ms = cbt->timeout_ms
                   = circuit_build_times_get_initial_timeout();
     return;
@@ -1581,7 +1621,7 @@ circuit_build_times_set_timeout(circuit_build_times_t *cbt)
   /*
    * Just return if we aren't using adaptive timeouts
    */
-  if (circuit_build_times_disabled())
+  if (circuit_build_times_disabled(get_options()))
     return;
 
   if (!circuit_build_times_set_timeout_worker(cbt))

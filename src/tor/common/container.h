@@ -33,6 +33,7 @@ void smartlist_clear(smartlist_t *sl);
 void smartlist_add(smartlist_t *sl, void *element);
 void smartlist_add_all(smartlist_t *sl, const smartlist_t *s2);
 void smartlist_remove(smartlist_t *sl, const void *element);
+void smartlist_remove_keeporder(smartlist_t *sl, const void *element);
 void *smartlist_pop_last(smartlist_t *sl);
 void smartlist_reverse(smartlist_t *sl);
 void smartlist_string_remove(smartlist_t *sl, const char *element);
@@ -526,7 +527,7 @@ void* strmap_remove_lc(strmap_t *map, const char *key);
     return (valtype*)digestmap_remove((digestmap_t*)map, key);          \
   }                                                                     \
   ATTR_UNUSED static inline void                                        \
-  prefix##free(maptype *map, void (*free_val)(void*))                   \
+  prefix##f##ree(maptype *map, void (*free_val)(void*))                 \
   {                                                                     \
     digestmap_free((digestmap_t*)map, free_val);                        \
   }                                                                     \

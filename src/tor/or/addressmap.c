@@ -264,18 +264,18 @@ addressmap_clear_invalid_automaps(const or_options_t *options)
     clear_all = 1; /* This should be impossible, but let's be sure. */
 
   STRMAP_FOREACH_MODIFY(addressmap, src_address, addressmap_entry_t *, ent) {
-    int remove = clear_all;
+    int remove_this = clear_all;
     if (ent->source != ADDRMAPSRC_AUTOMAP)
       continue; /* not an automap mapping. */
 
-    if (!remove) {
-      remove = ! addressmap_address_should_automap(src_address, options);
+    if (!remove_this) {
+      remove_this = ! addressmap_address_should_automap(src_address, options);
     }
 
-    if (!remove && ! address_is_in_virtual_range(ent->new_address))
-      remove = 1;
+    if (!remove_this && ! address_is_in_virtual_range(ent->new_address))
+      remove_this = 1;
 
-    if (remove) {
+    if (remove_this) {
       addressmap_ent_remove(src_address, ent);
       MAP_DEL_CURRENT(src_address);
     }
@@ -376,29 +376,38 @@ addressmap_rewrite(char *address, size_t maxlen,
   char *addr_orig = tor_strdup(address);
   char *log_addr_orig = NULL;
 
+  /* We use a loop here to limit the total number of rewrites we do,
+   * so that we can't hit an infinite loop. */
   for (rewrites = 0; rewrites < 16; rewrites++) {
     int exact_match = 0;
     log_addr_orig = tor_strdup(escaped_safe_str_client(address));
 
+    /* First check to see if there's an exact match for this address */
     ent = strmap_get(addressmap, address);
 
     if (!ent || !ent->new_address) {
+      /* And if we don't have an exact match, try to check whether
+       * we have a pattern-based match.
+       */
       ent = addressmap_match_superdomains(address);
     } else {
       if (ent->src_wildcard && !ent->dst_wildcard &&
           !strcasecmp(address, ent->new_address)) {
-        /* This is a rule like *.example.com example.com, and we just got
-         * "example.com" */
+        /* This is a rule like "rewrite *.example.com to example.com", and we
+         * just got "example.com". Instead of calling it an infinite loop,
+         * call it complete. */
         goto done;
       }
-
       exact_match = 1;
     }
 
     if (!ent || !ent->new_address) {
+      /* We still have no match at all.  We're done! */
       goto done;
     }
 
+    /* Check wither the flags we were passed tell us not to use this
+     * mapping. */
     switch (ent->source) {
       case ADDRMAPSRC_DNS:
         {
@@ -431,6 +440,8 @@ addressmap_rewrite(char *address, size_t maxlen,
         goto done;
     }
 
+    /* Now fill in the address with the new address. That might be via
+     * appending some new stuff to the end, or via just replacing it. */
     if (ent->dst_wildcard && !exact_match) {
       strlcat(address, ".", maxlen);
       strlcat(address, ent->new_address, maxlen);
@@ -438,6 +449,7 @@ addressmap_rewrite(char *address, size_t maxlen,
       strlcpy(address, ent->new_address, maxlen);
     }
 
+    /* Is this now a .exit address?  If so, remember where we got it.*/
     if (!strcmpend(address, ".exit") &&
         strcmpend(addr_orig, ".exit") &&
         exit_source == ADDRMAPSRC_NONE) {
@@ -774,7 +786,7 @@ parse_virtual_addr_network(const char *val, sa_family_t family,
   const int ipv6 = (family == AF_INET6);
   tor_addr_t addr;
   maskbits_t bits;
-  const int max_bits = ipv6 ? 40 : 16;
+  const int max_prefix_bits = ipv6 ? 104 : 16;
   virtual_addr_conf_t *conf = ipv6 ? &virtaddr_conf_ipv6 : &virtaddr_conf_ipv4;
 
   if (!val || val[0] == '\0') {
@@ -804,10 +816,10 @@ parse_virtual_addr_network(const char *val, sa_family_t family,
   }
 #endif
 
-  if (bits > max_bits) {
+  if (bits > max_prefix_bits) {
     if (msg)
       tor_asprintf(msg, "VirtualAddressNetwork%s expects a /%d "
-                   "network or larger",ipv6?"IPv6":"", max_bits);
+                   "network or larger",ipv6?"IPv6":"", max_prefix_bits);
     return -1;
   }
 
@@ -896,10 +908,10 @@ addressmap_get_virtual_address(int type)
   tor_assert(addressmap);
 
   if (type == RESOLVED_TYPE_HOSTNAME) {
-    char rand[10];
+    char rand_bytes[10];
     do {
-      crypto_rand(rand, sizeof(rand));
-      base32_encode(buf,sizeof(buf),rand,sizeof(rand));
+      crypto_rand(rand_bytes, sizeof(rand_bytes));
+      base32_encode(buf,sizeof(buf),rand_bytes,sizeof(rand_bytes));
       strlcat(buf, ".virtual", sizeof(buf));
     } while (strmap_get(addressmap, buf));
     return tor_strdup(buf);
@@ -1107,11 +1119,11 @@ addressmap_get_mappings(smartlist_t *sl, time_t min_expires,
              smartlist_add_asprintf(sl, "%s%s %s%s NEVER",
                                     src_wc, key, dst_wc, val->new_address);
            else {
-             char time[ISO_TIME_LEN+1];
-             format_iso_time(time, val->expires);
+             char isotime[ISO_TIME_LEN+1];
+             format_iso_time(isotime, val->expires);
              smartlist_add_asprintf(sl, "%s%s %s%s \"%s\"",
                                     src_wc, key, dst_wc, val->new_address,
-                                    time);
+                                    isotime);
            }
          } else {
            smartlist_add_asprintf(sl, "%s%s %s%s",

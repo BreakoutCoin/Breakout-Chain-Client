@@ -80,6 +80,10 @@
 /* Define to 1 if you have the <cygwin/signal.h> header file. */
 /* #undef HAVE_CYGWIN_SIGNAL_H */
 
+/* Define to 1 if you have the declaration of `getpagesize', and to 0 if you
+   don't. */
+#define HAVE_DECL_GETPAGESIZE 0
+
 /* Define to 1 if you have the declaration of `mlockall', and to 0 if you
    don't. */
 #define HAVE_DECL_MLOCKALL 1
@@ -546,7 +550,7 @@
 #define PACKAGE_NAME "tor"
 
 /* Define to the full name and version of this package. */
-#define PACKAGE_STRING "tor 0.2.8.6"
+#define PACKAGE_STRING "tor 0.3.0.9"
 
 /* Define to the one symbol short name of this package. */
 #define PACKAGE_TARNAME "tor"
@@ -555,7 +559,7 @@
 #define PACKAGE_URL ""
 
 /* Define to the version of this package. */
-#define PACKAGE_VERSION "0.2.8.6"
+#define PACKAGE_VERSION "0.3.0.9"
 
 /* How to access the PC from a struct ucontext */
 #if defined(__arm__)
@@ -659,7 +663,7 @@
 #define USING_TWOS_COMPLEMENT 1
 
 /* Version number of package */
-#define VERSION "0.2.8.6"
+#define VERSION "0.3.0.9"
 
 /* Define WORDS_BIGENDIAN to 1 if your processor stores words with the most
    significant byte first (like Motorola and SPARC, unlike Intel). */

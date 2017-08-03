@@ -9,11 +9,26 @@
  *
  * \brief Functions and structures to handle set-type selection of routers
  *  by name, ID, address, etc.
+ *
+ * This module implements the routerset_t data structure, whose purpose
+ * is to specify a set of relays based on a list of their identities or
+ * properties.  Routersets can restrict relays by IP address mask,
+ * identity fingerprint, country codes, and nicknames (deprecated).
+ *
+ * Routersets are typically used for user-specified restrictions, and
+ * are created by invoking routerset_new and routerset_parse from
+ * config.c and confparse.c.  To use a routerset, invoke one of
+ * routerset_contains_...() functions , or use
+ * routerstatus_get_all_nodes() / routerstatus_subtract_nodes() to
+ * manipulate a smartlist of node_t pointers.
+ *
+ * Country-code restrictions are implemented in geoip.c.
  */
 
 #define ROUTERSET_PRIVATE
 
 #include "or.h"
+#include "bridges.h"
 #include "geoip.h"
 #include "nodelist.h"
 #include "policies.h"
@@ -248,12 +263,12 @@ routerset_add_unknown_ccs(routerset_t **setp, int only_if_some_cc_set)
     geoip_get_country("A1") >= 0;
 
   if (add_unknown) {
-    smartlist_add(set->country_names, tor_strdup("??"));
-    smartlist_add(set->list, tor_strdup("{??}"));
+    smartlist_add_strdup(set->country_names, "??");
+    smartlist_add_strdup(set->list, "{??}");
   }
   if (add_a1) {
-    smartlist_add(set->country_names, tor_strdup("a1"));
-    smartlist_add(set->list, tor_strdup("{a1}"));
+    smartlist_add_strdup(set->country_names, "a1");
+    smartlist_add_strdup(set->list, "{a1}");
   }
 
   if (add_unknown || add_a1) {
@@ -318,6 +333,18 @@ routerset_contains_node(const routerset_t *set, const node_t *node)
     return routerset_contains_router(set, node->ri, node->country);
   else
     return 0;
+}
+
+/** Return true iff <b>routerset</b> contains the bridge <b>bridge</b>. */
+int
+routerset_contains_bridge(const routerset_t *set, const bridge_info_t *bridge)
+{
+  const char *id = (const char*)bridge_get_rsa_id_digest(bridge);
+  const tor_addr_port_t *addrport = bridge_get_addr_port(bridge);
+
+  tor_assert(addrport);
+  return routerset_contains(set, &addrport->addr, addrport->port,
+                            NULL, id, -1);
 }
 
 /** Add every known node_t that is a member of <b>routerset</b> to
