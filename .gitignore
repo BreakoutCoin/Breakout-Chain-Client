@@ -1,3 +1,13 @@
+
+################################
+# Operating System Files
+################################
+
+#
+# Windows
+#
+
+
 # Windows image file caches
 Thumbs.db
 ehthumbs.db
@@ -8,21 +18,15 @@ Desktop.ini
 # Recycle Bin used on file shares
 $RECYCLE.BIN/
 
-# Backup files
-*.bak
-
 # Windows Installer files
 *.cab
 *.msi
 *.msm
 *.msp
 
-# =========================
-# Operating System Files
-# =========================
-
+#
 # OSX
-# =========================
+#
 
 .DS_Store
 .AppleDouble
@@ -45,13 +49,120 @@ Network Trash Folder
 Temporary Items
 .apdisk
 
-# qt
+
+################################
+# Programming Languages
+################################
+
+
+# python
+*.py[cod]
+
+# C extensions
+*.so
+
+
+################################
+# Packages
+################################
+
+# Packages
+*.egg
+*.egg-info
+dist
+bin
+build
+eggs
+parts
+var
+sdist
+develop-eggs
+.installed.cfg
+lib
+lib64
+
+
+################################
+# Archives
+################################
+
+# compressed
+*.tar
+
+# bootstraps
+bootstrap*.dat
+
+
+
+################################
+# Log Files
+################################
+
+# Installer logs
+pip-log.txt
+
+# General logs
+*.log
+
+
+################################
+# Testing
+################################
+
+# Unit test / coverage reports
+.coverage
+.tox
+nosetests.xml
+
+
+################################
+# Temporary Files
+################################
+
+# vim backup files
+*~
+
+# Translations
+*.mo
+
+# general
+*.not
+*eraseme*
+erase.*
+erase-*
+cache
+*.bak
+*.lkg
+
+
+################################
+# IDEs
+################################
+
+# mr Developer
+.mr.developer.cfg
+.project
+.pydevproject
+
+# qt creator
 *.user
 *.user.*
 *.qm
-*~
 
-# breakout
+
+################################
+# Revision Control
+################################
+
+# svn
+.svn
+
+
+################################
+# Building Artifacts
+################################
+
+# daemon
 breakoutd
 
 # libcryptopp
@@ -59,6 +170,3 @@ src/libcryptopp/*.o
 src/libcryptopp/adhoc.cpp
 src/libcryptopp/cryptest.exe
 src/libcryptopp/libcryptopp.a
-
-# archives
-*.tar
