@@ -31,10 +31,13 @@ QString TransactionDesc::ValueMapToHTML(const std::map<int, int64_t> &valueMap)
 
 QString TransactionDesc::TxInToHTML(const CTxIn &txin, const CWallet* wallet)
 {
+    // individual tx do not affect any balance calculation
+    static const bool fMultiSig = true;
+
     QString strHTML;
-    if (wallet->IsMine(txin))
+    if (wallet->IsMine(txin, fMultiSig))
     {
-        std::pair<int, int64_t> deb = wallet->GetDebit(txin);
+        std::pair<int, int64_t> deb = wallet->GetDebit(txin, fMultiSig);
         if (CheckColor(deb.first))
         {
             strHTML += "<b>" + tr("Debit") + ":</b> " +
@@ -47,10 +50,13 @@ QString TransactionDesc::TxInToHTML(const CTxIn &txin, const CWallet* wallet)
 
 QString TransactionDesc::TxOutToHTML(const CTxOut &txout, const CWallet* wallet)
 {
+    // individual tx do not affect any representation
+    static const bool fMultiSig = true;
+
     QString strHTML;
-    if (wallet->IsMine(txout))
+    if (wallet->IsMine(txout, fMultiSig))
     {
-        std::pair<int, int64_t> cred= wallet->GetCredit(txout);
+        std::pair<int, int64_t> cred= wallet->GetCredit(txout, fMultiSig);
         if (CheckColor(cred.first))
         {
             strHTML += "<b>" + tr("Credit") + ":</b> " +
@@ -86,6 +92,9 @@ QString TransactionDesc::FormatTxStatus(const CWalletTx& wtx)
 
 QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx)
 {
+    // individual tx do not affect any representation
+    static const bool fMultiSig = true;
+
     QString strHTML;
 
     LOCK2(cs_main, wallet->cs_wallet);
@@ -96,9 +105,9 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx)
 
     std::map<int, int64_t> mapDebit, mapCredit, mapChange, mapNet;
     // debits
-    wallet->FillDebits(wtx, mapDebit);
+    wallet->FillDebits(wtx, mapDebit, fMultiSig);
     // credits (mature)
-    wallet->FillMatures(wtx, mapCredit);
+    wallet->FillMatures(wtx, mapCredit, fMultiSig);
 
     // nets (mature - debits)
     FillNets(mapDebit, mapCredit, mapNet);
@@ -137,10 +146,10 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx)
             // Credit
             BOOST_FOREACH(const CTxOut& txout, wtx.vout)
             {
-                if (wallet->IsMine(txout))
+                if (wallet->IsMine(txout, fMultiSig))
                 {
                     CTxDestination address;
-                    if (ExtractDestination(txout.scriptPubKey, address) && IsMine(*wallet, address))
+                    if (ExtractDestination(txout.scriptPubKey, address) && IsMine(*wallet, address, fMultiSig))
                     {
                         if (wallet->mapAddressBook.count(address))
                         {
@@ -189,7 +198,7 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx)
         if (wtx.IsInMainChain())
         {
             std::map<int, int64_t> mapUnmatured;
-            wallet->FillCredits(wtx, mapUnmatured);
+            wallet->FillCredits(wtx, mapUnmatured, fMultiSig);
             strHTML += ValueMapToHTML(mapUnmatured);
             strHTML += " (" + tr("matures in %n more block(s)", "", wtx.GetBlocksToMaturity()) + ")";
         }
@@ -211,7 +220,7 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx)
         bool fAllFromMe = true;
         BOOST_FOREACH(const CTxIn& txin, wtx.vin)
         {
-            fAllFromMe = fAllFromMe && wallet->IsMine(txin);
+            fAllFromMe = fAllFromMe && wallet->IsMine(txin, fMultiSig);
             if (!fAllFromMe)
             {
                 break;
@@ -221,7 +230,7 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx)
         bool fAllToMe = true;
         BOOST_FOREACH(const CTxOut& txout, wtx.vout)
         {
-            fAllToMe = fAllToMe && wallet->IsMine(txout);
+            fAllToMe = fAllToMe && wallet->IsMine(txout, fMultiSig);
             if (!fAllToMe)
             {
                 break;
@@ -235,7 +244,7 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx)
             //
             BOOST_FOREACH(const CTxOut& txout, wtx.vout)
             {
-                if (wallet->IsMine(txout))
+                if (wallet->IsMine(txout, fMultiSig))
                 {
                     continue;
                 }
@@ -272,7 +281,7 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx)
             }
 
             wtx.FillValuesOut(mapValuesOut);
-            wallet->FillDebits(wtx, mapDebit);
+            wallet->FillDebits(wtx, mapDebit, fMultiSig);
             FillNets(mapValuesOut, mapDebit, mapFee);
             if (ValueMapAllPositive(mapFee))
             {
@@ -368,7 +377,7 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx)
                     }
                     strHTML += " " + tr("Amount") + "=" +
                                  BitcoinUnits::formatWithUnit(BitcoinUnits::BTC, vout.nValue, vout.nColor);
-                    strHTML += " IsMine=" + (wallet->IsMine(vout) ? tr("true") : tr("false")) + "</li>";
+                    strHTML += " IsMine=" + (wallet->IsMine(vout, fMultiSig) ? tr("true") : tr("false")) + "</li>";
                 }
             }
         }

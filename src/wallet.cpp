@@ -24,7 +24,6 @@
 #include <boost/algorithm/string/replace.hpp>
 
 using namespace std;
-extern unsigned int nStakeMaxAge;
 
 int64_t nStakeSplitAge = 21 * 24 * 60 * 60;  // 21 days
 
@@ -482,6 +481,9 @@ CWallet::TxItems CWallet::OrderedTxItems(std::list<CAccountingEntry>& acentries,
 
 void CWallet::WalletUpdateSpent(const CTransaction &tx, bool fBlock)
 {
+    // no reason why multisig txs can't be marked spent (?)
+    static const bool fMultiSig = true;
+
     // Anytime a signature is successfully verified, it's proof the outpoint is spent.
     // Update the wallet spent flag if it doesn't know due to wallet.dat being
     // restored from backup or the user making copies of wallet.dat.
@@ -495,10 +497,10 @@ void CWallet::WalletUpdateSpent(const CTransaction &tx, bool fBlock)
                 CWalletTx& wtx = (*mi).second;
                 if (txin.prevout.n >= wtx.vout.size())
                     printf("WalletUpdateSpent: bad wtx %s\n", wtx.GetHash().ToString().c_str());
-                else if (!wtx.IsSpent(txin.prevout.n) && IsMine(wtx.vout[txin.prevout.n]))
+                else if (!wtx.IsSpent(txin.prevout.n) && IsMine(wtx.vout[txin.prevout.n], fMultiSig))
                 {
                     printf("WalletUpdateSpent found spent coin %s %s %s\n",
-                           FormatMoney(wtx.GetCredit(wtx.vout[txin.prevout.n].nColor),
+                           FormatMoney(wtx.GetCredit(wtx.vout[txin.prevout.n].nColor, fMultiSig),
                                                      wtx.vout[txin.prevout.n].nColor).c_str(),
                                                    COLOR_TICKER[wtx.vout[txin.prevout.n].nColor],
                                                                  wtx.GetHash().ToString().c_str());
@@ -517,7 +519,7 @@ void CWallet::WalletUpdateSpent(const CTransaction &tx, bool fBlock)
 
             BOOST_FOREACH(const CTxOut& txout, tx.vout)
             {
-                if (IsMine(txout))
+                if (IsMine(txout, fMultiSig))
                 {
                     wtx.MarkUnspent(&txout - &tx.vout[0]);
                     wtx.WriteToDisk();
@@ -672,6 +674,9 @@ bool CWallet::AddToWallet(const CWalletTx& wtxIn)
 // If fUpdate is true, existing transactions will be updated.
 bool CWallet::AddToWalletIfInvolvingMe(const CTransaction& tx, const CBlock* pblock, bool fUpdate, bool fFindBlock)
 {
+    // no reason why multisig txs can't be added to the wallet
+    static const bool fMultiSig = true;
+
     uint256 hash = tx.GetHash();
     {
         LOCK(cs_wallet);
@@ -679,7 +684,7 @@ bool CWallet::AddToWalletIfInvolvingMe(const CTransaction& tx, const CBlock* pbl
         if (fExisted && !fUpdate) return false;
         mapValue_t mapNarr;
         FindStealthTransactions(tx, mapNarr);
-        if (fExisted || IsMine(tx) || IsFromMe(tx))
+        if (fExisted || IsMine(tx, fMultiSig) || IsFromMe(tx, fMultiSig))
         {
             CWalletTx wtx(this,tx);
             if (!mapNarr.empty())
@@ -708,7 +713,7 @@ bool CWallet::EraseFromWallet(uint256 hash)
 }
 
 
-bool CWallet::IsMine(const CTxIn &txin) const
+bool CWallet::IsMine(const CTxIn &txin, bool fMultiSig) const
 {
     {
         LOCK(cs_wallet);
@@ -717,14 +722,17 @@ bool CWallet::IsMine(const CTxIn &txin) const
         {
             const CWalletTx& prev = (*mi).second;
             if (txin.prevout.n < prev.vout.size())
-                if (IsMine(prev.vout[txin.prevout.n]))
+                if (IsMine(prev.vout[txin.prevout.n], fMultiSig))
+                {
                     return true;
+                }
         }
     }
     return false;
 }
 
-std::pair<int, int64_t> CWallet::GetDebit(const CTxIn &txin) const
+// multisig is dependent on context
+std::pair<int, int64_t> CWallet::GetDebit(const CTxIn &txin, bool fMultiSig) const
 {
     {
         LOCK(cs_wallet);
@@ -734,7 +742,7 @@ std::pair<int, int64_t> CWallet::GetDebit(const CTxIn &txin) const
             const CWalletTx& prev = (*mi).second;
             if (txin.prevout.n < prev.vout.size())
             {
-                if (IsMine(prev.vout[txin.prevout.n]))
+                if (IsMine(prev.vout[txin.prevout.n], fMultiSig))
                 {
                     return std::make_pair(prev.vout[txin.prevout.n].nColor,
                                                  prev.vout[txin.prevout.n].nValue);
@@ -745,7 +753,7 @@ std::pair<int, int64_t> CWallet::GetDebit(const CTxIn &txin) const
     return std::make_pair(BREAKOUT_COLOR_NONE, 0);
 }
 
-int64_t CWallet::GetDebit(const CTxIn &txin, int nColor) const
+int64_t CWallet::GetDebit(const CTxIn &txin, int nColor, bool fMultiSig) const
 {
     {
         LOCK(cs_wallet);
@@ -755,7 +763,7 @@ int64_t CWallet::GetDebit(const CTxIn &txin, int nColor) const
             const CWalletTx& prev = (*mi).second;
             if (txin.prevout.n < prev.vout.size())
             {
-                if (IsMine(prev.vout[txin.prevout.n]) &&
+                if (IsMine(prev.vout[txin.prevout.n], fMultiSig) &&
                                   prev.vout[txin.prevout.n].nColor == nColor)
                 {
                     return prev.vout[txin.prevout.n].nValue;
@@ -768,6 +776,13 @@ int64_t CWallet::GetDebit(const CTxIn &txin, int nColor) const
 
 bool CWallet::IsChange(const CTxOut& txout) const
 {
+    // change status does not impact spendable balance, so enable multisig
+    // also mutlisig is either
+    //      (1) same address or
+    //      (2) all keys of prev multisig with one or more substitutions
+    //          by the originator of the tx
+    static const bool fMultiSig = true;
+
     CTxDestination address;
 
     // TODO: fix handling of 'change' outputs. The assumption is that any
@@ -777,7 +792,7 @@ bool CWallet::IsChange(const CTxOut& txout) const
     // a better way of identifying which outputs are 'the send' and which are
     // 'the change' will need to be implemented (maybe extend CWalletTx to remember
     // which output, if any, was change).
-    if (ExtractDestination(txout.scriptPubKey, address) && ::IsMine(*this, address))
+    if (ExtractDestination(txout.scriptPubKey, address) && ::IsMine(*this, address, fMultiSig))
     {
         LOCK(cs_wallet);
         if (!mapAddressBook.count(address))
@@ -831,10 +846,11 @@ int CWalletTx::GetRequestCount() const
     return nRequests;
 }
 
+// this is not used outside of RPC, so multisig is optional
 void CWalletTx::GetAmounts(int nColor, list<pair<CTxDestination,
                            int64_t> >& listReceived,
                            list<pair<CTxDestination, int64_t> >& listSent,
-                           int64_t& nFee, string& strSentAccount) const
+                           int64_t& nFee, string& strSentAccount, bool fMultiSig) const
 {
     if (!CheckColor(nColor))
     {
@@ -847,7 +863,7 @@ void CWalletTx::GetAmounts(int nColor, list<pair<CTxDestination,
     strSentAccount = strFromAccount;
 
     // Compute fee in nColor
-    int64_t nDebit = GetDebit(nColor);
+    int64_t nDebit = GetDebit(nColor, fMultiSig);
     if (nDebit > 0) // debit>0 means we signed/sent this transaction
     {
         int64_t nValueOut = GetValueOut(nColor);
@@ -873,7 +889,6 @@ void CWalletTx::GetAmounts(int nColor, list<pair<CTxDestination,
             && firstOpCode == OP_RETURN)
             continue;
         
-
         bool fIsMine;
         // Only need to handle txouts if AT LEAST one of these is true:
         //   1) they debit from us (sent)
@@ -883,9 +898,9 @@ void CWalletTx::GetAmounts(int nColor, list<pair<CTxDestination,
             // Don't report 'change' txouts
             if (pwallet->IsChange(txout))
                 continue;
-            fIsMine = pwallet->IsMine(txout);
+            fIsMine = pwallet->IsMine(txout, fMultiSig);
         }
-        else if (!(fIsMine = pwallet->IsMine(txout)))
+        else if (!(fIsMine = pwallet->IsMine(txout, fMultiSig)))
             continue;
 
         // In either case, we need to get the destination address
@@ -908,8 +923,9 @@ void CWalletTx::GetAmounts(int nColor, list<pair<CTxDestination,
 
 }
 
+// this is not used outside of RPC, so multisig is optional
 void CWalletTx::GetAccountAmounts(int nColor, const string& strAccount,
-                                  int64_t& nReceived, int64_t& nSent, int64_t& nFee) const
+                                  int64_t& nReceived, int64_t& nSent, int64_t& nFee, bool fMultiSig) const
 {
     nReceived = nSent = nFee = 0;
 
@@ -917,7 +933,7 @@ void CWalletTx::GetAccountAmounts(int nColor, const string& strAccount,
     string strSentAccount;
     list<pair<CTxDestination, int64_t> > listReceived;
     list<pair<CTxDestination, int64_t> > listSent;
-    GetAmounts(nColor, listReceived, listSent, allFee, strSentAccount);
+    GetAmounts(nColor, listReceived, listSent, allFee, strSentAccount, fMultiSig);
 
     if (strAccount == strSentAccount)
     {
@@ -1054,6 +1070,9 @@ int CWallet::ScanForWalletTransaction(const uint256& hashTx)
 
 void CWallet::ReacceptWalletTransactions()
 {
+    // no reason to exlcude multisig transactions from wallet acceptance
+    static const bool fMultiSig = true;
+
     CTxDB txdb("r");
     bool fRepeat = true;
     while (fRepeat)
@@ -1084,7 +1103,7 @@ void CWallet::ReacceptWalletTransactions()
                 {
                     if (wtx.IsSpent(i))
                         continue;
-                    if (!txindex.vSpent[i].IsNull() && IsMine(wtx.vout[i]))
+                    if (!txindex.vSpent[i].IsNull() && IsMine(wtx.vout[i], fMultiSig))
                     {
                         wtx.MarkSpent(i);
                         fUpdated = true;
@@ -1095,7 +1114,8 @@ void CWallet::ReacceptWalletTransactions()
                 if (fUpdated)
                 {
                     printf("ReacceptWalletTransactions found spent coin %s %s %s\n",
-                                FormatMoney(wtx.GetCredit(txSpentOut.nColor), txSpentOut.nColor).c_str(), 
+                                FormatMoney(wtx.GetCredit(txSpentOut.nColor, fMultiSig),
+                                         txSpentOut.nColor).c_str(), 
                                          COLOR_TICKER[txSpentOut.nColor],
                                          wtx.GetHash().ToString().c_str());
                     wtx.MarkDirty();
@@ -1207,6 +1227,9 @@ void CWallet::ResendWalletTransactions(bool fForce)
 // gets balance for coin of nColor
 int64_t CWallet::GetBalance(int nColor) const
 {
+    // balance does not apply to multisigs in a straightforward way
+    static const bool fMultiSig = false;
+
     int64_t nTotal = 0;
     {
         LOCK2(cs_main, cs_wallet);
@@ -1214,7 +1237,7 @@ int64_t CWallet::GetBalance(int nColor) const
                                                            it != mapWallet.end(); ++it)
         {
             const CWalletTx* pcoin = &(*it).second;
-            nTotal += pcoin->GetAvailableCredit(nColor);
+            nTotal += pcoin->GetAvailableCredit(nColor, fMultiSig);
         }
     }
     return nTotal;
@@ -1224,6 +1247,9 @@ int64_t CWallet::GetBalance(int nColor) const
 // Fills vector of length N_COLORS with all balances, indexed by color.
 void CWallet::GetBalances(int nMinDepth, std::vector<int64_t> &vBalance) const
 {
+    // concept of a balance does not apply to multisigs
+    static const bool fMultiSig = false;
+
     vBalance.clear();
     vBalance.resize(N_COLORS, 0);
     for (map<uint256, CWalletTx>::const_iterator it = mapWallet.begin();
@@ -1247,7 +1273,7 @@ void CWallet::GetBalances(int nMinDepth, std::vector<int64_t> &vBalance) const
         for (cit = setColorsOut.begin(); cit != setColorsOut.end(); ++cit)
         {
               int nColor = (int) *cit;
-              wtx.GetAmounts(nColor, listReceived, listSent, allFee, strSentAccount);
+              wtx.GetAmounts(nColor, listReceived, listSent, allFee, strSentAccount, fMultiSig);
               if (wtx.GetDepthInMainChain() >= nMinDepth && wtx.GetBlocksToMaturity() == 0)
               {
                   BOOST_FOREACH(const PAIRTYPE(CTxDestination,int64_t)& r, listReceived)
@@ -1292,6 +1318,9 @@ void CWallet::GetHand(int nMinDepth, std::vector<int> &vCards) const
 
 int64_t CWallet::GetUnconfirmedBalance(int nColor) const
 {
+    // balance does not apply to multisigs in a straightforward way
+    static const bool fMultiSig = false;
+
     int64_t nTotal = 0;
     {
         LOCK2(cs_main, cs_wallet);
@@ -1299,7 +1328,7 @@ int64_t CWallet::GetUnconfirmedBalance(int nColor) const
         {
             const CWalletTx* pcoin = &(*it).second;
             if (!pcoin->IsFinal() || (!pcoin->IsTrusted() && pcoin->GetDepthInMainChain() == 0))
-                nTotal += pcoin->GetAvailableCredit(nColor);
+                nTotal += pcoin->GetAvailableCredit(nColor, fMultiSig);
         }
     }
     return nTotal;
@@ -1307,6 +1336,9 @@ int64_t CWallet::GetUnconfirmedBalance(int nColor) const
 
 int64_t CWallet::GetImmatureBalance(int nColor) const
 {
+    // immature balance is not going to typically be multisig
+    static const bool fMultiSig = false;
+
     int64_t nTotal = 0;
     {
         LOCK2(cs_main, cs_wallet);
@@ -1314,14 +1346,16 @@ int64_t CWallet::GetImmatureBalance(int nColor) const
         {
             const CWalletTx& coin = (*it).second;
             if (coin.IsCoinBase() && coin.GetBlocksToMaturity() > 0 && coin.IsInMainChain())
-                nTotal += GetCredit(coin, nColor);
+                nTotal += GetCredit(coin, nColor, fMultiSig);
         }
     }
     return nTotal;
 }
 
 // populate vCoins with vector of spendable COutputs
-void CWallet::AvailableCoins(int nColor, vector<COutput>& vCoins, bool fOnlyConfirmed, const CCoinControl *coinControl) const
+// multisig will be considered available only in specific circumstances
+void CWallet::AvailableCoins(int nColor, vector<COutput>& vCoins,
+                bool fMultiSig, bool fOnlyConfirmed, const CCoinControl *coinControl) const
 {
     vCoins.clear();
 
@@ -1352,7 +1386,7 @@ void CWallet::AvailableCoins(int nColor, vector<COutput>& vCoins, bool fOnlyConf
             {
                 if ((pcoin->vout[i].nColor == nColor) &&
                     !(pcoin->IsSpent(i)) &&
-                    IsMine(pcoin->vout[i]) &&
+                    IsMine(pcoin->vout[i], fMultiSig) &&
                     pcoin->vout[i].nValue >= vMinimumInputValue[pcoin->vout[i].nColor] &&
                     (!coinControl ||
                      !coinControl->HasSelected() ||
@@ -1366,7 +1400,8 @@ void CWallet::AvailableCoins(int nColor, vector<COutput>& vCoins, bool fOnlyConf
     }
 }
 
-void CWallet::AvailableCoinsMinConf(int nColor, vector<COutput>& vCoins, int nConf) const
+// multisig will be considered available only in specific circumstances
+void CWallet::AvailableCoinsMinConf(int nColor, vector<COutput>& vCoins, int nConf, bool fMultiSig) const
 {
     vCoins.clear();
 
@@ -1387,10 +1422,10 @@ void CWallet::AvailableCoinsMinConf(int nColor, vector<COutput>& vCoins, int nCo
             {
                 if ((pcoin->vout[i].nColor == nColor) &&
                      !(pcoin->IsSpent(i)) &&
-                     IsMine(pcoin->vout[i]) &&
+                     IsMine(pcoin->vout[i], fMultiSig) &&
                      pcoin->vout[i].nValue >= vMinimumInputValue[pcoin->vout[i].nColor])
                 {
-                    vCoins.push_back(COutput(pcoin, i, pcoin->GetDepthInMainChain()));
+                     vCoins.push_back(COutput(pcoin, i, pcoin->GetDepthInMainChain()));
                 }
             }
         }
@@ -1440,6 +1475,9 @@ static void ApproximateBestSubset(vector<pair<int64_t,
 // ppcoin: total coins staked (non-spendable until maturity)
 int64_t CWallet::GetStake(int nColor) const
 {
+    // in principle it is possible to stake multisig, but will ignore the issue here
+    static const bool fMultiSig = false;
+
     int64_t nTotal = 0;
     LOCK2(cs_main, cs_wallet);
     for (map<uint256, CWalletTx>::const_iterator it = mapWallet.begin(); it != mapWallet.end(); ++it)
@@ -1448,7 +1486,7 @@ int64_t CWallet::GetStake(int nColor) const
         if (pcoin->IsCoinStake() &&
             (pcoin->GetBlocksToMaturity() > 0) && (pcoin->GetDepthInMainChain() > 0))
         {
-            nTotal += CWallet::GetCredit(*pcoin, nColor);
+            nTotal += CWallet::GetCredit(*pcoin, nColor, fMultiSig);
         }
     }
     return nTotal;
@@ -1456,6 +1494,9 @@ int64_t CWallet::GetStake(int nColor) const
 
 int64_t CWallet::GetNewMint(int nColor) const
 {
+    // in principle it is possible to mint multisig, but will avoid the issue here
+    static const bool fMultiSig = false;
+
     int64_t nTotal = 0;
     LOCK2(cs_main, cs_wallet);
     for (map<uint256, CWalletTx>::const_iterator it = mapWallet.begin(); it != mapWallet.end(); ++it)
@@ -1464,14 +1505,17 @@ int64_t CWallet::GetNewMint(int nColor) const
         if (pcoin->IsCoinBase() &&
             (pcoin->GetBlocksToMaturity() > 0) && (pcoin->GetDepthInMainChain() > 0))
         {
-            nTotal += CWallet::GetCredit(*pcoin, nColor);
+            nTotal += CWallet::GetCredit(*pcoin, nColor, fMultiSig);
         }
     }
     return nTotal;
 }
 
 // vcoins is filtered on color, so no need to check color here!
-bool CWallet::SelectCoinsMinConf(int64_t nTargetValue, unsigned int nSpendTime, int nConfMine, int nConfTheirs, vector<COutput> vCoins, set<pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64_t& nValueRet) const
+bool CWallet::SelectCoinsMinConf(int64_t nTargetValue, unsigned int nSpendTime,
+                         int nConfMine, int nConfTheirs, vector<COutput> vCoins,
+                         set<pair<const CWalletTx*,unsigned int> >& setCoinsRet,
+                         int64_t& nValueRet, bool fMultiSig) const
 {
     setCoinsRet.clear();
     nValueRet = 0;
@@ -1497,7 +1541,7 @@ bool CWallet::SelectCoinsMinConf(int64_t nTargetValue, unsigned int nSpendTime, 
     {
         const CWalletTx *pcoin = output.tx;
 
-        if (output.nDepth < (pcoin->IsFromMe() ? nConfMine : nConfTheirs))
+        if (output.nDepth < (pcoin->IsFromMe(fMultiSig) ? nConfMine : nConfTheirs))
             continue;
 
         int i = output.i;
@@ -1591,10 +1635,12 @@ bool CWallet::SelectCoinsMinConf(int64_t nTargetValue, unsigned int nSpendTime, 
     return true;
 }
 
-bool CWallet::SelectCoins(int64_t nTargetValue, int nColor, unsigned int nSpendTime, set<pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64_t& nValueRet, const CCoinControl* coinControl) const
+bool CWallet::SelectCoins(int64_t nTargetValue, int nColor, unsigned int nSpendTime,
+                          set<pair<const CWalletTx*,unsigned int> >& setCoinsRet,
+                          int64_t& nValueRet, bool fMultiSig, const CCoinControl* coinControl) const
 {
     vector<COutput> vCoins;
-    AvailableCoins(nColor, vCoins, true, coinControl);
+    AvailableCoins(nColor, vCoins, fMultiSig, true, coinControl);
 
     // coin control -> return all selected outputs (we want all selected to go into the transaction for sure)
     if (coinControl && coinControl->HasSelected())
@@ -1608,16 +1654,22 @@ bool CWallet::SelectCoins(int64_t nTargetValue, int nColor, unsigned int nSpendT
     }
 
     // no color checking from here because AvailableCoins() already filtered
-    return (SelectCoinsMinConf(nTargetValue, nSpendTime, 1, 6, vCoins, setCoinsRet, nValueRet) ||
-            SelectCoinsMinConf(nTargetValue, nSpendTime, 1, 1, vCoins, setCoinsRet, nValueRet) ||
-            SelectCoinsMinConf(nTargetValue, nSpendTime, 0, 1, vCoins, setCoinsRet, nValueRet));
+    return (SelectCoinsMinConf(nTargetValue, nSpendTime, 1, 6,
+                           vCoins, setCoinsRet, nValueRet, fMultiSig) ||
+            SelectCoinsMinConf(nTargetValue, nSpendTime, 1, 1,
+                           vCoins, setCoinsRet, nValueRet, fMultiSig) ||
+            SelectCoinsMinConf(nTargetValue, nSpendTime, 0, 1,
+                           vCoins, setCoinsRet, nValueRet, fMultiSig));
 }
 
 // Select some coins without random shuffle or best subset approximation
-bool CWallet::SelectCoinsSimple(int64_t nTargetValue, int nColor, unsigned int nSpendTime, int nMinConf, set<pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64_t& nValueRet) const
+bool CWallet::SelectCoinsSimple(int64_t nTargetValue, int nColor,
+                              unsigned int nSpendTime, int nMinConf,
+                              set<pair<const CWalletTx*,unsigned int> >& setCoinsRet,
+                              int64_t& nValueRet, bool fMultiSig) const
 {
     vector<COutput> vCoins;
-    AvailableCoinsMinConf(nColor, vCoins, nMinConf);
+    AvailableCoinsMinConf(nColor, vCoins, nMinConf, fMultiSig);
 
     setCoinsRet.clear();
     nValueRet = 0;
@@ -1663,6 +1715,9 @@ bool CWallet::CreateTransaction(const vector<pair<CScript, int64_t> >& vecSend, 
                                 std::string strTxComment, unsigned int nServiceTypeID,
                                 const CCoinControl* coinControl)
 {
+    // create transaction assumes 100% ownership
+    static const bool fMultiSig = false;
+
     // not a valid color
     if (nColor < 1 || nColor > N_COLORS)
     {
@@ -1727,7 +1782,8 @@ bool CWallet::CreateTransaction(const vector<pair<CScript, int64_t> >& vecSend, 
                 set<pair<const CWalletTx*,unsigned int> > setCoins;
                 int64_t nValueIn = 0;
                 int64_t nFeeValueIn = 0;
-                if (!SelectCoins(nTotalValue, nColor, wtxNew.nTime, setCoins, nValueIn, coinControl))
+                if (!SelectCoins(nTotalValue, nColor, wtxNew.nTime, setCoins,
+                                              nValueIn, fMultiSig, coinControl))
                 {
                     return false;
                 }
@@ -1737,7 +1793,8 @@ bool CWallet::CreateTransaction(const vector<pair<CScript, int64_t> >& vecSend, 
                 set<pair<const CWalletTx*,unsigned int> > setFeeCoins;
                 if (nFeeValue > 0)
                 {
-                    if (!SelectCoins(nFeeValue, nFeeColor, wtxNew.nTime, setFeeCoins, nFeeValueIn))
+                    if (!SelectCoins(nFeeValue, nFeeColor, wtxNew.nTime, 
+                                                setFeeCoins, nFeeValueIn, fMultiSig))
                     {
                         return false;
                     }
@@ -1929,7 +1986,7 @@ bool CWallet::CreateTransaction(const vector<pair<CScript, int64_t> >& vecSend, 
                 int nIn = 0;
                 BOOST_FOREACH(const PAIRTYPE(const CWalletTx*,unsigned int)& coin, setCoins)
                 {
-                    if (!SignSignature(*this, *coin.first, wtxNew, nIn++))
+                    if (SignSignature(*this, *coin.first, wtxNew, nIn++) != 0)
                     {
                         return false;
                     }
@@ -1940,7 +1997,7 @@ bool CWallet::CreateTransaction(const vector<pair<CScript, int64_t> >& vecSend, 
                 {
                     BOOST_FOREACH(const PAIRTYPE(const CWalletTx*,unsigned int)& coin, setFeeCoins)
                     {
-                        if (!SignSignature(*this, *coin.first, wtxNew, nIn++))
+                        if (SignSignature(*this, *coin.first, wtxNew, nIn++) != 0)
                         {
                             return false;
                         }
@@ -2854,6 +2911,12 @@ bool CWallet::FindStealthTransactions(const CTransaction& tx, mapValue_t& mapNar
 // NovaCoin: get current stake weight for currency of nColor
 bool CWallet::GetStakeWeightByColor(int nColor, const CKeyStore& keystore, uint64_t& nWeight)
 {
+    // staking is not for multisigs
+    static const bool fMultiSig = false;
+
+    // ADVISORY: static is an optimization, may not be suitable for forks
+    static int nCoinbaseMaturity = GetCoinbaseMaturity();
+
     // this check is to prevent crash when indexing vReserveBalance
     if (!CanStake(nColor))
     {
@@ -2870,20 +2933,17 @@ bool CWallet::GetStakeWeightByColor(int nColor, const CKeyStore& keystore, uint6
     if (nBalance <= nResBal)
         return false;
 
-
     vector<const CWalletTx*> vwtxPrev;
 
     set<pair<const CWalletTx*,unsigned int> > setCoins;
     int64_t nValueIn = 0;
 
     if (!SelectCoinsSimple(nBalance - nResBal, nColor,
-                  GetTime(), nCoinbaseMaturity + 1, setCoins, nValueIn))
+                  GetTime(), nCoinbaseMaturity + 1, setCoins, nValueIn, fMultiSig))
         return false;
-
 
     if (setCoins.empty())
         return false;
-
 
     int nStakeMinConfs = GetStakeMinConfirmations(nColor);
 
@@ -2925,6 +2985,8 @@ bool CWallet::CreateCoinStake(int nStakeColor, const CKeyStore& keystore,
                                 unsigned int nBits, int64_t nSearchInterval,
                                   int64_t nFees[], CTransaction& txMint, CTransaction& txStake, CKey& key)
 {
+    // would not make sense to stake partail-ownership multisig
+    static const bool fMultiSig = false;
 
     if (!CanStake(nStakeColor))
     {
@@ -2975,7 +3037,8 @@ bool CWallet::CreateCoinStake(int nStakeColor, const CKeyStore& keystore,
     int nStakeMinConfs = GetStakeMinConfirmations(nStakeColor);
 
     // Select coins with suitable depth and correct color
-    if (!SelectCoinsSimple(nBalance - nResBal, nStakeColor, txStake.nTime, nStakeMinConfs, setCoins, nValueIn)) {
+    if (!SelectCoinsSimple(nBalance - nResBal, nStakeColor, txStake.nTime,
+                              nStakeMinConfs, setCoins, nValueIn, fMultiSig)) {
         return false;
     }
 
@@ -3175,7 +3238,7 @@ bool CWallet::CreateCoinStake(int nStakeColor, const CKeyStore& keystore,
     int nIn = 0;
     BOOST_FOREACH(const CWalletTx* pcoin, vwtxPrev)
     {
-        if (!SignSignature(*this, *pcoin, txStake, nIn++))
+        if (SignSignature(*this, *pcoin, txStake, nIn++) != 0)
             return error("CreateCoinStake : failed to sign coinstake");
     }
 
@@ -3252,7 +3315,7 @@ bool CWallet::CommitTransaction(CWalletTx& wtxNew,
 
 
 
-
+// SendMoney will never try to send multisig inputs
 string CWallet::SendMoney(CScript scriptPubKey, int64_t nValue, int nColor,
                           std::string& sNarr, CWalletTx& wtxNew, bool fAskFee,
                           std::string strTxComment, int nServiceTypeID)
@@ -3401,13 +3464,16 @@ DBErrors CWallet::LoadWallet(bool& fFirstRunRet)
 
 bool CWallet::SetAddressBookName(const CTxDestination& address, int nColor, const string& strName)
 {
+    // no reason why a multisig can't go into the address book
+    static const bool fMultiSig = true;
+
     bool fOwned;
     ChangeType nMode;
     {
         LOCK(cs_wallet); // mapAddressBook
         std::map<CTxDestination, std::string>::iterator mi = mapAddressBook.find(address);
         nMode = (mi == mapAddressBook.end()) ? CT_NEW : CT_UPDATED;
-        fOwned = ::IsMine(*this, address);
+        fOwned = ::IsMine(*this, address, fMultiSig);
         
         mapAddressBook[address] = strName;
     }
@@ -3426,6 +3492,9 @@ bool CWallet::SetAddressBookName(const CTxDestination& address, int nColor, cons
 
 bool CWallet::DelAddressBookName(const CTxDestination& address)
 {
+    // what goes in must come out
+    static const bool fMultiSig = true;
+
     {
         LOCK(cs_wallet); // mapAddressBook
 
@@ -3434,7 +3503,7 @@ bool CWallet::DelAddressBookName(const CTxDestination& address)
 
     int nColor = boost::apply_visitor(GetAddressColorVisitor(), address);
     
-    bool fOwned = ::IsMine(*this, address);
+    bool fOwned = ::IsMine(*this, address, fMultiSig);
     string sName = "";
     if (fOwned)
     {
@@ -3451,20 +3520,23 @@ bool CWallet::DelAddressBookName(const CTxDestination& address)
 
 void CWallet::PrintWallet(const CBlock& block)
 {
+    // no reason why multisig can't be user configurable here
+    bool fMultiSig = GetBoolArg("-enablemultisigs", false);
+
     {
         LOCK(cs_wallet);
         if (block.IsProofOfWork() && mapWallet.count(block.vtx[0].GetHash()))
         {
             CWalletTx& wtx = mapWallet[block.vtx[0].GetHash()];
             printf("    mine:  %d  %d  %" PRId64 " %s", wtx.GetDepthInMainChain(),
-                          wtx.GetBlocksToMaturity(), wtx.GetCredit(wtx.GetColor()),
+                          wtx.GetBlocksToMaturity(), wtx.GetCredit(wtx.GetColor(), fMultiSig),
                                                          COLOR_TICKER[wtx.GetColor()]);
         }
         if (block.IsProofOfStake() && mapWallet.count(block.vtx[1].GetHash()))
         {
             CWalletTx& wtx = mapWallet[block.vtx[1].GetHash()];
             printf("    stake: %d  %d  %" PRId64 " %s", wtx.GetDepthInMainChain(),
-                          wtx.GetBlocksToMaturity(), wtx.GetCredit(wtx.GetColor()),
+                          wtx.GetBlocksToMaturity(), wtx.GetCredit(wtx.GetColor(), fMultiSig),
                                                          COLOR_TICKER[wtx.GetColor()]);
         }
 
@@ -3668,6 +3740,9 @@ int64_t CWallet::GetOldestKeyPoolTime()
 // not colorized because it has never been used, may never be
 std::map<CTxDestination, int64_t> CWallet::GetAddressBalances()
 {
+    // address balances can include partial owner multisigs
+    static const int fMultiSig = true;
+
     map<CTxDestination, int64_t> balances;
 
     {
@@ -3683,13 +3758,13 @@ std::map<CTxDestination, int64_t> CWallet::GetAddressBalances()
                 continue;
 
             int nDepth = pcoin->GetDepthInMainChain();
-            if (nDepth < (pcoin->IsFromMe() ? 0 : 1))
+            if (nDepth < (pcoin->IsFromMe(fMultiSig) ? 0 : 1))
                 continue;
 
             for (unsigned int i = 0; i < pcoin->vout.size(); i++)
             {
                 CTxDestination addr;
-                if (!IsMine(pcoin->vout[i]))
+                if (!IsMine(pcoin->vout[i], fMultiSig))
                     continue;
                 if(!ExtractDestination(pcoin->vout[i].scriptPubKey, addr))
                     continue;
@@ -3709,6 +3784,9 @@ std::map<CTxDestination, int64_t> CWallet::GetAddressBalances()
 // not colorized because not used yet, may never be
 set< set<CTxDestination> > CWallet::GetAddressGroupings()
 {
+    // no idea what this function is supposed to do, go conservatively for multsigs
+    static const bool fMultiSig = false;
+
     AssertLockHeld(cs_wallet); // mapWallet
     set< set<CTxDestination> > groupings;
     set<CTxDestination> grouping;
@@ -3717,7 +3795,7 @@ set< set<CTxDestination> > CWallet::GetAddressGroupings()
     {
         CWalletTx *pcoin = &walletEntry.second;
 
-        if (pcoin->vin.size() > 0 && IsMine(pcoin->vin[0]))
+        if (pcoin->vin.size() > 0 && IsMine(pcoin->vin[0], fMultiSig))
         {
             // group all input addresses with each other
             BOOST_FOREACH(CTxIn txin, pcoin->vin)
@@ -3744,7 +3822,7 @@ set< set<CTxDestination> > CWallet::GetAddressGroupings()
 
         // group lone addrs by themselves
         for (unsigned int i = 0; i < pcoin->vout.size(); i++)
-            if (IsMine(pcoin->vout[i]))
+            if (IsMine(pcoin->vout[i], fMultiSig))
             {
                 CTxDestination address;
                 if(!ExtractDestination(pcoin->vout[i].scriptPubKey, address))
@@ -3796,6 +3874,9 @@ set< set<CTxDestination> > CWallet::GetAddressGroupings()
 void CWallet::FixSpentCoins(std::vector<int>& vMismatchFound,
                                  std::vector<int64_t>& vBalanceInQuestion, bool fCheckOnly)
 {
+    // spent coins are multisig aware, so this should be too
+    static const bool fMultiSig = true;
+
     for (int i = 0; i < N_COLORS; ++i)
     {
         vMismatchFound[i] = 0;
@@ -3818,7 +3899,9 @@ void CWallet::FixSpentCoins(std::vector<int>& vMismatchFound,
         for (unsigned int n=0; n < pcoin->vout.size(); n++)
         {
             int nColor = pcoin->vout[n].nColor;
-            if (IsMine(pcoin->vout[n]) && pcoin->IsSpent(n) && (txindex.vSpent.size() <= n || txindex.vSpent[n].IsNull()))
+            if (IsMine(pcoin->vout[n], fMultiSig) &&
+                                pcoin->IsSpent(n) &&
+                                (txindex.vSpent.size() <= n || txindex.vSpent[n].IsNull()))
             {
                 printf("FixSpentCoins found lost coin %s %s %s[%d], %s\n",
                     FormatMoney(pcoin->vout[n].nValue, nColor).c_str(),
@@ -3833,7 +3916,7 @@ void CWallet::FixSpentCoins(std::vector<int>& vMismatchFound,
                     pcoin->WriteToDisk();
                 }
             }
-            else if (IsMine(pcoin->vout[n]) && !pcoin->IsSpent(n) && (txindex.vSpent.size() > n && !txindex.vSpent[n].IsNull()))
+            else if (IsMine(pcoin->vout[n], fMultiSig) && !pcoin->IsSpent(n) && (txindex.vSpent.size() > n && !txindex.vSpent[n].IsNull()))
             {
                 printf("FixSpentCoins found spent coin %s %s %s[%d], %s\n",
                     FormatMoney(pcoin->vout[n].nValue, nColor).c_str(),
@@ -3854,8 +3937,13 @@ void CWallet::FixSpentCoins(std::vector<int>& vMismatchFound,
 // ppcoin: disable transaction (only for coinstake)
 void CWallet::DisableTransaction(const CTransaction &tx)
 {
-    if (!tx.IsCoinStake() || !IsFromMe(tx))
+    // give no consideration multisig coinstake, yet
+    static const int fMultiSig = false;
+
+    if (!tx.IsCoinStake() || !IsFromMe(tx, fMultiSig))
+    {
         return; // only disconnecting coinstake requires marking input unspent
+    }
 
     LOCK(cs_wallet);
     BOOST_FOREACH(const CTxIn& txin, tx.vin)
@@ -3864,7 +3952,7 @@ void CWallet::DisableTransaction(const CTransaction &tx)
         if (mi != mapWallet.end())
         {
             CWalletTx& prev = (*mi).second;
-            if (txin.prevout.n < prev.vout.size() && IsMine(prev.vout[txin.prevout.n]))
+            if (txin.prevout.n < prev.vout.size() && IsMine(prev.vout[txin.prevout.n], fMultiSig))
             {
                 prev.MarkUnspent(txin.prevout.n);
                 prev.WriteToDisk();

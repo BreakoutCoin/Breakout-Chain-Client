@@ -6,16 +6,6 @@
 
 #include "main.h"
 
-// To decrease granularity of timestamp
-// Relative prime to block spacing target
-static const int STAKE_TIMESTAMP_MASK_TESTNET = 15;
-static const int STAKE_TIMESTAMP_MASK = 17;
-// MODIFIER_INTERVAL: time to elapse before new modifier is computed
-extern unsigned int nModifierInterval;
-
-// MODIFIER_INTERVAL_RATIO:
-// ratio of group interval length between the last group and the first group
-static const int MODIFIER_INTERVAL_RATIO = 3;
 
 // Compute the hash modifier for proof-of-stake
 bool ComputeNextStakeModifier(const CBlockIndex* pindexPrev, uint256& bnStakeModifier, bool& fGeneratedStakeModifier);

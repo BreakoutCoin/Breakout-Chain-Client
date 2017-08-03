@@ -27,7 +27,8 @@ namespace Checkpoints
         (           0, hashGenesisBlock )
         (       13300, uint256("0x62d199c756a0f19a0fc1f9e895190b29cb7b7683d284bfcabacbe906df530ff9"))
         (       37500, uint256("0x0000000000312775281468709d39faf0eb1c099ea35f1a39fe4ba0847658bfe0"))
-        
+        (       87000, uint256("0x56fe7fe10f4e8a17d752ce743f5cca1c10e4c6a8eeeabfacd235962148441fb5"))
+        (      107000, uint256("0x000000000044e26363bec8f66178fd83a26e5089f6d85e03a9aaf84c50569fcf"))
     ;
 
     // TestNet has no checkpoints
@@ -344,6 +345,9 @@ namespace Checkpoints
     // Is the sync-checkpoint outside maturity window?
     bool IsMatureSyncCheckpoint()
     {
+        // ADVISORY: static is an optimization, may not be suitable for forks
+        static unsigned int nStakeMinAge = GetStakeMinAge();
+        static int nCoinbaseMaturity = GetCoinbaseMaturity();
         LOCK(cs_hashSyncCheckpoint);
         // sync-checkpoint should always be accepted block
         assert(mapBlockIndex.count(hashSyncCheckpoint));

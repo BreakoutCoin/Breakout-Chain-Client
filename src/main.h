@@ -30,21 +30,6 @@ class CInv;
 class CRequestTracker;
 class CNode;
 
-#if PROOF_MODEL == PURE_POS
-// must have a last PoW block if it is to be pure PoS
-#if TESTNET_BUILD
-static const int LAST_POW_BLOCK = 3500;
-#else
-static const int LAST_POW_BLOCK = 3500;
-#endif  // TESTNET_BUILD
-#elif PROOF_MODEL == MIXED_POW_POS
-#if TESTNET_BUILD
-//
-#else
-//
-#endif  // TESTNET_BUILD
-#endif  // PROOF_MODEL
-
 // accept no PoW before Fri Jun 10 00:00:00 2016 PDT
 static const unsigned int LAUNCH_TIME = 1465542000;
 
@@ -95,17 +80,15 @@ static const uint256
 
 // blackcoin pos 2.0 drift recommendations
 // inline int64_t PastDrift(CBlockIndex *pprev)   {return pprev->nTime; } // time of last block
-inline int64_t FutureDrift(int64_t nTime) { return nTime + 17; } // up to 17 sec in the future
-                                                                 //   relative prime to 300
+inline int64_t FutureDrift(int64_t nTime) {
+                  return fTestNet ? nTime + 7 : nTime + 17; } // up to 17 sec in the future
 
 extern CScript COINBASE_FLAGS;
 extern CCriticalSection cs_main;
 extern std::map<uint256, CBlockIndex*> mapBlockIndex;
 extern std::set<std::pair<COutPoint, unsigned int> > setStakeSeen;
 extern CBlockIndex* pindexGenesisBlock;
-extern unsigned int nStakeMinAge;
 extern unsigned int nNodeLifespan;
-extern int nCoinbaseMaturity;
 extern int nBestHeight;
 extern uint256 nBestChainTrust;
 extern uint256 nBestInvalidTrust;
@@ -514,9 +497,6 @@ class CTransaction
 public:
     // versions
     //    1 : launch
-    //    2 : after pow
-    //        support for tx comments (strTxComment)
-    //        support for productivity type identifiers (nServiceTypeID)
     static const int CURRENT_VERSION = 1;
     int nVersion;
     unsigned int nTime;
@@ -565,19 +545,27 @@ public:
         return (vin.empty() && vout.empty());
     }
 
-    // txid hash does not include signatures
+    // txid hash does not include signatures (excluding cb post fork 3)
     // this allows the tx hash to be signed
     // making the txid immutable without invalidating sigs
     // once in block chain, SerializeHash of block uses IMPLEMENT_SERIALIZE
     uint256 GetHash() const
     {
-        CTransaction txTmp(*this);
-        // Blank the sigs
-        for (unsigned int i = 0; i < txTmp.vin.size(); i++)
+        // miners expect filled coinbase script sigs
+        if (this->IsCoinBase() && (GetFork(this->nTime) >= BRK_FORK003))
         {
-               txTmp.vin[i].scriptSig = CScript();
+            return SerializeHash(*this);
         }
-        return SerializeHash(txTmp);
+        else
+        {
+            CTransaction txTmp(*this);
+            // Blank the sigs
+            for (unsigned int i = 0; i < txTmp.vin.size(); i++)
+            {
+                   txTmp.vin[i].scriptSig = CScript();
+            }
+            return SerializeHash(txTmp);
+        }
     }
 
     bool IsFinal(int nBlockHeight=0, int64_t nBlockTime=0) const
@@ -590,11 +578,16 @@ public:
             nBlockHeight = nBestHeight;
         if (nBlockTime == 0)
             nBlockTime = GetAdjustedTime();
-        if ((int64_t)nLockTime < ((int64_t)nLockTime < LOCKTIME_THRESHOLD ? (int64_t)nBlockHeight : nBlockTime))
+        if ((int64_t)nLockTime < ((int64_t)nLockTime < LOCKTIME_THRESHOLD ? 
+                                             (int64_t)nBlockHeight : nBlockTime))
+        {
             return true;
+        }
         BOOST_FOREACH(const CTxIn& txin, vin)
+        {
             if (!txin.IsFinal())
                 return false;
+        }
         return true;
     }
 
@@ -821,7 +814,8 @@ public:
 
     void FillValuesIn(const MapPrevTx& inputs, std::map<int, int64_t> &mapValuesIn) const;
 
-    int64_t GetMinFee(unsigned int nBlockSize=1, enum GetMinFee_mode mode=GMF_BLOCK, unsigned int nBytes = 0) const;
+    int64_t GetMinFee(unsigned int nBlockSize=1,
+                      enum GetMinFee_mode mode=GMF_BLOCK, unsigned int nBytes = 0) const;
 
     bool ReadFromDisk(CDiskTxPos pos, FILE** pfileRet=NULL)
     {
@@ -948,7 +942,7 @@ public:
     bool AcceptToMemoryPool(CTxDB& txdb, bool fCheckInputs=true, bool* pfMissingInputs=NULL);
     bool GetCoinAge(CTxDB& txdb, const CBlockIndex* pindexPrev, uint64_t& nCoinAge) const;  // ppcoin: get transaction coin age
 
-    int64_t GetSwiftFee() const;
+    int64_t GetServiceFee() const;
     int64_t GetOpRetFee() const;
 
 protected:
@@ -1162,7 +1156,15 @@ public:
 
     uint256 GetHash() const
     {
-        return SerializeHash(*this);
+        if (GetFork(this->nTime) < BRK_FORK003)
+        {
+            return SerializeHash(*this);
+        }
+        else
+        {
+            // scrypt runs cooler, asic hardware lasts longer
+            return scrypt_blockhash(BEGIN(nVersion));
+        }
     }
 
     int64_t GetBlockTime() const

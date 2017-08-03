@@ -12,8 +12,14 @@
 #include <assert.h>
 #include <stdio.h>
 
+#include "bignum.h"
 
+
+// define to 1 for building testnet, 0 for main net
 #define TESTNET_BUILD 0
+
+// define to 1 to allow rpc to send multiple outputs to same address
+#define ALLOW_DUPLICATE_DESTINATIONS 0
 
 // N_COLORS includes COLOR_NONE
 #define N_COLORS 58
@@ -34,30 +40,65 @@
 // for Deck QPixmaps
 #define N_GUI_DECK_COLORS 53
 
-// fork times
-extern const int64_t STAKING_FIX1_TIME;
-extern const int64_t STAKING_FIX2_TIME;
-
-
-extern bool fTestNet;
-
-// extern const int N_COLORS;
-// extern const int N_COLOR_BYTES;
-extern const int64_t BASE_COIN;
-extern const int64_t BASE_CENT;
-extern const int BASE_FEE_EXPONENT;
-extern const int64_t BASE_COIN;
-extern const int64_t BASE_CENT;
-extern const int BASE_FEE_EXPONENT;
-// extern const bool COINAGE_DEPENDENT_POS;
-extern std::string ADDRESS_DELIMETER;
-
 
 // this is a multiple of the MIN_TX_FEE
 #define VERY_HIGH_FEE 1000
 
 // Main Net (1) PUBKEY, (2) SCRIPT & Test Net (3) PUBKEY, (4) SCRIPT
 #define N_VERSIONS 4
+
+
+extern bool fTestNet;
+
+//////////////////////////////////////////////////////////////////////
+
+// forks
+
+// cloners: add your new forks higher than highest here
+//          keep existing
+//          also, rewrite GetFork
+enum ForkNumbers
+{
+    BRK_GENESIS = 0,
+    BRK_FORK001,
+    BRK_FORK002,
+    BRK_FORK003,
+    TOTAL_FORKS
+};
+
+
+// networking
+extern unsigned short const TOR_PORT;
+
+extern unsigned short const P2P_PORT;
+extern unsigned short const P2P_PORT_TESTNET;
+
+extern unsigned short const DEFAULT_PROXY;
+extern unsigned short const DEFAULT_PROXY_TESTNET;
+
+// rpc
+extern unsigned short const RPC_PORT;
+extern unsigned short const RPC_PORT_TESTNET;
+
+// pchMessageStart
+extern unsigned char pchMessageStart[4];
+extern unsigned char pchMessageStartTestnet[4];
+
+// kernel
+extern const int MODIFIER_INTERVAL_RATIO;
+
+
+// extern const int N_COLORS;
+// extern const int N_COLOR_BYTES;
+extern const int64_t BASE_COIN;
+extern const int64_t BASE_CENT;
+
+extern const int BASE_FEE_EXPONENT;
+extern const int64_t BASE_COIN;
+extern const int64_t BASE_CENT;
+extern const int BASE_FEE_EXPONENT;
+// extern const bool COINAGE_DEPENDENT_POS;
+extern std::string ADDRESS_DELIMETER;
 
 // Complete enum of currencies
 // These are the indices used throughout the code
@@ -209,10 +250,6 @@ extern const int64_t MIN_INPUT_VALUE[N_COLORS];
 
 extern const int64_t STAKE_COMBINE_THRESHOLD[N_COLORS];
 
-#if 0
-extern const int LAST_FIXED_POS_BLOCK[N_COLORS];
-#endif
-
 extern const int MINT_COLOR[N_COLORS];
 
 extern const char *COLOR_TICKER[N_COLORS];
@@ -230,6 +267,10 @@ extern const int64_t POW_SUBSIDY[N_COLORS];
 
 extern std::vector<std::map <std::vector <unsigned char>, int > > MAPS_COLOR_ID;
 
+int GetFork(int64_t nTime);
+
+int GetMinPeerProtoVersion(int64_t nTime);
+
 bool GetColorFromTicker(const std::string &ticker, int &nColorIn);
 
 bool GetTickerFromColor(int nColor, std::string &ticker);
@@ -237,6 +278,14 @@ bool GetTickerFromColor(int nColor, std::string &ticker);
 bool CheckColor(int nColor);
 
 bool CanStake(int nColorIn);
+
+
+unsigned int GetStakeMinAge();
+
+unsigned int GetStakeMaxAge();
+
+unsigned int GetModifierInterval();
+
 
 int GetStakeMinConfirmations(int nColor);
 
@@ -249,10 +298,6 @@ bool SplitQualifiedAddress(const std::string &qualAddress,
 // add b58 compatible bytes of n to end of vch, little byte first
 bool AppendColorBytes(int n, std::vector<unsigned char> &vch);
 
-#if 0
-bool AppendColorBytes(int n, data_chunk &vch, int nMax=N_COLORS);
-#endif
-
 bool ValueMapAllPositive(const std::map<int, int64_t> &mapNet);
 bool ValueMapAllZero(const std::map<int, int64_t> &mapNet);
 
@@ -262,7 +307,16 @@ void FillNets(const std::map<int, int64_t> &mapDebit,
               const std::map<int, int64_t> &mapCredit,
               std::map<int, int64_t> &mapNet);
 
+// minting
+CBigNum GetTargetLimit(bool fProofOfStake);
+int64_t GetTargetSpacing(bool fProofOfStake);
+int GetCoinbaseMaturity();
+int GetStakeTimestampMask();
 
+#if PROOF_MODEL == PURE_POS
+int GetLastPoWBlock();
+int GetFirstPoSBlock();
+#endif
 
 
 // Deck

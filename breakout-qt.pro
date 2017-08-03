@@ -17,13 +17,15 @@ win32 {
 }
 
 TEMPLATE = app
-TARGET = "BreakoutCoin"
-VERSION = 1.4.6.0
+TARGET = "Breakout-Coin"
+VERSION = 1.5.0.0
 INCLUDEPATH += src src/json src/qt src/tor
 INCLUDEPATH += src/tor/adapter src/tor/common src/tor/ext
 INCLUDEPATH += src/tor/ext/curve25519_donna src/tor/ext/ed25519/donna
 INCLUDEPATH += src/tor/ext/ed25519/ref10 src/tor/ext/keccak-tiny
 INCLUDEPATH += src/tor/ext/trunnel src/tor/or src/tor/trunnel
+INCLUDEPATH += src/tor/trunnel/hs
+# INCLUDEPATH += src/libcryptopp
 QT += core gui
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets printsupport
 CONFIG += no_include_pwd
@@ -192,7 +194,7 @@ contains(BITCOIN_NEED_QT_PLUGINS, 1) {
 DEFINES += USE_LEVELDB
 INCLUDEPATH += $$PWD/src/leveldb/include $$PWD/src/leveldb/helpers
 INCLUDEPATH += $$PWD/src/leveldb/include/leveldb $$PWD/src/leveldb/helpers/memenv
-LIBS += $$PWD/src/leveldb/libleveldb.a $$PWD/src/leveldb/libmemenv.a
+LIBS += $$PWD/src/leveldb/out-static/libleveldb.a $$PWD/src/leveldb/out-static/libmemenv.a
 # !win32 {
 #     # we use QMAKE_CXXFLAGS_RELEASE even without RELEASE=1 because we use RELEASE to indicate linking preferences not -O preferences
 #     genleveldb.commands = cd $$PWD/src/leveldb && CC=$$QMAKE_CC CXX=$$QMAKE_CXX $(MAKE) OPT=\"$$QMAKE_CXXFLAGS $$QMAKE_CXXFLAGS_RELEASE\" libleveldb.a libmemenv.a
@@ -203,12 +205,12 @@ LIBS += $$PWD/src/leveldb/libleveldb.a $$PWD/src/leveldb/libmemenv.a
     # LIBS += -lshlwapi
     # genleveldb.commands = cd $$PWD && cd src && cd leveldb && CC=$$QMAKE_CC CXX=$$QMAKE_CXX TARGET_OS=OS_WINDOWS_CROSSCOMPILE $(MAKE) OPT=\"$$QMAKE_CXXFLAGS $$QMAKE_CXXFLAGS_RELEASE\" libleveldb.a libmemenv.a && $$QMAKE_RANLIB libleveldb.a && $$QMAKE_RANLIB libmemenv.a
 # }
-# genleveldb.target = $$PWD/src/leveldb/libleveldb.a
+# genleveldb.target = $$PWD/src/leveldb/out-static/libleveldb.a
 # genleveldb.depends = FORCE
-# PRE_TARGETDEPS += $$PWD/src/leveldb/libleveldb.a
+# PRE_TARGETDEPS += $$PWD/src/leveldb/out-static/libleveldb.a
 # QMAKE_EXTRA_TARGETS += genleveldb
 # Gross ugly hack that depends on qmake internals, unfortunately there is no other way to do it.
-# QMAKE_CLEAN += $$PWD/src/leveldb/libleveldb.a; cd $$PWD/src/leveldb ; $(MAKE) clean
+# QMAKE_CLEAN += $$PWD/src/leveldb/out-static/libleveldb.a; cd $$PWD/src/leveldb ; $(MAKE) clean
 
 
 
@@ -280,6 +282,7 @@ QMAKE_CXXFLAGS_WARN_ON = -fdiagnostics-show-option -Wall -Wextra -Wformat \
 DEPENDPATH += src src/json src/qt
 HEADERS += \
     src/colors.h \
+    src/onionseed.h \
     src/qt/bitcoingui.h \
     src/qt/transactiontablemodel.h \
     src/qt/addresstablemodel.h \
@@ -369,6 +372,8 @@ HEADERS += \
     src/limitedmap.h \
     src/threadsafety.h \
     src/tor/or/circuitmux_ewma.h \
+    src/tor/or/parsecommon.h \
+    src/tor/or/hs_circuitmap.h \
     src/tor/or/circuitbuild.h \
     src/tor/or/channeltls.h \
     src/tor/or/rendmid.h \
@@ -378,15 +383,22 @@ HEADERS += \
     src/tor/or/periodic.h \
     src/tor/or/torcert.h \
     src/tor/or/reasons.h \
+    src/tor/or/hs_service.h \
+    src/tor/or/protover.h \
     src/tor/or/config.h \
     src/tor/or/status.h \
+    src/tor/or/shared_random.h \
     src/tor/or/directory.h \
+    src/tor/or/hs_descriptor.h \
     src/tor/or/ext_orport.h \
     src/tor/or/connection_edge.h \
     src/tor/or/routerset.h \
+    src/tor/or/ntmain.h \
+    src/tor/or/hs_intropoint.h \
     src/tor/or/channel.h \
     src/tor/or/dns.h \
     src/tor/or/fp_pair.h \
+    src/tor/or/bridges.h \
     src/tor/or/rephist.h \
     src/tor/or/transports.h \
     src/tor/or/or.h \
@@ -399,19 +411,21 @@ HEADERS += \
     src/tor/or/rendcache.h \
     src/tor/or/geoip.h \
     src/tor/or/circuitlist.h \
-    src/tor/or/eventdns_tor.h \
     src/tor/or/dirvote.h \
     src/tor/or/replaycache.h \
     src/tor/or/keypin.h \
     src/tor/or/networkstatus.h \
     src/tor/or/routerlist.h \
     src/tor/or/connection.h \
+    src/tor/or/hs_cache.h \
     src/tor/or/onion_tap.h \
     src/tor/or/confparse.h \
     src/tor/or/rendcommon.h \
     src/tor/or/relay.h \
     src/tor/or/policies.h \
     src/tor/or/command.h \
+    src/tor/or/hs_common.h \
+    src/tor/or/shared_random_state.h \
     src/tor/or/buffers.h \
     src/tor/or/circuitstats.h \
     src/tor/or/dnsserv.h \
@@ -436,6 +450,9 @@ HEADERS += \
     src/tor/adapter/orconfig_apple.h \
     src/tor/adapter/orconfig.h \
     src/tor/adapter/breakout.h \
+    src/tor/trunnel/hs/cell_establish_intro.h \
+    src/tor/trunnel/hs/cell_introduce1.h \
+    src/tor/trunnel/hs/cell_common.h \
     src/tor/trunnel/trunnel-local.h \
     src/tor/trunnel/ed25519_cert.h \
     src/tor/trunnel/link_handshake.h \
@@ -516,19 +533,23 @@ HEADERS += \
     src/tor/common/di_ops.h \
     src/tor/common/util_format.h \
     src/tor/common/torgzip.h \
+    src/tor/common/timers.h \
+    src/tor/common/handles.h \
     src/tor/common/torlog.h \
     src/tor/common/compat_libevent.h \
     src/tor/common/procmon.h \
+    src/tor/common/pubsub.h \
     src/tor/common/compat_openssl.h \
+    src/tor/common/compat_time.h \
     src/tor/common/tortls.h \
     src/tor/common/tor_util.h \
     src/tor/common/compat_threads.h \
     src/tor/common/crypto_s2k.h \
+    src/tor/common/util_bug.h \
     src/tor/common/crypto_ed25519.h \
     src/tor/common/crypto_pwbox.h \
     src/tor/common/tor_compat.h \
     src/tor/common/address.h
-
 
 SOURCES += \
     src/colors.cpp \
@@ -553,7 +574,9 @@ SOURCES += \
     src/tor/or/connection.c \
     src/tor/or/rendcache.c \
     src/tor/or/microdesc.c \
+    src/tor/or/protover.c \
     src/tor/or/onion.c \
+    src/tor/or/shared_random_state.c \
     src/tor/or/command.c \
     src/tor/or/connection_edge.c \
     src/tor/or/rephist.c \
@@ -565,6 +588,7 @@ SOURCES += \
     src/tor/or/channeltls.c \
     src/tor/or/circuitmux.c \
     src/tor/or/tor_main.c \
+    src/tor/or/hs_cache.c \
     src/tor/or/rendservice.c \
     src/tor/or/confparse.c \
     src/tor/or/scheduler.c \
@@ -583,6 +607,7 @@ SOURCES += \
     src/tor/or/cpuworker.c \
     src/tor/or/control.c \
     src/tor/or/dirvote.c \
+    src/tor/or/hs_circuitmap.c \
     src/tor/or/routerparse.c \
     src/tor/or/reasons.c \
     src/tor/or/channel.c \
@@ -600,17 +625,27 @@ SOURCES += \
     src/tor/or/circpathbias.c \
     src/tor/or/routerkeys.c \
     src/tor/or/circuitlist.c \
+    src/tor/or/hs_common.c \
+    src/tor/or/hs_descriptor.c \
     src/tor/or/keypin.c \
+    src/tor/or/parsecommon.c \
     src/tor/or/torcert.c \
     src/tor/or/buffers.c \
+    src/tor/or/shared_random.c \
+    src/tor/or/bridges.c \
     src/tor/or/dnsserv.c \
     src/tor/or/replaycache.c \
     src/tor/or/fp_pair.c \
     src/tor/or/circuituse.c \
+    src/tor/or/hs_service.c \
+    src/tor/or/hs_intropoint.c \
     src/tor/or/entrynodes.c \
     src/tor/or/dircollate.c \
     src/tor/or/router.c \
     src/tor/or/onion_tap.c \
+    src/tor/trunnel/hs/cell_common.c \
+    src/tor/trunnel/hs/cell_introduce1.c \
+    src/tor/trunnel/hs/cell_establish_intro.c \
     src/tor/trunnel/link_handshake.c \
     src/tor/trunnel/ed25519_cert.c \
     src/tor/trunnel/pwbox.c \
@@ -661,6 +696,7 @@ SOURCES += \
     src/tor/ext/trunnel/trunnel.c \
     src/tor/ext/strlcat.c \
     src/tor/ext/strlcpy.c \
+    src/tor/ext/mulodi/mulodi4.c \
     src/tor/ext/curve25519_donna/curve25519-donna.c \
     src/tor/ext/keccak-tiny/keccak-tiny-unrolled.c \
     src/tor/ext/tinytest.c \
@@ -672,6 +708,7 @@ SOURCES += \
     src/tor/common/aes.c \
     src/tor/common/compat_winthreads.c \
     src/tor/common/crypto.c \
+    src/tor/common/compat_time.c \
     src/tor/common/container.c \
     src/tor/common/workqueue.c \
     src/tor/common/util_format.c \
@@ -680,15 +717,17 @@ SOURCES += \
     src/tor/common/di_ops.c \
     src/tor/common/crypto_s2k.c \
     src/tor/common/memarea.c \
+    src/tor/common/pubsub.c \
     src/tor/common/crypto_pwbox.c \
+    src/tor/common/timers.c \
     src/tor/common/tor_compat.c \
+    src/tor/common/util_bug.c \
     src/tor/common/sandbox.c \
     src/tor/common/crypto_ed25519.c \
     src/tor/common/crypto_format.c \
     src/tor/common/procmon.c \
     src/tor/common/address.c \
     src/tor/common/compat_threads.c \
-    src/tor/common/compat_pthreads.c \
     src/tor/common/log.c \
     src/alert.cpp \
     src/version.cpp \
@@ -776,6 +815,11 @@ win32 {
 
 win32 {
   SOURCES += src/tor/or/ntmain.c
+}
+
+!win32 {
+  SOURCES += src/tor/common/compat_pthreads.c
+  SOURCES += src/tor/ext/readpassphrase.c
 }
 
 
@@ -900,7 +944,6 @@ win32 {
     LIBS += -L"C:/$$MSYS/local/BerkeleyDB.4.8/lib"
     # LIBS += -L"C:/$$MSYS/local/miniupnpc-1.9.20141128"
     LIBS += -L"C:/$$MSYS/local/boost_1_57_0/stage/lib"
-    LIBS += "C:/$$MSYS/lib/libcryptopp.a"
     LIBS += "C:/$$MSYS/local/ssl/lib/libcrypto.a"
     LIBS += "C:/$$MSYS/local/ssl/lib/libssl.a"
     LIBS += "C:/$$MSYS/local/lib/libevent.a"

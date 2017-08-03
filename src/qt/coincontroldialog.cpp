@@ -21,6 +21,8 @@
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 
+// TODO: do not list 0 confirmation transactions in coin control
+
 using namespace std;
 QList<qint64> CoinControlDialog::payAmounts;
 CCoinControl* CoinControlDialog::coinControl = new CCoinControl();

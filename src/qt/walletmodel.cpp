@@ -823,8 +823,11 @@ int WalletModel::getCurrentSendColor()
 // AvailableCoins + LockedCoins grouped by wallet address (put change in one group with wallet address) 
 void WalletModel::listCoins(int nColor, std::map<QString, std::vector<COutput> >& mapCoins) const
 {
+    // no reason why multisigs can't be included by default
+    static const bool fMultiSig = true;
+
     std::vector<COutput> vCoins;
-    wallet->AvailableCoins(nColor, vCoins);
+    wallet->AvailableCoins(nColor, vCoins, fMultiSig);
 
     LOCK2(cs_main, wallet->cs_wallet); // ListLockedCoins, mapWallet
     std::vector<COutPoint> vLockedCoins;
@@ -843,7 +846,7 @@ void WalletModel::listCoins(int nColor, std::map<QString, std::vector<COutput> >
     {
         COutput cout = out;
 
-        while (wallet->IsChange(cout.tx->vout[cout.i]) && cout.tx->vin.size() > 0 && wallet->IsMine(cout.tx->vin[0]))
+        while (wallet->IsChange(cout.tx->vout[cout.i]) && cout.tx->vin.size() > 0 && wallet->IsMine(cout.tx->vin[0], fMultiSig))
         {
             if (!wallet->mapWallet.count(cout.tx->vin[0].prevout.hash)) break;
             cout = COutput(&wallet->mapWallet[cout.tx->vin[0].prevout.hash], cout.tx->vin[0].prevout.n, 0);

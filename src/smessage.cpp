@@ -958,13 +958,16 @@ int SecureMsgBuildBucketSet()
 
 int SecureMsgAddWalletAddresses()
 {
+    // never will do secure message to multisig
+    static const bool fMultisig = false;
+
     if (fDebugSmsg)
         printf("SecureMsgAddWalletAddresses()\n");
     
     uint32_t nAdded = 0;
     BOOST_FOREACH(const PAIRTYPE(CTxDestination, std::string)& entry, pwalletMain->mapAddressBook)
     {
-        if (!IsMine(*pwalletMain, entry.first))
+        if (!IsMine(*pwalletMain, entry.first, fMultiSig))
             continue;
         
         CBitcoinAddress coinAddress(entry.first);
@@ -3592,6 +3595,9 @@ int SecureMsgSend(std::string& addressFrom, std::string& addressTo, std::string&
         proof of work thread will pick up messages from  send queue db
         
     */
+
+    // never will do secure message to multisig
+    static const bool fMultisig = false;
     
     if (fDebugSmsg)
         printf("SecureMsgSend(%s, %s, ...)\n", addressFrom.c_str(), addressTo.c_str());
@@ -3686,7 +3692,7 @@ int SecureMsgSend(std::string& addressFrom, std::string& addressTo, std::string&
     BOOST_FOREACH(const PAIRTYPE(CTxDestination, std::string)& entry, pwalletMain->mapAddressBook)
     {
         // -- get first owned address
-        if (!IsMine(*pwalletMain, entry.first))
+        if (!IsMine(*pwalletMain, entry.first, fMultiSig))
             continue;
         
         const CBitcoinAddress& address = entry.first;

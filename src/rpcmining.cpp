@@ -14,8 +14,6 @@
 using namespace json_spirit;
 using namespace std;
 
-extern unsigned int nTargetSpacingPoS;
-
 Value defaultcurrency(const Array &params, bool fHelp)
 {
     if (fHelp || params.size() != 1) {
@@ -62,6 +60,10 @@ Value getsubsidy(const Array& params, bool fHelp)
     Object ret;
 
 
+#if PROOF_MODEL == PURE_POS
+    static const int nLastPoWBlock = GetLastPoWBlock();
+#endif
+
     if (params.size() == 0) {
             struct AMOUNT subsidy = GetPoWSubsidy(nBestHeight + 1);
             ret.push_back(Pair("blockvalue", subsidy.nValue));
@@ -77,12 +79,12 @@ Value getsubsidy(const Array& params, bool fHelp)
             p1 = params[0].get_int();
             p2 = params[1].get_int();
 #if PROOF_MODEL == PURE_POS
-            if ((p1 < 0) || (p2 < 0) || (p1 > LAST_POW_BLOCK) || (p2 > LAST_POW_BLOCK)) {
+            if ((p1 < 1) || (p2 < 1) || (p1 > nLastPoWBlock) || (p2 > nLastPoWBlock)) {
 #else
-            if ((p1 < 0) || (p2 < 0)) {
+            if ((p1 < 1) || (p2 < 1)) {
 #endif
                   throw runtime_error(
-                    "getsubsidy height [height]\n"
+                    "getsubsidy [height] [height]\n"
                     "If no height is provided, return subsidy of current block.\n"
                     "Returns the pow reward for block at height or from one to the other.\n"
                     "Biggest height should be no more than the last pow block.");
@@ -184,6 +186,7 @@ Value getstakinginfo(const Array& params, bool fHelp)
             "getstakinginfo\n"
             "Returns an object containing staking-related information.");
 
+    int nTargetSpacing = GetTargetSpacing(true);
 
 
     uint64_t nWeight = 0;
@@ -191,7 +194,7 @@ Value getstakinginfo(const Array& params, bool fHelp)
 
     uint64_t nNetworkWeight = GetPoSKernelPS();
     bool staking = nLastCoinStakeSearchInterval && nWeight;
-    int nExpectedTime = staking ? (nTargetSpacingPoS * nNetworkWeight / nWeight) : -1;
+    int nExpectedTime = staking ? (nTargetSpacing * nNetworkWeight / nWeight) : -1;
 
     Object obj;
 
@@ -229,7 +232,8 @@ Value getworkex(const Array& params, bool fHelp)
         throw JSONRPCError(-10, "breakout is downloading blocks...");
 
 #if PROOF_MODEL == PURE_POS
-    if (pindexBest->nHeight >= LAST_POW_BLOCK)
+    static const int nLastPoWBlock = GetLastPoWBlock();
+    if (pindexBest->nHeight >= nLastPoWBlock)
         throw JSONRPCError(RPC_MISC_ERROR, "No more PoW blocks");
 #endif
 
@@ -365,7 +369,8 @@ Value getwork(const Array& params, bool fHelp)
         throw JSONRPCError(RPC_CLIENT_IN_INITIAL_DOWNLOAD, "breakout is downloading blocks...");
 
 #if PROOF_MODEL == PURE_POS
-    if (pindexBest->nHeight >= LAST_POW_BLOCK)
+    static const int nLastPoWBlock = GetLastPoWBlock();
+    if (pindexBest->nHeight >= nLastPoWBlock)
         throw JSONRPCError(RPC_MISC_ERROR, "No more PoW blocks");
 #endif
 
@@ -513,7 +518,8 @@ Value getblocktemplate(const Array& params, bool fHelp)
         throw JSONRPCError(RPC_CLIENT_IN_INITIAL_DOWNLOAD, "breakout is downloading blocks...");
 
 #if PROOF_MODEL == PURE_POS
-    if (pindexBest->nHeight >= LAST_POW_BLOCK)
+    static const int nLastPoWBlock = GetLastPoWBlock();
+    if (pindexBest->nHeight >= nLastPoWBlock)
         throw JSONRPCError(RPC_MISC_ERROR, "No more PoW blocks");
 #endif
 

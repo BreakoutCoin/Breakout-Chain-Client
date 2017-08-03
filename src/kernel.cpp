@@ -11,9 +11,6 @@
 
 using namespace std;
 
-extern unsigned int nStakeMaxAge;
-extern unsigned int nTargetSpacingPoS;
-
 typedef std::map<int, unsigned int> MapModifierCheckpoints;
 
 // Hard checkpoints of stake modifier checksums to ensure they are deterministic
@@ -21,6 +18,8 @@ static std::map<int, unsigned int> mapStakeModifierCheckpoints =
     boost::assign::map_list_of
         (         0, 0x7f061366u )
         (     37500, 0x7ac1cf6bu )
+        (     87000, 0x3e355b36u )
+        (    107000, 0x88ff8fc9u )
     ;
 
 // Hard checkpoints of stake modifier checksums to ensure they are deterministic (testNet)
@@ -32,6 +31,9 @@ static std::map<int, unsigned int> mapStakeModifierCheckpointsTestNet =
 // Get time weight
 int64_t GetWeight(int64_t nIntervalBeginning, int64_t nIntervalEnd, int nColor, int64_t nTimeBlockPrev)
 {
+    // ADVISORY: static is an optimization and may not be suitable
+    static unsigned int nStakeMinAge = GetStakeMinAge();
+    static unsigned int nStakeMaxAge = GetStakeMaxAge();
     if (!CanStake(nColor))
     {
            printf("Currency not valid: %d\n", nColor);
@@ -61,6 +63,8 @@ static bool GetLastStakeModifier(const CBlockIndex* pindex, uint256& bnStakeModi
 // Get selection interval section (in seconds)
 static int64_t GetStakeModifierSelectionIntervalSection(int nSection)
 {
+    // ADVISORY: static is optimization, may not be appropriate for forks
+    static unsigned int nModifierInterval = GetModifierInterval();
     assert (nSection >= 0 && nSection < 64);
     return (nModifierInterval * 63 / (63 + ((63 - nSection) * (MODIFIER_INTERVAL_RATIO - 1))));
 }
@@ -134,6 +138,9 @@ static bool SelectBlockFromCandidates(vector<pair<int64_t, uint256> >& vSortedBy
 // blocks.
 bool ComputeNextStakeModifier(const CBlockIndex* pindexPrev, uint256& bnStakeModifier, bool& fGeneratedStakeModifier)
 {
+    // ADVISORY: static is optimization, may not be appropriate for forks
+    static unsigned int nModifierInterval = GetModifierInterval();
+
     bnStakeModifier = 0;
     fGeneratedStakeModifier = false;
     if (!pindexPrev)
@@ -155,7 +162,8 @@ bool ComputeNextStakeModifier(const CBlockIndex* pindexPrev, uint256& bnStakeMod
 
     // Sort candidate blocks by timestamp
     vector<pair<int64_t, uint256> > vSortedByTimestamp;
-    vSortedByTimestamp.reserve(64 * nModifierInterval / nTargetSpacingPoS);
+    int nTargetSpacing = GetTargetSpacing(true);
+    vSortedByTimestamp.reserve(64 * nModifierInterval / nTargetSpacing);
     int64_t nSelectionInterval = GetStakeModifierSelectionInterval();
     int64_t nSelectionIntervalStart = (pindexPrev->GetBlockTime() / nModifierInterval) * nModifierInterval - nSelectionInterval;
     const CBlockIndex* pindex = pindexPrev;
@@ -259,7 +267,6 @@ uint256 ComputeStakeModifier(const CBlockIndex* pindexPrev, const uint256& kerne
 //
 bool CheckStakeKernelHash(CBlockIndex* pindexPrev, unsigned int nBits, const CBlock& blockFrom, const CTransaction& txPrev, const COutPoint& prevout, unsigned int nTimeTx, uint256& hashProofOfStake, uint256& targetProofOfStake, bool fPrintProofOfStake)
 {
-
     if (nTimeTx < txPrev.nTime)  // Transaction timestamp violation
         return error("CheckStakeKernelHash() : nTime violation");
 
@@ -367,7 +374,7 @@ bool CheckProofOfStake(CBlockIndex* pindexPrev, const CTransaction& tx, unsigned
 // Check whether the coinstake timestamp meets protocol
 bool CheckCoinStakeTimestamp(int64_t nTimeBlock, int64_t nTimeTx)
 {
-    int nStakeTimestampMask = fTestNet ? STAKE_TIMESTAMP_MASK_TESTNET : STAKE_TIMESTAMP_MASK;
+    int nStakeTimestampMask = GetStakeTimestampMask();
     return (nTimeBlock == nTimeTx) && ((nTimeTx & nStakeTimestampMask) == 0);
 }
 

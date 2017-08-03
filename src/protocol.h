@@ -16,6 +16,14 @@
 #include "uint256.h"
 
 extern bool fTestNet;
+
+extern unsigned char pchMessageStart[4];
+
+extern unsigned short const P2P_PORT;
+extern unsigned short const P2P_PORT_TESTNET;
+extern unsigned short const DEFAULT_PROXY;
+extern unsigned short const DEFAULT_PROXY_TESTNET;
+
 static inline unsigned short GetDefaultPort(const bool testnet = fTestNet)
 {
     return testnet ? P2P_PORT_TESTNET : P2P_PORT;
@@ -25,10 +33,6 @@ static inline unsigned short GetDefaultProxy(const bool testnet = fTestNet)
 {
     return testnet ? DEFAULT_PROXY_TESTNET : DEFAULT_PROXY;
 }
-
-
-
-extern unsigned char pchMessageStart[4];
 
 /** Message header.
  * (4) message start.

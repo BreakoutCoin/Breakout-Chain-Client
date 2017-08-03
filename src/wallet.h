@@ -78,8 +78,12 @@ public:
 class CWallet : public CCryptoKeyStore
 {
 private:
-    bool SelectCoinsSimple(int64_t nTargetValue, int nColor, unsigned int nSpendTime, int nMinConf, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64_t& nValueRet) const;
-    bool SelectCoins(int64_t nTargetValue, int nColor, unsigned int nSpendTime, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64_t& nValueRet, const CCoinControl *coinControl=NULL) const;
+    bool SelectCoinsSimple(int64_t nTargetValue, int nColor, unsigned int nSpendTime,
+                           int nMinConf, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet,
+                           int64_t& nValueRet, bool fMultiSig) const;
+    bool SelectCoins(int64_t nTargetValue, int nColor, unsigned int nSpendTime,
+                     std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet,
+                     int64_t& nValueRet, bool fMultiSig, const CCoinControl *coinControl=NULL) const;
 
     CWalletDB *pwalletdbEncryption;
 
@@ -138,10 +142,14 @@ public:
     // check whether we are allowed to upgrade (or already support) to the named feature
     bool CanSupportFeature(enum WalletFeature wf) { AssertLockHeld(cs_wallet); return nWalletMaxVersion >= wf; }
 
-    void AvailableCoinsMinConf(int nColor, std::vector<COutput>& vCoins, int nConf) const;
-    void AvailableCoins(int nColor, std::vector<COutput>& vCoins, bool fOnlyConfirmed=true, const CCoinControl *coinControl=NULL) const;
+    void AvailableCoinsMinConf(int nColor, std::vector<COutput>& vCoins, int nConf, bool fMultiSig) const;
+    void AvailableCoins(int nColor, std::vector<COutput>& vCoins, bool fMultiSig,
+                        bool fOnlyConfirmed=true, const CCoinControl *coinControl=NULL) const;
     // no color check because vCoins is already populated with coins of the same color!!
-    bool SelectCoinsMinConf(int64_t nTargetValue, unsigned int nSpendTime, int nConfMine, int nConfTheirs, std::vector<COutput> vCoins, std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet, int64_t& nValueRet) const;
+    bool SelectCoinsMinConf(int64_t nTargetValue, unsigned int nSpendTime, int nConfMine,
+                            int nConfTheirs, std::vector<COutput> vCoins,
+                            std::set<std::pair<const CWalletTx*,unsigned int> >& setCoinsRet,
+                            int64_t& nValueRet, bool fMultiSig) const;
     // keystore implementation
     // Generate a new key
     CPubKey GenerateNewKey();
@@ -279,24 +287,24 @@ public:
     std::set< std::set<CTxDestination> > GetAddressGroupings();
     std::map<CTxDestination, int64_t> GetAddressBalances();
 
-    bool IsMine(const CTxIn& txin) const;
+    bool IsMine(const CTxIn& txin, bool fMultiSig) const;
     //       color   value
-    std::pair<int, int64_t> GetDebit(const CTxIn &txin) const;
-    int64_t GetDebit(const CTxIn& txin, int nColor) const;
-    bool IsMine(const CTxOut& txout) const
+    std::pair<int, int64_t> GetDebit(const CTxIn &txin, bool fMultiSig) const;
+    int64_t GetDebit(const CTxIn& txin, int nColor, bool fMultiSig) const;
+    bool IsMine(const CTxOut& txout, bool fMultiSig) const
     {
-        return ::IsMine(*this, txout.scriptPubKey);
+        return ::IsMine(*this, txout.scriptPubKey, fMultiSig);
     }
-    int64_t GetCredit(const CTxOut& txout, int nColor) const
+    int64_t GetCredit(const CTxOut& txout, int nColor, bool fMultiSig) const
     {
         if (!MoneyRange(txout.nValue, txout.nColor))
             throw std::runtime_error("CWallet::GetCredit() : value out of range");
-        return ((IsMine(txout) && (txout.nColor == nColor)) ? txout.nValue : 0);
+        return ((IsMine(txout, fMultiSig) && (txout.nColor == nColor)) ? txout.nValue : 0);
     }
 
-    std::pair<int, int64_t> GetCredit(const CTxOut &txout) const
+    std::pair<int, int64_t> GetCredit(const CTxOut &txout, bool fMultiSig) const
     {
-        int64_t cred = GetCredit(txout, txout.nColor);
+        int64_t cred = GetCredit(txout, txout.nColor, fMultiSig);
         return std::make_pair(txout.nColor, cred);
     }
 
@@ -309,18 +317,18 @@ public:
         return (IsChange(txout) ? txout.nValue : 0);
     }
 
-    bool IsMine(const CTransaction& tx) const
+    bool IsMine(const CTransaction& tx, bool fMultiSig) const
     {
         BOOST_FOREACH(const CTxOut& txout, tx.vout)
-            if (IsMine(txout) && txout.nValue >= vMinimumInputValue[txout.nColor])
+            if (IsMine(txout, fMultiSig) && txout.nValue >= vMinimumInputValue[txout.nColor])
                 return true;
         return false;
     }
 
-    bool IsFromMe(const CTransaction& tx) const
+    bool IsFromMe(const CTransaction& tx, bool fMultiSig) const
     {
         std::map<int, int64_t> mapDebit;
-        FillDebits(tx, mapDebit);
+        FillDebits(tx, mapDebit, fMultiSig);
         std::map<int, int64_t>::const_iterator it;
         for (it = mapDebit.begin(); it != mapDebit.end(); ++it)
         {
@@ -332,31 +340,12 @@ public:
         return false;
     }
 
-    // TODO: any use for this?
-    // bool IsFromMe(const CWalletTx& wtx) const
-    // {
-    //     if (!wtx.fDebitCached)
-    //     {
-    //         FillDebits(wtx, wtx.mapDebitCached);
-    //         wtx.fDebitCached = true;
-    //     }
-    //     std::map<int, int64_t>::const_iterator it;
-    //     for (it = wtx.mapDebitCached.begin(); it != wtx.mapDebitCached.end(); ++it)
-    //     {
-    //         if (it->second > 0)
-    //         {
-    //              return true;
-    //         }
-    //     }
-    //     return false;
-    // }
-
-    bool FillDebits(const CTransaction& tx, std::map<int, int64_t> &mapDebit) const
+    bool FillDebits(const CTransaction& tx, std::map<int, int64_t> &mapDebit, bool fMultiSig) const
     {
         mapDebit.clear();
         BOOST_FOREACH(const CTxIn& txin, tx.vin)
         {
-            std::pair<int, int64_t> pairDebit = GetDebit(txin);
+            std::pair<int, int64_t> pairDebit = GetDebit(txin, fMultiSig);
             int64_t nDebit = pairDebit.second;
             if (nDebit <= 0)
             {
@@ -372,39 +361,26 @@ public:
         return (mapDebit.size() > 0);
     }
 
-    // TODO: any use for this?
-    // will rebuild the map cache
-    // int64_t GetDebit(const CWalletTx& wtx, int nColor) const
-    // {
-    //     if (!CheckColor(nColor))
-    //     {
-    //         throw std::runtime_error("CWallet::GetDebit() : invalid currency");
-    //     }
-    //     FillDebits(wtx, wtx.mapDebitCached);
-    //     wtx.fDebitCached = true;
-    //     return wtx.mapDebitCached[nColor];
-    // }
-
     // TODO: this is going to be inefficient for many currencies
-    int64_t GetDebit(const CTransaction& tx, int nColor) const
+    int64_t GetDebit(const CTransaction& tx, int nColor, bool fMultiSig) const
     {
         if (!CheckColor(nColor))
         {
             throw std::runtime_error("CWallet::GetDebit() : invalid currency");
         }
         std::map<int, int64_t> mapDebit;
-        FillDebits(tx, mapDebit);
+        FillDebits(tx, mapDebit, fMultiSig);
         return mapDebit[nColor];
     }
 
 
-    bool FillCredits(const CTransaction& tx, std::map<int, int64_t> &mapCredit) const
+    bool FillCredits(const CTransaction& tx, std::map<int, int64_t> &mapCredit, bool fMultiSig) const
     {
         mapCredit.clear();
         BOOST_FOREACH(const CTxOut& txout, tx.vout)
         {
             int nColor = txout.nColor;
-            int64_t nCredit = GetCredit(txout, nColor);  // checks money range
+            int64_t nCredit = GetCredit(txout, nColor, fMultiSig);  // checks money range
             if (nCredit <= 0)
             {
                 continue;
@@ -418,39 +394,26 @@ public:
         return (mapCredit.size() > 0);
     }
 
-    // TODO: any use for this?
-    // will rebuild the map cache
-    // int64_t GetCredit(const CWallet& wtx, int nColor) const
-    // {
-    //     if (!CheckColor(nColor))
-    //     {
-    //         throw std::runtime_error("CWallet::GetCredit() : invalid currency");
-    //     }
-    //     FillCredits(wtx, wtx.mapCreditCached);
-    //     wtx.fCreditCached = true;
-    //     return wtx.mapCreditCached[nColor];
-    // }
-
     // TODO: this is going to be inefficient for many currencies
-    int64_t GetCredit(const CTransaction& tx, int nColor) const
+    int64_t GetCredit(const CTransaction& tx, int nColor, bool fMultiSig) const
     {
         if (!CheckColor(nColor))
         {
             throw std::runtime_error("CWallet::GetCredit() : invalid currency");
         }
         std::map<int, int64_t> mapCredit;
-        FillCredits(tx, mapCredit);
+        FillCredits(tx, mapCredit, fMultiSig);
         return mapCredit[nColor];
     }
 
-    bool FillMatures(const CMerkleTx& tx, std::map<int, int64_t> &mapCredit) const
+    bool FillMatures(const CMerkleTx& tx, std::map<int, int64_t> &mapCredit, bool fMultiSig) const
     {
         mapCredit.clear();
         if ((tx.IsCoinBase() || tx.IsCoinStake()) && tx.GetBlocksToMaturity() > 0)
         {
             return false;
         }
-        return FillCredits(tx, mapCredit);
+        return FillCredits(tx, mapCredit, fMultiSig);
     }
 
     // this is completely not dependable--and will probably never be
@@ -468,19 +431,6 @@ public:
         }
         return (mapChange.size() > 0);
     }
-
-    // TODO: any use for this?
-    // will rebuild the map cache
-    // int64_t GetChange(const CWalletTx& wtx, int nColor) const
-    // {
-    //     if (!CheckColor(nColor))
-    //     {
-    //         throw std::runtime_error("CWallet::GetChange() : invalid currency");
-    //     }
-    //     FillChange(wtx, wtx.mapChangeCached);
-    //     wtx.fChangeCached = true;
-    //     return wtx.mapChangeCached[nColor];
-    // }
 
     // TODO: this is going to be inefficient for many currencies
     int64_t GetChange(const CTransaction& tx, int nColor) const
@@ -798,16 +748,16 @@ public:
         return (!!vfSpent[nOut]);
     }
 
-    int64_t GetDebit(int nColor) const
+    int64_t GetDebit(int nColor, bool fMultiSig) const
     {
         if (vin.empty())
             return 0;
         if (fDebitCached)
             return mapDebitCached[nColor];
-        return pwallet->GetDebit(*this, nColor);
+        return pwallet->GetDebit(*this, nColor, fMultiSig);
     }
 
-    int64_t GetCredit(int nColor, bool fUseCache=false) const
+    int64_t GetCredit(int nColor, bool fMultiSig, bool fUseCache=false) const
     {
         // Must wait until coinbase is safely deep enough in the chain before valuing it
         if ((IsCoinBase() || IsCoinStake()) && GetBlocksToMaturity() > 0)
@@ -818,11 +768,11 @@ public:
         {
             return mapCreditCached[nColor];  // color is validated in caching
         }
-        return pwallet->GetCredit(*this, nColor);
+        return pwallet->GetCredit(*this, nColor, fMultiSig);
     }
 
     // fills the map cache if necessary
-    int64_t GetAvailableCredit(int nColor, bool fUseCache=false) const
+    int64_t GetAvailableCredit(int nColor, bool fMultiSig, bool fUseCache=false) const
     {
         // Must wait until coinbase is safely deep enough in the chain before valuing it
         if ((IsCoinBase() || IsCoinStake()) && GetBlocksToMaturity() > 0)
@@ -839,7 +789,7 @@ public:
             if (!IsSpent(i))
             {
                 const CTxOut &txout = vout[i];
-                mapAvailableCreditCached[txout.nColor] += pwallet->GetCredit(txout, nColor);
+                mapAvailableCreditCached[txout.nColor] += pwallet->GetCredit(txout, nColor, fMultiSig);
                 if (!MoneyRange(mapAvailableCreditCached[txout.nColor], txout.nColor))
                     throw std::runtime_error("CWalletTx::GetAvailableCredit() : value out of range");
             }
@@ -869,16 +819,16 @@ public:
     void GetAmounts(int nColor, std::list<std::pair<CTxDestination,
                     int64_t> >& listReceived,
                     std::list<std::pair<CTxDestination, int64_t> >& listSent,
-                    int64_t& nFee, std::string& strSentAccount) const;
+                    int64_t& nFee, std::string& strSentAccount, bool fMultiSig) const;
 
     void GetAccountAmounts(int nColor, const std::string& strAccount,
-                           int64_t& nReceived, int64_t& nSent, int64_t& nFee) const;
+                           int64_t& nReceived, int64_t& nSent, int64_t& nFee, bool fMultiSig) const;
 
-    bool IsFromMe() const
+    bool IsFromMe(bool fMultiSig) const
     {
         for (int nColor = 1; nColor < N_COLORS; ++nColor)
         {
-              if (GetDebit(nColor) > 0)
+              if (GetDebit(nColor, fMultiSig) > 0)
               {
                     return true;
               }
@@ -888,6 +838,9 @@ public:
 
     bool IsTrusted() const
     {
+        // can trust multisig involving one's self (?)
+        static const bool fMultiSig = true;
+
         // Quick answer in most cases
         if (!IsFinal())
             return false;
@@ -896,7 +849,7 @@ public:
             return true;
         if (nDepth < 0)
             return false;
-        if (fConfChange || !IsFromMe()) // using wtx's cached debit
+        if (fConfChange || !IsFromMe(fMultiSig)) // using wtx's cached debit
             return false;
 
         // If no confirmations but it's from us, we can still
@@ -916,7 +869,7 @@ public:
                 continue;
             if (nPDepth < 0)
                 return false;
-            if (!pwallet->IsFromMe(*ptx))
+            if (!pwallet->IsFromMe(*ptx, fMultiSig))
                 return false;
 
             if (mapPrev.empty())

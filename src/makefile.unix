@@ -2,6 +2,7 @@
 # Distributed under the MIT/X11 software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+# Build STATIC for this makefile (1=static, 0=not)
 STATIC=1
 # DEBUG=1
 
@@ -19,6 +20,7 @@ INCLUDEPATHS= \
  -I"$(CURDIR)/tor/ext/trunnel" \
  -I"$(CURDIR)/tor/or" \
  -I"$(CURDIR)/tor/trunnel" \
+ -I"$(CURDIR)/tor/trunnel/hs" \
  -I"$(CURDIR)/src/libcryptopp" \
  -I"/usr/include" \
  -I"$(INC_LINUX)" \
@@ -137,6 +139,7 @@ xCXXFLAGS=$(OPTIFLAGS) $(EXT_OPTIONS) -pthread -Wall -Wextra -Wno-ignored-qualif
 # adds some defaults in front. Unfortunately, LDFLAGS=... $(LDFLAGS) does not work.
 xLDFLAGS=$(LDHARDENING) $(LDFLAGS)
 
+
 OBJS= \
     obj/colors.o \
     obj/json_spirit_reader.o \
@@ -205,6 +208,8 @@ OBJS= \
     obj/compat_libevent.o \
     obj/compat_pthreads.o \
     obj/compat_threads.o \
+    obj/compat_time.o \
+    obj/timers.o \
     obj/compat_winthreads.o \
     obj/config.o \
     obj/confparse.o \
@@ -217,7 +222,6 @@ OBJS= \
     obj/dircollate.o \
     obj/crypto.o \
     obj/csiphash.o \
-    obj/eventdns.o \
     obj/readpassphrase.o \
     obj/tinytest.o \
     obj/crypto_curve25519.o \
@@ -269,14 +273,31 @@ OBJS= \
     obj/routerset.o \
     obj/scheduler.o \
     obj/sandbox.o \
+    obj/pubsub.o \
     obj/statefile.o \
     obj/status.o \
     obj/torcert.o \
     obj/tor_util.o \
+    obj/util_bug.o \
     obj/torgzip.o \
     obj/tortls.o \
     obj/tor_main.o \
     obj/transports.o \
+    obj/hs_descriptor.o \
+    obj/parsecommon.o \
+    obj/hs_common.o \
+    obj/shared_random_state.o \
+    obj/hs_intropoint.o \
+    obj/shared_random.o \
+    obj/protover.o \
+    obj/hs_cache.o \
+    obj/bridges.o \
+    obj/hs_circuitmap.o \
+    obj/hs_service.o \
+    obj/cell_common.o \
+    obj/cell_establish_intro.o \
+    obj/cell_introduce1.o \
+    obj/cell_common.o \
     obj/ed25519_cert.o \
     obj/link_handshake.o \
     obj/pwbox.o \
@@ -319,22 +340,23 @@ OBJS= \
     obj/scrypt-x86.o \
     obj/scrypt-x86_64.o \
     obj/smessage.o \
-    obj/stealth.o
-
+    obj/stealth.o \
+    obj/txdb-leveldb.o 
 
 all: breakoutd
+
 
 LIBS += $(CURDIR)/libcryptopp/libcryptopp.a
 libcryptopp/libcryptopp.a:
 	@echo "Building libcryptopp ..."; cd libcryptopp; make static
 
-LIBS += $(CURDIR)/leveldb/libleveldb.a $(CURDIR)/leveldb/libmemenv.a
+LIBS += $(CURDIR)/leveldb/out-static/libleveldb.a $(CURDIR)/leveldb/out-static/libmemenv.a
 DEFS += $(addprefix -I,$(CURDIR)/leveldb/include)
 DEFS += $(addprefix -I,$(CURDIR)/leveldb/helpers)
 OBJS += obj/txdb-leveldb.o
-leveldb/libleveldb.a:
-	@echo "Building LevelDB ..."; cd leveldb; make libleveldb.a libmemenv.a; cd ..;
-obj/txdb-leveldb.o: leveldb/libleveldb.a
+leveldb/out-static/libleveldb.a:
+	@echo "Building LevelDB ..."; cd leveldb; make; cd ..;
+obj/txdb-leveldb.o: leveldb/out-static/libleveldb.a
 
 
 # auto-generated dependencies:
@@ -402,14 +424,12 @@ obj/%.o: tor/ext/ed25519/ref10/%.c
             -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
 	rm -f $(@:%.o=%.d)
 
-
 obj/%.o: tor/ext/keccak-tiny/%.c
 	$(CC) -c $(CFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
 	@cp $(@:%.o=%.d) $(@:%.o=%.P); \
 	sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' \
             -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
 	rm -f $(@:%.o=%.d)
-
 
 obj/%.o: tor/or/%.c
 	$(CC) -c $(CFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
@@ -425,7 +445,6 @@ obj/%.o: tor/ext/trunnel/%.c
             -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
 	rm -f $(@:%.o=%.d)
 
-
 obj/%.o: tor/trunnel/%.c
 	$(CC) -c $(CFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
 	@cp $(@:%.o=%.d) $(@:%.o=%.P); \
@@ -433,6 +452,12 @@ obj/%.o: tor/trunnel/%.c
             -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
 	rm -f $(@:%.o=%.d)
 
+obj/%.o: tor/trunnel/hs/%.c
+	$(CC) -c $(CFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
+	@cp $(@:%.o=%.d) $(@:%.o=%.P); \
+	sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' \
+            -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
+	rm -f $(@:%.o=%.d)
 
 obj/breakout.o: tor/adapter/breakout.cpp
 	$(CXX) -c $(xCXXFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
@@ -450,7 +475,7 @@ obj/scrypt-x86_64.o: scrypt-x86_64.S
 obj/scrypt-arm.o: scrypt-arm.S
 	$(CXX) -c $(xCXXFLAGS) -MMD -o $@ $<
 
-breakoutd: leveldb/libleveldb.a libcryptopp/libcryptopp.a \
+breakoutd: leveldb/out-static/libleveldb.a libcryptopp/libcryptopp.a \
               $(OBJS:obj/%=obj/%) obj/breakout.o
 	$(CXX) $(xCXXFLAGS) -o $@ $(LIBPATHS) $^ $(xLDFLAGS) $(LIBS)
 
@@ -459,6 +484,7 @@ clean:
 	-rm -f obj/*.o
 	-rm -f obj/*.P
 	-rm -f obj/build.h
+	cd leveldb; make clean
 	cd libcryptopp; make clean
 
 FORCE:

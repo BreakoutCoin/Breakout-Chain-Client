@@ -14,16 +14,6 @@
 #include "strlcpy.h"
 #include <boost/algorithm/string/case_conv.hpp> // for to_lower()
 
-
-// random port number, not used much
-unsigned short const TOR_PORT = 25615;
-
-unsigned short const P2P_PORT = 11698;
-unsigned short const P2P_PORT_TESTNET = 21698;
-
-unsigned short const DEFAULT_PROXY = 9050;
-unsigned short const DEFAULT_PROXY_TESTNET = 19050;
-
 using namespace std;
 
 // Settings

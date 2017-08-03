@@ -9,8 +9,6 @@
 #include "kernel.h"
 
 // from main.cpp
-extern unsigned int nTargetSpacingPoS;
-
 extern unsigned int nLaunchTime;
 
 using namespace std;
@@ -563,7 +561,14 @@ bool CheckWork(CBlock* pblock, CWallet& wallet, CReserveKey& reservekey)
                                                        hashBlock.GetHex().c_str());
 
     if (hashBlock > hashTarget)
+    {
+        if (fDebug)
+        {
+            printf("CheckWork() :\n   hashBlock: %s\n   target: %s\n",
+                           hashBlock.GetHex().c_str(), hashTarget.GetHex().c_str());
+        }
         return error("CheckWork() : proof-of-work not meeting target");
+    }
 
     if (pblock->nTime < nLaunchTime)
          return error("CheckWork() : time stamp before launch");
@@ -646,6 +651,13 @@ void StakeMiner(CWallet *pwallet)
     // Make this thread recognisable as the mining thread
     RenameThread("breakout-miner");
 
+#if PROOF_MODEL == PURE_POS
+    //
+    static const int nFirstPoSBlock = GetFirstPoSBlock();
+    int nTargetSpacing = GetTargetSpacing(true);
+    unsigned int nMilliWaitForPoS = nTargetSpacing * 1000 / 2;
+#endif
+
     bool fTryToSync = true;
 
     while (true)
@@ -680,6 +692,14 @@ void StakeMiner(CWallet *pwallet)
             }
         }
 
+#if PROOF_MODEL == PURE_POS
+        if (pindexBest->nHeight < (nFirstPoSBlock - 1))
+        {
+             MilliSleep(nMilliWaitForPoS);
+             continue;
+        }
+#endif
+
         //
         // Create new block
         //
@@ -694,7 +714,8 @@ void StakeMiner(CWallet *pwallet)
             SetThreadPriority(THREAD_PRIORITY_NORMAL);
             CheckStake(pblock.get(), *pwallet);
             SetThreadPriority(THREAD_PRIORITY_LOWEST);
-            MilliSleep(nTargetSpacingPoS * 1000);
+            int nTargetSpacing = GetTargetSpacing(true);
+            MilliSleep(nTargetSpacing * 1000);
         }
         else
         {

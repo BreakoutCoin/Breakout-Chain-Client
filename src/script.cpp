@@ -1673,7 +1673,6 @@ bool IsStandard(const CScript& scriptPubKey, txnouttype& whichType)
     return whichType != TX_NONSTANDARD;
 }
 
-
 unsigned int HaveKeys(const vector<valtype>& pubkeys, const CKeyStore& keystore)
 {
     unsigned int nResult = 0;
@@ -1686,6 +1685,18 @@ unsigned int HaveKeys(const vector<valtype>& pubkeys, const CKeyStore& keystore)
     return nResult;
 }
 
+bool HaveAnyKey(const vector<valtype>& pubkeys, const CKeyStore& keystore)
+{
+    BOOST_FOREACH(const valtype& pubkey, pubkeys)
+    {
+        CKeyID keyID = CPubKey(pubkey).GetID();
+        if (keystore.HaveKey(keyID))
+        {
+            return true;
+        }
+    }
+    return false;
+}
 
 class CKeyStoreIsMineVisitor : public boost::static_visitor<bool>
 {
@@ -1702,12 +1713,12 @@ public:
     }
 };
 
-bool IsMine(const CKeyStore &keystore, const CTxDestination &dest)
+bool IsMine(const CKeyStore &keystore, const CTxDestination &dest, bool fMultisig)
 {
     return boost::apply_visitor(CKeyStoreIsMineVisitor(&keystore), dest);
 }
 
-bool IsMine(const CKeyStore &keystore, const CScript& scriptPubKey)
+bool IsMine(const CKeyStore &keystore, const CScript& scriptPubKey, bool fMultiSig)
 {
     vector<valtype> vSolutions;
     txnouttype whichType;
@@ -1717,32 +1728,41 @@ bool IsMine(const CKeyStore &keystore, const CScript& scriptPubKey)
     CKeyID keyID;
     switch (whichType)
     {
-    case TX_NONSTANDARD:
-    case TX_NULL_DATA:
-        return false;
-    case TX_PUBKEY:
-        keyID = CPubKey(vSolutions[0]).GetID();
-        return keystore.HaveKey(keyID);
-    case TX_PUBKEYHASH:
-        keyID = CKeyID(uint160(vSolutions[0]), BREAKOUT_COLOR_NONE);
-        return keystore.HaveKey(keyID);
-    case TX_SCRIPTHASH:
-    {
-        CScript subscript;
-        if (!keystore.GetCScript(CScriptID(uint160(vSolutions[0])), subscript))
+        case TX_NONSTANDARD:
+        case TX_NULL_DATA:
             return false;
-        return IsMine(keystore, subscript);
-    }
-    case TX_MULTISIG:
-    {
-        // Only consider transactions "mine" if we own ALL the
-        // keys involved. multi-signature transactions that are
-        // partially owned (somebody else has a key that can spend
-        // them) enable spend-out-from-under-you attacks, especially
-        // in shared-wallet situations.
-        vector<valtype> keys(vSolutions.begin()+1, vSolutions.begin()+vSolutions.size()-1);
-        return HaveKeys(keys, keystore) == keys.size();
-    }
+        case TX_PUBKEY:
+            keyID = CPubKey(vSolutions[0]).GetID();
+            return keystore.HaveKey(keyID);
+        case TX_PUBKEYHASH:
+            keyID = CKeyID(uint160(vSolutions[0]), BREAKOUT_COLOR_NONE);
+            return keystore.HaveKey(keyID);
+        case TX_SCRIPTHASH:
+        {
+            CScript subscript;
+            if (!keystore.GetCScript(CScriptID(uint160(vSolutions[0])), subscript))
+            {
+                return false;
+            }
+            return IsMine(keystore, subscript, fMultiSig);
+        }
+        case TX_MULTISIG:
+        {
+            // Only consider transactions "mine" if we own ALL the
+            // keys involved. multi-signature transactions that are
+            // partially owned (somebody else has a key that can spend
+            // them) enable spend-out-from-under-you attacks, especially
+            // in shared-wallet situations.
+            vector<valtype> keys(vSolutions.begin()+1, vSolutions.begin()+vSolutions.size()-1);
+            if (fMultiSig)
+            {
+                return HaveAnyKey(keys, keystore);
+            }
+            else
+            {
+                return HaveKeys(keys, keystore) == keys.size();
+            }
+        }
     }
     return false;
 }
@@ -1888,7 +1908,8 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
 }
 
 
-bool SignSignature(const CKeyStore &keystore, const CScript& fromPubKey, CTransaction& txTo, unsigned int nIn, int nHashType)
+// TODO: change to an enumerated return type
+uint8_t SignSignature(const CKeyStore &keystore, const CScript& fromPubKey, CTransaction& txTo, unsigned int nIn, int nHashType)
 {
     assert(nIn < txTo.vin.size());
     CTxIn& txin = txTo.vin[nIn];
@@ -1899,7 +1920,9 @@ bool SignSignature(const CKeyStore &keystore, const CScript& fromPubKey, CTransa
 
     txnouttype whichType;
     if (!Solver(keystore, fromPubKey, hash, nHashType, txin.scriptSig, whichType))
-        return false;
+    {
+        return 1;
+    }
 
     if (whichType == TX_SCRIPTHASH)
     {
@@ -1916,14 +1939,24 @@ bool SignSignature(const CKeyStore &keystore, const CScript& fromPubKey, CTransa
             Solver(keystore, subscript, hash2, nHashType, txin.scriptSig, subType) && subType != TX_SCRIPTHASH;
         // Append serialized subscript whether or not it is completely signed:
         txin.scriptSig << static_cast<valtype>(subscript);
-        if (!fSolved) return false;
+        if (!fSolved)
+        {
+            return 2;
+        }
     }
 
     // Test solution
-    return VerifyScript(txin.scriptSig, fromPubKey, txTo, nIn, STANDARD_SCRIPT_VERIFY_FLAGS, 0);
+    if (VerifyScript(txin.scriptSig, fromPubKey, txTo, nIn, STANDARD_SCRIPT_VERIFY_FLAGS, 0))
+    {
+        return 0;
+    }
+    else
+    {
+        return 3;
+    }
 }
 
-bool SignSignature(const CKeyStore &keystore, const CTransaction& txFrom, CTransaction& txTo, unsigned int nIn, int nHashType)
+uint8_t SignSignature(const CKeyStore &keystore, const CTransaction& txFrom, CTransaction& txTo, unsigned int nIn, int nHashType)
 {
     assert(nIn < txTo.vin.size());
     CTxIn& txin = txTo.vin[nIn];
@@ -2031,9 +2064,13 @@ static CScript CombineSignatures(CScript scriptPubKey, const CTransaction& txTo,
         return PushAll(sigs1);
     case TX_SCRIPTHASH:
         if (sigs1.empty() || sigs1.back().empty())
+        {
             return PushAll(sigs2);
+        }
         else if (sigs2.empty() || sigs2.back().empty())
+        {
             return PushAll(sigs1);
+        }
         else
         {
             // Recur to combine:
@@ -2178,6 +2215,7 @@ public:
         *script << OP_HASH160 << scriptID << OP_EQUAL;
         return true;
     }
+
     bool operator()(const CStealthAddress &stxAddr) const {
         script->clear();
         printf("TODO\n");

@@ -45,7 +45,7 @@ void ThreadRPCServer3(void* parg);
 
 static inline unsigned short GetDefaultRPCPort()
 {
-    return GetBoolArg("-testnet", false) ? 60542 : 50542;
+    return GetBoolArg("-testnet", (bool) TESTNET_BUILD) ? RPC_PORT_TESTNET : RPC_PORT;
 }
 
 Object JSONRPCError(int code, const string& message)
@@ -1233,12 +1233,19 @@ Array RPCConvertValues(const std::string &strMethod, const std::vector<std::stri
     if (strMethod == "burncoins"                    && n > 1) ConvertTo<double>(params[0]);
     if (strMethod == "settxfee"                     && n > 0) ConvertTo<double>(params[0]);
     if (strMethod == "getreceivedbyaddress"         && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "getreceivedbyaddress"         && n > 2) ConvertTo<bool>(params[2]);
     if (strMethod == "getreceivedbyaccount"         && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "getreceivedbyaccount"         && n > 2) ConvertTo<bool>(params[2]);
+    if (strMethod == "getreceivedbyaccount"         && n > 3) ConvertTo<bool>(params[3]);
     if (strMethod == "listreceivedbyaddress"        && n > 0) ConvertTo<boost::int64_t>(params[0]);
     if (strMethod == "listreceivedbyaddress"        && n > 1) ConvertTo<bool>(params[1]);
+    if (strMethod == "listreceivedbyaddress"        && n > 2) ConvertTo<bool>(params[2]);
     if (strMethod == "listreceivedbyaccount"        && n > 0) ConvertTo<boost::int64_t>(params[0]);
     if (strMethod == "listreceivedbyaccount"        && n > 1) ConvertTo<bool>(params[1]);
+    if (strMethod == "listreceivedbyaccount"        && n > 2) ConvertTo<bool>(params[2]);
+    if (strMethod == "listreceivedbyaccount"        && n > 3) ConvertTo<bool>(params[3]);
     if (strMethod == "getbalance"                   && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "getbalance"                   && n > 3) ConvertTo<bool>(params[3]);
     if (strMethod == "getblock"                     && n > 1) ConvertTo<bool>(params[1]);
     if (strMethod == "getblockbynumber"             && n > 0) ConvertTo<boost::int64_t>(params[0]);
     if (strMethod == "getblockbynumber"             && n > 1) ConvertTo<bool>(params[1]);
@@ -1249,14 +1256,18 @@ Array RPCConvertValues(const std::string &strMethod, const std::vector<std::stri
     if (strMethod == "sendfrom"                     && n > 3) ConvertTo<boost::int64_t>(params[3]);
     if (strMethod == "listtransactions"             && n > 1) ConvertTo<boost::int64_t>(params[1]);
     if (strMethod == "listtransactions"             && n > 2) ConvertTo<boost::int64_t>(params[2]);
+    if (strMethod == "listtransactions"             && n > 3) ConvertTo<bool>(params[3]);
     if (strMethod == "getaddressbalancebyblock"     && n > 1) ConvertTo<boost::int64_t>(params[1]);
     if (strMethod == "listaccounts"                 && n > 0) ConvertTo<boost::int64_t>(params[0]);
+    if (strMethod == "listaccounts"                 && n > 1) ConvertTo<bool>(params[1]);
+    if (strMethod == "listaccounts"                 && n > 2) ConvertTo<bool>(params[2]);
     if (strMethod == "walletpassphrase"             && n > 1) ConvertTo<boost::int64_t>(params[1]);
     if (strMethod == "walletpassphrase"             && n > 2) ConvertTo<bool>(params[2]);
     if (strMethod == "getsubsidy"                   && n > 0) ConvertTo<boost::int64_t>(params[0]);
     if (strMethod == "getsubsidy"                   && n > 1) ConvertTo<boost::int64_t>(params[1]);
     if (strMethod == "getblocktemplate"             && n > 0) ConvertTo<Object>(params[0]);
     if (strMethod == "listsinceblock"               && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "listsinceblock"               && n > 2) ConvertTo<bool>(params[2]);
 
     if (strMethod == "sendalert"                    && n > 2) ConvertTo<boost::int64_t>(params[2]);
     if (strMethod == "sendalert"                    && n > 3) ConvertTo<boost::int64_t>(params[3]);

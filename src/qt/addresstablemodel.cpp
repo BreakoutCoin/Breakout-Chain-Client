@@ -59,6 +59,9 @@ public:
 
     void refreshAddressTable()
     {
+        // individual tx do not affect any representation
+        static const bool fMultiSig = true;
+
         cachedAddressTable.clear();
         {
             LOCK(wallet->cs_wallet);
@@ -67,7 +70,7 @@ public:
                 int nColor = boost::apply_visitor(GetAddressColorVisitor(), item.first);
                 CBitcoinAddress address(item.first, nColor);
                 const std::string& strName = item.second;
-                bool fMine = IsMine(*wallet, address.Get());
+                bool fMine = IsMine(*wallet, address.Get(), fMultiSig);
                 cachedAddressTable.append(AddressTableEntry(fMine ? AddressTableEntry::Receiving : AddressTableEntry::Sending,
                                   QString::fromStdString(strName),
                                   QString::fromStdString(address.ToString())));

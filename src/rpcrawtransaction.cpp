@@ -53,10 +53,9 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, Object& entry)
     entry.push_back(Pair("version", tx.nVersion));
     entry.push_back(Pair("time", (boost::int64_t)tx.nTime));
     entry.push_back(Pair("locktime", (boost::int64_t)tx.nLockTime));
-    if (tx.nVersion > 1) {
-       entry.push_back(Pair("tx-comment", tx.strTxComment));
-       entry.push_back(Pair("product-id", (boost::int64_t)tx.nServiceTypeID));
-    }
+    entry.push_back(Pair("tx-comment", tx.strTxComment));
+    entry.push_back(Pair("product-id", (boost::int64_t)tx.nServiceTypeID));
+
     Array vin;
     BOOST_FOREACH(const CTxIn& txin, tx.vin)
     {
@@ -191,6 +190,9 @@ Value listunspent(const Array& params, bool fHelp)
             "Results are an array of Objects, each of which has:\n"
             "{txid, vout, scriptPubKey, amount, confirmations}");
 
+    // no reason to exclude multisig for this
+    static const bool fMultiSig = true;
+
     RPCTypeCheck(params, list_of(int_type)(int_type)(array_type));
 
     checkDefaultCurrency();
@@ -222,7 +224,7 @@ Value listunspent(const Array& params, bool fHelp)
 
     if (params.size() > 3)
     {
-        std::string strTicker = params[1].get_str();
+        std::string strTicker = params[3].get_str();
         if (!GetColorFromTicker(strTicker, nColor))
         {
                throw runtime_error(
@@ -242,7 +244,7 @@ Value listunspent(const Array& params, bool fHelp)
 
     Array results;
     vector<COutput> vecOutputs;
-    pwalletMain->AvailableCoins(nColor, vecOutputs, false);
+    pwalletMain->AvailableCoins(nColor, vecOutputs, fMultiSig, false);
     BOOST_FOREACH(const COutput& out, vecOutputs)
     {
         if (out.nDepth < nMinDepth || out.nDepth > nMaxDepth)
@@ -345,16 +347,21 @@ Value createrawtransaction(const Array& params, bool fHelp)
         rawTx.vin.push_back(in);
     }
 
+#if ALLOW_DUPLICATE_DESTINATIONS != 1
     set<CBitcoinAddress> setAddress;
+#endif
     BOOST_FOREACH(const Pair& s, sendTo)
     {
         CBitcoinAddress address(s.name_);
         if (!address.IsValid())
             throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, string("Invalid breakout address: ")+s.name_);
 
+#if ALLOW_DUPLICATE_DESTINATIONS != 1
         if (setAddress.count(address))
             throw JSONRPCError(RPC_INVALID_PARAMETER, string("Invalid parameter, duplicated address: ")+s.name_);
         setAddress.insert(address);
+#endif
+
 
         CScript scriptPubKey;
         scriptPubKey.SetDestination(address.Get());
@@ -588,6 +595,8 @@ Value signrawtransaction(const Array& params, bool fHelp)
 
     bool fHashSingle = ((nHashType & ~SIGHASH_ANYONECANPAY) == SIGHASH_SINGLE);
 
+    Object result;
+
     // Sign what we can:
     for (unsigned int i = 0; i < mergedTx.vin.size(); i++)
     {
@@ -602,18 +611,26 @@ Value signrawtransaction(const Array& params, bool fHelp)
         txin.scriptSig.clear();
         // Only sign SIGHASH_SINGLE if there's a corresponding output:
         if (!fHashSingle || (i < mergedTx.vout.size()))
-            SignSignature(keystore, prevPubKey, mergedTx, i, nHashType);
+        {
+            uint8_t iSSResult = SignSignature(keystore, prevPubKey, mergedTx, i, nHashType);
+            if (fDebug && (iSSResult > 0))
+            {
+                printf("signrawtransaction: Problem signing with SignSignature: %d\n", (int) iSSResult);
+            }
+        }
 
         // ... and merge in other signatures:
         BOOST_FOREACH(const CTransaction& txv, txVariants)
         {
+            // txin.scriptSig starts empty (cleared above)
             txin.scriptSig = CombineSignatures(prevPubKey, mergedTx, i, txin.scriptSig, txv.vin[i].scriptSig);
         }
         if (!VerifyScript(txin.scriptSig, prevPubKey, mergedTx, i, STANDARD_SCRIPT_VERIFY_FLAGS, 0))
+        {
             fComplete = false;
+        }
     }
 
-    Object result;
     CDataStream ssTx(SER_NETWORK, PROTOCOL_VERSION);
     ssTx << mergedTx;
     result.push_back(Pair("hex", HexStr(ssTx.begin(), ssTx.end())));

@@ -38,25 +38,7 @@ unsigned int nTransactionsUpdated = 0;
 map<uint256, CBlockIndex*> mapBlockIndex;
 set<pair<COutPoint, unsigned int> > setStakeSeen;
 
-CBigNum bnProofOfWorkLimit(~uint256(0) >> 26);
-CBigNum bnProofOfStakeLimit(~uint256(0) >> 14);
-CBigNum bnProofOfWorkLimitTestNet(~uint256(0) >> 24);
-CBigNum bnProofOfStakeLimitTestNet(~uint256(0) >> 8);
 
-
-// bgw can have independent block spacings for PoS and PoW
-// but with multicurrency hybrid PoW/PoS, there is no need
-unsigned int nTargetSpacingPoS = 600; // 10 min (1/2 will be PoW)
-unsigned int nPoStoPoW = 1;  // 1/2 will be PoS
-unsigned int nTargetSpacingPoW = nPoStoPoW * nTargetSpacingPoS; // 10 min (1/2 will be PoW)
-// this is set in colors.cpp
-// int nStakeMinConfirmations = 4320; // approximate 12 day maturity
-unsigned int nStakeMinAge = 60 * 60 * 24 * 12; // 12 days
-unsigned int nStakeMaxAge = 60 * 60 * 24 * 24; // 24 days
-// time to elapse before new modifier is computed (10 blocks)
-unsigned int nModifierInterval = 30 * 60;
-
-int nCoinbaseMaturity = 240; // 240 blocks (12 hr)
 CBlockIndex* pindexGenesisBlock = NULL;
 int nBestHeight = -1;
 
@@ -136,10 +118,10 @@ void UnregisterWallet(CWallet* pwalletIn)
 }
 
 // check whether the passed transaction is from us
-bool static IsFromMe(CTransaction& tx)
+bool static IsFromMe(CTransaction& tx, bool fMultiSig)
 {
     BOOST_FOREACH(CWallet* pwallet, setpwalletRegistered)
-        if (pwallet->IsFromMe(tx))
+        if (pwallet->IsFromMe(tx, fMultiSig))
             return true;
     return false;
 }
@@ -163,13 +145,16 @@ void static EraseFromWallets(uint256 hash)
 // make sure all wallets know about the given transaction, in the given block
 void SyncWithWallets(const CTransaction& tx, const CBlock* pblock, bool fUpdate, bool fConnect)
 {
+    // no reason why multisig should prevent a tx from syncing with all wallets
+    static const bool fMultiSig = true;
+
     if (!fConnect)
     {
         // ppcoin: wallets need to refund inputs when disconnecting coinstake
         if (tx.IsCoinStake())
         {
             BOOST_FOREACH(CWallet* pwallet, setpwalletRegistered)
-                if (pwallet->IsFromMe(tx))
+                if (pwallet->IsFromMe(tx, fMultiSig))
                     pwallet->DisableTransaction(tx);
         }
         return;
@@ -686,7 +671,8 @@ bool CTransaction::CheckTransaction() const
     return true;
 }
 
-int64_t CTransaction::GetMinFee(unsigned int nBlockSize, enum GetMinFee_mode mode, unsigned int nBytes) const
+int64_t CTransaction::GetMinFee(unsigned int nBlockSize,
+                                enum GetMinFee_mode mode, unsigned int nBytes) const
 {
     if (this->IsCoinBase() || this->IsCoinStake())
     {
@@ -719,9 +705,10 @@ int64_t CTransaction::GetMinFee(unsigned int nBlockSize, enum GetMinFee_mode mod
         nMinFee *= MAX_BLOCK_SIZE_GEN / (MAX_BLOCK_SIZE_GEN - nNewBlockSize);
     }
 
-    if (nVersion >= 2) {
+    // extra fees were never included
+    if (GetFork(this->nTime) >= BRK_FORK003) {
        // ensure they pay their service fees, which are tacked on flat
-       nMinFee += this->GetSwiftFee();
+       nMinFee += this->GetServiceFee();
        // ensure they pay their OP_RETURN fees, which are also tacked on flat
        nMinFee += this->GetOpRetFee();
     }
@@ -733,12 +720,12 @@ int64_t CTransaction::GetMinFee(unsigned int nBlockSize, enum GetMinFee_mode mod
     return nMinFee;
 }
 
-// Swift Fee
-int64_t CTransaction::GetSwiftFee() const {
+// Service Fee
+int64_t CTransaction::GetServiceFee() const {
     int nFeeColor = FEE_COLOR[this->GetColor()];
-    int64_t nSwiftFee = 0;
-    nSwiftFee = COMMENT_FEE_PER_CHAR[nFeeColor] * strTxComment.size();
-    return nSwiftFee;
+    int64_t nServiceFee = 0;
+    nServiceFee = COMMENT_FEE_PER_CHAR[nFeeColor] * strTxComment.size();
+    return nServiceFee;
 }
 
 
@@ -812,6 +799,9 @@ int64_t CTransaction::GetOpRetFee() const {
 bool CTxMemPool::accept(CTxDB& txdb, CTransaction &tx, bool fCheckInputs,
                         bool* pfMissingInputs)
 {
+    // no reason why multisig should be treated differently for accept to mempool
+    static const bool fMultiSig = true;
+
     AssertLockHeld(cs_main);
     if (pfMissingInputs)
         *pfMissingInputs = false;
@@ -953,7 +943,7 @@ bool CTxMemPool::accept(CTxDB& txdb, CTransaction &tx, bool fCheckInputs,
                 nLastTime = nNow;
                 // -limitfreerelay unit is thousand-bytes-per-minute
                 // At default rate it would take over a month to fill 1GB
-                if (dFreeCount > GetArg("-limitfreerelay", 15)*10*1000 && !IsFromMe(tx))
+                if (dFreeCount > GetArg("-limitfreerelay", 15)*10*1000 && !IsFromMe(tx, fMultiSig))
                     return error("CTxMemPool::accept() : free transaction rejected by rate limiter");
                 if (fDebug)
                     printf("Rate limit dFreeCount: %g => %g\n", dFreeCount, dFreeCount+nSize);
@@ -1109,6 +1099,9 @@ int CMerkleTx::GetDepthInMainChain(CBlockIndex* &pindexRet) const
 
 int CMerkleTx::GetBlocksToMaturity() const
 {
+    // ADVISORY: static is an optimization, may not be suitable for forks
+    static int nCoinbaseMaturity = GetCoinbaseMaturity();
+
     if (!(IsCoinBase() || IsCoinStake()))
         return 0;
     return max(0, (nCoinbaseMaturity+1) - GetDepthInMainChain());
@@ -1310,7 +1303,6 @@ struct AMOUNT GetPoWSubsidy(int nHeight)
     stSubsidy.nColor = (int) BREAKOUT_COLOR_BROCOIN;
 
     // premines
-
     if (nHeight < N_COLORS)
     {
         stSubsidy.nValue = POW_SUBSIDY[nHeight];
@@ -1363,18 +1355,25 @@ struct AMOUNT GetProofOfWorkReward(int nHeight)
 struct AMOUNT GetProofOfStakeReward(CBlockIndex* pindexPrev, int nStakeColor)
 {
     int mintColor = (int) MINT_COLOR[nStakeColor];
-    int64_t nSubsidy = BASE_POS_REWARD[mintColor];
+
+    int64_t nSubsidy = BASE_POS_REWARD[nStakeColor];
 
     if (nSubsidy > 0)
     {
         // deck staked
         if (nSubsidy < BASE_COIN)
         {
-
-            struct AMOUNT stSubsidy = GetPoWSubsidy(1 + pindexPrev->nHeight);
-
-            nSubsidy = 2 * ((stSubsidy.nValue * COIN[mintColor]) +
-                            (stSubsidy.nValue * CENT[mintColor] * nSubsidy));
+            // prior to BRK_FORK003 subsidy of card stakes were 0 via bad logic
+            if (GetFork(pindexPrev->nTime) < BRK_FORK003)
+            {
+                nSubsidy = 0;
+            }
+            else
+            {
+                struct AMOUNT stSubsidy = GetPoWSubsidy(1 + pindexPrev->nHeight);
+                nSubsidy = 2 * ((stSubsidy.nValue * COIN[mintColor]) +
+                                (stSubsidy.nValue * CENT[mintColor] * nSubsidy));
+            }
         }
         // BRX staked
         else
@@ -1383,7 +1382,7 @@ struct AMOUNT GetProofOfStakeReward(CBlockIndex* pindexPrev, int nStakeColor)
             // this may be more complicated for multiple staking currencies
             int64_t supply = pindexPrev->vMoneySupply[mintColor];
             int64_t minReward;
-            if (pindexPrev->nTime < STAKING_FIX2_TIME)
+            if (GetFork(pindexPrev->nTime) < BRK_FORK002)
             {
                 // the original emission was too low by 1/2
                 minReward = (5 * (supply / 100)) / 105192;
@@ -1407,8 +1406,10 @@ struct AMOUNT GetProofOfStakeReward(CBlockIndex* pindexPrev, int nStakeColor)
     }
 
     if (fDebug && GetBoolArg("-printcreation"))
+    {
         printf("GetProofOfStakeReward(): stake=%s; create=%s %s\n", COLOR_TICKER[nStakeColor],
                          FormatMoney(nSubsidy, mintColor).c_str(), COLOR_TICKER[mintColor]);
+    }
 
     struct AMOUNT stSubsidy;
     stSubsidy.nValue = nSubsidy;
@@ -1442,7 +1443,9 @@ unsigned int ComputeMaxBits(CBigNum bnTargetLimit, unsigned int nBase, int64_t n
 //
 unsigned int ComputeMinWork(unsigned int nBase, int64_t nTime)
 {
-    return ComputeMaxBits(bnProofOfWorkLimit, nBase, nTime);
+    // ADVISORY: static is optimization here and may not be desired for forks
+    static CBigNum bnTargetLimit = GetTargetLimit(false);
+    return ComputeMaxBits(bnTargetLimit, nBase, nTime);
 }
 
 //
@@ -1451,7 +1454,9 @@ unsigned int ComputeMinWork(unsigned int nBase, int64_t nTime)
 //
 unsigned int ComputeMinStake(unsigned int nBase, int64_t nTime, unsigned int nBlockTime)
 {
-    return ComputeMaxBits(bnProofOfStakeLimit, nBase, nTime);
+    // ADVISORY: static is optimization here and may not be desired for forks
+    static CBigNum bnTargetLimit = GetTargetLimit(true);
+    return ComputeMaxBits(bnTargetLimit, nBase, nTime);
 }
 
 // ppcoin: find last block index up to pindex
@@ -1471,9 +1476,9 @@ unsigned int BreakoutGravityWave(const CBlockIndex* pindexLast, bool fProofOfSta
     // how many blocks of proof type to use for the diff calculation
     static const unsigned int BLOCKSPAN = 24;
 
-    CBigNum bnTargetLimit = fProofOfStake ? bnProofOfStakeLimit : bnProofOfWorkLimit;
+    CBigNum bnTargetLimit = GetTargetLimit(fProofOfStake);
 
-    int64_t nTargetSpacing = fProofOfStake ? nTargetSpacingPoS : nTargetSpacingPoW;
+    int64_t nTargetSpacing = GetTargetSpacing(fProofOfStake);
 
     const CBlockIndex* pindexPrev = GetLastBlockIndex(pindexLast, fProofOfStake);
 
@@ -1583,8 +1588,11 @@ bool CheckProofOfWork(uint256 hash, unsigned int nBits)
     CBigNum bnTarget;
     bnTarget.SetCompact(nBits);
 
+    // ADVISORY: static is an optimization, may not be desired for forks
+    static CBigNum bnTargetLimit = GetTargetLimit(false);
+
     // Check range
-    if (bnTarget <= 0 || bnTarget > bnProofOfWorkLimit)
+    if (bnTarget <= 0 || bnTarget > bnTargetLimit)
         return error("CheckProofOfWork() : nBits below minimum work");
 
     // Check proof of work matches claimed amount
@@ -1856,6 +1864,10 @@ bool CTransaction::ConnectInputs(CTxDB& txdb, MapPrevTx inputs, map<uint256,
     // fBlock is true when this is called from AcceptBlock when a new best-block is added to the blockchain
     // fMiner is true when called from the internal bitcoin miner
     // ... both are false when called from CTransaction::AcceptToMemoryPool
+
+    // ADVISORY: static is an optimization, may not be suitable for forks
+    static int nCoinbaseMaturity = GetCoinbaseMaturity();
+
     if (!IsCoinBase())
     {
         std::vector<int64_t> vValueIn(N_COLORS, 0);
@@ -2429,7 +2441,7 @@ bool CBlock::ConnectBlock(CTxDB& txdb, CBlockIndex* pindex, bool fJustCheck)
                  }
                  if (!Solver(txout.scriptPubKey, whichType, vSolutions))
                  {
-                     if (tx.nTime < STAKING_FIX1_TIME)
+                     if (GetFork(tx.nTime) < BRK_FORK001)
                      {
                          return error("Connect() : cannot connect tx with nonstandard output");
                      }
@@ -2992,6 +3004,10 @@ bool CBlock::CheckBlock(bool fCheckPOW, bool fCheckMerkleRoot, bool fCheckSig) c
 
 bool CBlock::AcceptBlock()
 {
+#if PROOF_MODEL == PURE_POS
+    static const int nLastPoWBlock = GetLastPoWBlock();
+#endif
+
     AssertLockHeld(cs_main);
     // Check for duplicate
     uint256 hash = GetHash();
@@ -3006,8 +3022,10 @@ bool CBlock::AcceptBlock()
     int nHeight = pindexPrev->nHeight+1;
 
 #if PROOF_MODEL == PURE_POS
-    if (IsProofOfWork() && (nHeight > LAST_POW_BLOCK))
-        return DoS(100, error("AcceptBlock() : reject proof-of-work at height %d", nHeight));
+    if (IsProofOfWork() && (nHeight > nLastPoWBlock))
+    {
+        return DoS(100, error("AcceptBlock() : reject proof-of-work (too late) at height %d", nHeight));
+    }
 #endif
 
     // Check coinbase timestamp
@@ -3317,7 +3335,10 @@ bool CBlock::SignBlock(CWallet& wallet, int64_t nFees[])
     // mint comes before stake in vtx
     // CTransaction txCoinMint = vtx[0];
     CTransaction txCoinStake;
-    txCoinStake.nTime &= ~STAKE_TIMESTAMP_MASK;
+
+    // ADVISORY: note static
+    static int nNotStakeTimestampMask = ~GetStakeTimestampMask();
+    txCoinStake.nTime &= nNotStakeTimestampMask;
 
     int64_t nSearchTime = vtx[0].nTime = txCoinStake.nTime; // search to current time
 
@@ -3348,7 +3369,6 @@ bool CBlock::SignBlock(CWallet& wallet, int64_t nFees[])
         {
               return false;
         }
-
         int idx = rand() % vColors.size();
         int nColor = vColors[idx];
 
@@ -3499,20 +3519,10 @@ bool LoadBlockIndex(bool fAllowNew)
 
     if (fTestNet)
     {
-        pchMessageStart[0] = 0xcb;
-        pchMessageStart[1] = 0xad;
-        pchMessageStart[2] = 0xef;
-        pchMessageStart[3] = 0xfd;
-
-        nTargetSpacingPoS = 60; // 60 sec
-        nTargetSpacingPoW = nPoStoPoW * nTargetSpacingPoS; // 5 min (1/5 will be PoW)
-        bnProofOfWorkLimit = bnProofOfWorkLimitTestNet;
-        bnProofOfStakeLimit = bnProofOfStakeLimitTestNet;
-        nStakeMinAge = 10 * 60; // test net min age is 10 min
-        nCoinbaseMaturity = 10; // test maturity is 10 blocks
-        nModifierInterval = 60; // 60 s (time to elapse before new modifier is computed)
-        // nLaunchTime = 1415868300;
-        nStakeMaxAge = 120 * 60; // 120 minutes
+        pchMessageStart[0] = pchMessageStartTestnet[0];
+        pchMessageStart[1] = pchMessageStartTestnet[1];
+        pchMessageStart[2] = pchMessageStartTestnet[2];
+        pchMessageStart[3] = pchMessageStartTestnet[3];
     }
 
     //
@@ -3573,14 +3583,14 @@ bool LoadBlockIndex(bool fAllowNew)
         block.hashMerkleRoot = block.BuildMerkleTree();
         block.nVersion = 1;
         block.nTime    = 1465544351;
-        block.nBits    = bnProofOfWorkLimit.GetCompact();
+        block.nBits    = GetTargetLimit(false).GetCompact();
         block.nNonce   = 64912865;
         if(fTestNet)
         {
             block.nNonce   = 8131356;
         }
         uint256 hashTarget;
-        if (true && (block.GetHash() !=
+        if (false && (block.GetHash() !=
                              (fTestNet ? hashGenesisBlockTestNet : hashGenesisBlock)))
         {
             printf("========== Finding Genesis Nonce ==========\n");
@@ -4014,15 +4024,10 @@ void static ProcessGetData(CNode* pfrom)
 #endif
 
 
-
-
-// The message start string is designed to be unlikely to occur in normal data.
-// The characters are rarely used upper ASCII, not valid as UTF-8, and produce
-// a large 4-byte int at any alignment.
-unsigned char pchMessageStart[4] = { 0xf9, 0xcf, 0xcb, 0xdf };
-
 bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv)
 {
+    // ADVISORY: static here is an optimization and may not always be suitable
+    static unsigned int nStakeMinAge = GetStakeMinAge();
     static map<CService, CPubKey> mapReuseKey;
     RandAddSeedPerfmon();
     if (fDebug)
@@ -4047,7 +4052,7 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv)
         CAddress addrFrom;
         uint64_t nNonce = 1;
         vRecv >> pfrom->nVersion >> pfrom->nServices >> nTime >> addrMe;
-        if (pfrom->nVersion < MIN_PROTO_VERSION)
+        if (pfrom->nVersion < GetMinPeerProtoVersion(GetAdjustedTime()))
         {
             // Since February 20, 2012, the protocol is initiated at version 209,
             // and earlier versions are no longer supported
@@ -4369,6 +4374,13 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv)
 
     else if (strCommand == "getblocks")
     {
+        if (pfrom->nVersion < GetMinPeerProtoVersion(GetAdjustedTime()))
+        {
+            printf("partner %s using obsolete version %i; disconnecting\n", pfrom->addr.ToString().c_str(), pfrom->nVersion);
+            pfrom->fDisconnect = true;
+            return false;
+        }
+
         CBlockLocator locator;
         uint256 hashStop;
         vRecv >> locator >> hashStop;

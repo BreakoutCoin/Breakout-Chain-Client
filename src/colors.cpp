@@ -1,42 +1,120 @@
-// Copyright 2015 James C. Stroud
+// Copyright 2015-2017 James C. Stroud
 
 #include "colors.h"
 
+//////////////////////////////////////////////////////////////////////
+///
+/// Forks
+///
+//////////////////////////////////////////////////////////////////////
 // fork times
 // Wed Jul 20 00:00:00 2016 PDT
-const int64_t STAKING_FIX1_TIME = 1468998000;
+static const int64_t STAKING_FIX1_TIME = 1468998000;
 
 // Tues Nov 28 00:00:00 2016 PDT
-const int64_t STAKING_FIX2_TIME = 1480320000;
+static const int64_t STAKING_FIX2_TIME = 1480320000;
+
+// Fri Aug 11 00:00:00 2017 PDT
+static const int64_t FORK_3_TIME = 1502434800;
+
+//////////////////////////////////////////////////////////////////////
+///
+/// Network Constants
+///
+//////////////////////////////////////////////////////////////////////
+
+// network constants (used to be in netbase.cpp)
+
+// random port number, not used much
+unsigned short const TOR_PORT = 25615;
+
+unsigned short const P2P_PORT = 11698;
+unsigned short const P2P_PORT_TESTNET = 21698;
+
+unsigned short const DEFAULT_PROXY = 9050;
+unsigned short const DEFAULT_PROXY_TESTNET = 19050;
+
+// rpc
+unsigned short const RPC_PORT = 50542;
+unsigned short const RPC_PORT_TESTNET = 60542;
+
+// The message start string is designed to be unlikely to occur in normal data.
+// The characters are rarely used upper ASCII, not valid as UTF-8, and produce
+// a large 4-byte int at any alignment.
+unsigned char pchMessageStart[4] = {  0xf9, 0xcf, 0xcb, 0xdf  };
+unsigned char pchMessageStartTestnet[4] = { 0xcb, 0xad, 0xef, 0xfd };
 
 
-// number of colored coins in this multicurrency
-// none color is considered a color
-// outside of colors.h, use this define rather than hard coding
-// #define N_COLORS 4
-// const int N_COLORS = 4;
+//////////////////////////////////////////////////////////////////////
+///
+/// Minting Constants
+///
+//////////////////////////////////////////////////////////////////////
+// proof limits
+CBigNum bnProofOfWorkLimit(~uint256(0) >> 26);
+CBigNum bnProofOfStakeLimit(~uint256(0) >> 14);
+CBigNum bnProofOfWorkLimitTestNet(~uint256(0) >> 24);
+CBigNum bnProofOfStakeLimitTestNet(~uint256(0) >> 8);
 
-// the number of bytes to hold N_COLORS
-// useful for address encoding/decoding
-// #define N_COLOR_BYTES 1
-// const int N_COLOR_BYTES = 1;
+// target spacings
+// bgw can have independent block spacings for PoS and PoW
+// but with multicurrency hybrid PoW/PoS, there is no need
+static const unsigned int nTargetSpacingPoS = 600;        // 10 min
+static const unsigned int nTargetSpacingPoW = 600;        // 10 min
+static const unsigned int nTargetSpacingPoSTestNet = 60;  // 1 min
+static const unsigned int nTargetSpacingPoWTestNet = 300; // 5 min (1/6 PoW)
 
-// number of colored coins in this multicurrency
-// none color is considered a color
-// outside of colors.h, use this define rather than hard coding
-// #define N_COLORS 4
-// const int N_COLORS = 4;
+static const int nCoinbaseMaturity = 240;        // 240 blocks (12 hr)
+static const int nCoinbaseMaturityTestNet = 10;  // 10 blocks
 
-// the number of bytes to hold N_COLORS
-// useful for address encoding/decoding
-// #define N_COLOR_BYTES 1
-// const int N_COLOR_BYTES = 1;
+//////////////////////////////////////////////////////////////////////
+///
+/// PoS Constants
+///
+//////////////////////////////////////////////////////////////////////
+#if PROOF_MODEL == PURE_POS
+// must have a last PoW block if it is to be pure PoS
+// optional overlap between PoW and PoS
+// 2 min PoW and 2 min PoS
+static const int LAST_POW_BLOCK = 3500;
+static const int FIRST_POS_BLOCK = 1;
+static const int LAST_POW_BLOCK_TESTNET = 3500;
+static const int FIRST_POS_BLOCK_TESTNET = 1;
+#elif PROOF_MODEL == MIXED_POW_POS
+//
+#endif  // PROOF_MODEL
+
+// To decrease granularity of timestamp
+// Relative prime to block spacing target
+static const int STAKE_TIMESTAMP_MASK = 17;
+static const int STAKE_TIMESTAMP_MASK_TESTNET = 1;
+
+// MODIFIER_INTERVAL_RATIO:
+// ratio of group interval length between the last group and the first group
+const int MODIFIER_INTERVAL_RATIO = 3;
+
+
+//////////////////////////////////////////////////////////////////////
+///
+/// Money Constants
+///
+//////////////////////////////////////////////////////////////////////
+
+unsigned int nStakeMinAge = 60 * 60 * 24 * 12;      // 12 days
+unsigned int nStakeMinAgeTestNet = 10 * 60;         // 10 min
+unsigned int nStakeMaxAge = 60 * 60 * 24 * 24;      // 24 days
+unsigned int nStakeMaxAgeTestNet = 120 * 60;        // 120 minutes
+
+// time to elapse before new modifier is computed (10 blocks)
+unsigned int nModifierInterval = 30 * 60;           // 30 min
+unsigned int nModifierIntervalTestNet = 60;         // 60 seconds
+
 
 // make sure these are consistent with nStakeMinAge
-// 12 days at original block times
-static const int nStakeMinConfirmationsTestnet = 10;
 // 12 days at 5 min block times
 static const int nStakeMinConfirmations = 3456;
+static const int nStakeMinConfirmationsTestnet = 10;
+// 48 days at 5 min block times
 static const int nStakeMinConfirmationsDeck = 4 * nStakeMinConfirmations;
 static const int nStakeMinConfirmationsDeckTestnet = 4 * nStakeMinConfirmationsTestnet;
 
@@ -47,19 +125,14 @@ const int64_t BASE_CENT = 1000000;
 
 // different currencies (colored coins) have different money supplies
 // fees are charged in the currency of the transaction
-const int BASE_FEE_EXPONENT = 5;
+// const int BASE_FEE_EXPONENT = 5;
 
 // some systems will want to multiply coinage by an interest rate
 // breakout has a fixed and money supply dependent rewards
 // const bool COINAGE_DEPENDENT_POS = false;
 
-// is it used?
+// for qualified addresses with currency as name
 std::string ADDRESS_DELIMETER = "_";
-
-// Q: Why didn't I fill a lot of this stuff programmatically?
-// A: More trouble than it's worth.
-// Q: Why didn't I make currencies classes?
-// A: The need wasn't obvious to me until version 1 was done.
 
 // different currencies may have different divisibilities
 //                               -     BRX        BRO     BAM
@@ -168,11 +241,13 @@ const int64_t MAX_MINT_PROOF_OF_STAKE[N_COLORS] = { 0,  0,  40 * BASE_CENT,  0,
 //                                              SIS
                                                   0 };
 #else
-// If a currency can't mint, then this value is not relevant.
+// Note: prior to BRK_FORK003 release, these were indexed by mint
+// color, but the logic didn't work out. See GetProofOfStakeReward().
+// If a currency can't stake, then this value is not relevant.
 // These are somewhat like markers, and are
 //    used for calculations in GetProofOfStakeReward().
-// mint color (in order of BREAKOUT_COLOR)  -  BRX        BRO      BAM
-const int64_t BASE_POS_REWARD[N_COLORS] = { 0,   0, BASE_COIN * 10,  0,
+// stake color (in order of BREAKOUT_COLOR)  -         BRX         BRO   BAM
+const int64_t BASE_POS_REWARD[N_COLORS] = {  0,   BASE_COIN * 10,    0,    0,
           // Joker
                        14,
           // Spades     A  2  3  4  5  6  7  8  9  10   J   Q   K
@@ -452,24 +527,6 @@ const int64_t STAKE_COMBINE_THRESHOLD[N_COLORS] = { 0, 1000 * BASE_COIN,     0, 
                                           //            SIS
                                                         0 };
 
-#if 0
-// last block where PoS rewards are fixed
-// these are in order of BREAKOUT_COLOR
-//    "brostake's last fixed PoS block is 187500; others don't stake"
-const int LAST_FIXED_POS_BLOCK[N_COLORS] = {0, 187500, 0, 0,
-                                         // Joker
-                                                       0,
-                                         // Spades     A  2  3  4  5  6  7  8  9 10  J  Q  K
-                                                       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                         // Diamonds   A  2  3  4  5  6  7  8  9 10  J  Q  K
-                                                       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                         // Clubs      A  2  3  4  5  6  7  8  9 10  J  Q  K
-                                                       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                         // Hearts     A  2  3  4  5  6  7  8  9 10  J  Q  K
-                                                       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                                         //            SIS
-                                                       0 };
-#endif
 
 // what does a given currency mint (see GetProofOfStakeReward)
 // these are in order of BREAKOUT_COLOR
@@ -656,11 +713,13 @@ const int64_t PRIORITY_MULTIPLIER[N_COLORS] = { 0, 1, 1, 1,
            1 };
 
 
-// owning 1 card is equivalent to owning 4096 BRX for purposes of stake weight
-// this is like having 0.03% of all the stake weight of the full BRX money supply
-// the complete deck is about 1.7% of the full BRX money supply weight
-// so there is no chance to control the chain if one collects the whole dec
-static const int64_t nCW = COIN[BREAKOUT_COLOR_BROSTAKE] * 4096;
+// as of FORK002, owning 1 card is equivalent to owning 1048576 BRX for purposes
+// of stake weight // this is like having 16.7% of all the stake weight of the full
+// BRX money supply, which means cards will stake as soon as they are mature
+// there is a chance to control the chain for 53 blocks if one person collects
+// the deck, but that is probably more difficult and expensive that buying all
+// available BRX
+static const int64_t nCW = COIN[BREAKOUT_COLOR_BROSTAKE] * 1048576;
 
 // their weights determine how readily they stake
 // these are in order of BREAKOUT_COLOR
@@ -822,6 +881,86 @@ const int aGuiDeckColors[N_GUI_DECK_COLORS] = {
 
 std::vector<int> GUI_DECK_COLORS;
 
+
+
+//////////////////////////////////////////////////////////////////////
+///
+/// Forks
+///
+//////////////////////////////////////////////////////////////////////
+
+int GetFork(int64_t nTime)
+{
+    // Make sure Heights are ascending!
+    const int64_t aForks[TOTAL_FORKS][2] = {
+    //                                   Time,         Fork Number
+                               {                   0,  BRK_GENESIS},
+                               {   STAKING_FIX1_TIME,  BRK_FORK001},
+                               {   STAKING_FIX2_TIME,  BRK_FORK002},
+                               {         FORK_3_TIME,  BRK_FORK003}
+                                           };
+
+    if (fTestNet)
+    {
+        return (int) TOTAL_FORKS;
+    }
+
+    // loop has strange logic, but if fork i height is greater than
+    // nTimeBlockPrev then you are on fork i-1
+    int nFork = aForks[0][1];
+    for (int i = 1; i < TOTAL_FORKS; ++i)
+    {
+       if (aForks[i][0] > nTime)
+       {
+           break;
+       }
+       nFork = aForks[i][1];
+    }
+    return (int) nFork;
+}
+
+
+
+
+//////////////////////////////////////////////////////////////////////
+///
+/// Network
+///
+//////////////////////////////////////////////////////////////////////
+
+int GetMinPeerProtoVersion(int64_t nTime)
+{
+    // helps to prevent buffer overrun
+    static const int nVersions = 2;
+
+    // Make sure forks are ascending!
+    const int aVersions[nVersions][2] = {
+    //                                    Fork, Proto Version
+                   {               BRK_FORK002,         61009 },
+                   {               BRK_FORK003,         61010 }
+                                          };
+
+    int nFork = GetFork(nTime);
+
+    int nVersion = aVersions[0][1];
+
+    for (int i = 1; i < nVersions; ++i)
+    {
+       if (aVersions[i][0] > nFork)
+       {
+           break;
+       }
+       nVersion = aVersions[i][1];
+    }
+
+    return nVersion;
+}
+
+
+//////////////////////////////////////////////////////////////////////
+///
+/// Currency Methods
+///
 //////////////////////////////////////////////////////////////////////
 
 bool GetColorFromTicker(const std::string &ticker, int &nColorIn)
@@ -868,6 +1007,22 @@ bool CanStake(int nColor)
 }
 
 
+unsigned int GetStakeMinAge()
+{
+    return fTestNet ? nStakeMinAgeTestNet : nStakeMinAge;
+}
+
+
+unsigned int GetStakeMaxAge()
+{
+    return fTestNet ? nStakeMaxAgeTestNet : nStakeMaxAge;
+}
+
+
+unsigned int GetModifierInterval()
+{
+     return fTestNet ? nModifierIntervalTestNet : nModifierInterval;
+}
 
 int GetStakeMinConfirmations(int nColor)
 {
@@ -890,44 +1045,17 @@ int GetStakeMinConfirmations(int nColor)
     return nStakeMinConfirmations;
 }
 
-int64_t GetWeightMultiplier(int nColor, int64_t nTimeBlockPrev)
+int64_t GetWeightMultiplier(int nColor, int64_t nTime)
 {
-    if (IsDeck(nColor) && (nTimeBlockPrev >= STAKING_FIX2_TIME))
+    if (IsDeck(nColor) && (GetFork(nTime) < BRK_FORK002))
     {
-        // make it a little easier to stake the cards
-        return WEIGHT_MULTIPLIER[nColor] * 256;
+        // before FORK002 it was much harder for cards to stake
+        return WEIGHT_MULTIPLIER[nColor] / 256;
     }
     return WEIGHT_MULTIPLIER[nColor];
 }
 
 
-// probably useless, parsing is now in SplitQualifiedAddress
-// bool ParseQualifiedAddress(const std::string &qualaddr,
-//                            CBitcoinAddress &addr, int &nColor)
-// {
-//      size_t x = qualaddr.find(ADDRESS_DELIMETER);
-//      if (x == std::string::npos)
-//      {
-//            return false;
-//      }
-// 
-//      std::string ticker = qualaddr.substr(x + ADDRESS_DELIMETER.size(),
-//                                                            qualaddr.size());
-// 
-//      int nColor;
-//      if !(GetColorFromTicker(ticker, nColor)
-//      {
-//                return false;
-//      }
-// 
-//      addr = CBitcoinAddress(qualaddr.substr(0, x), nColor);
-//      if (!addr.IsValid())
-//      {
-//            return false;
-//      }
-// 
-//      return true;
-// }
 
 bool SplitQualifiedAddress(const std::string &qualAddress,
                               std::string &address, int &nColor, bool fDebug)
@@ -978,23 +1106,12 @@ bool AppendColorBytes(int n, std::vector<unsigned char> &vch)
         return true;
 }
 
-#if 0
-bool AppendColorBytes(int n, data_chunk &vch, int nMax=N_COLORS)
-{
-        if (n < 0 || n > nMax)
-        {
-               return false;
-        }
-        while (n >= 256)
-        {
-            vch.push_back(n & 255);   //  fast % 256
-            n = n >> 8;               //  fast / 256
-        }
-        vch.push_back(n);
-        return true;
-}
-#endif
 
+//////////////////////////////////////////////////////////////////////
+///
+/// Data Structures
+///
+//////////////////////////////////////////////////////////////////////
 
 bool ValueMapAllPositive(const std::map<int, int64_t> &mapNet)
 {
@@ -1056,7 +1173,13 @@ void FillNets(const std::map<int, int64_t> &mapDebit,
     }
 }
 
- 
+
+//////////////////////////////////////////////////////////////////////
+///
+/// Deck
+///
+//////////////////////////////////////////////////////////////////////
+
 bool IsDeck(int nColor)
 {
    return (nColor >= JOKER) && (nColor <= KING_OF_HEARTS);
@@ -1084,3 +1207,60 @@ int GetCardValue(int nColor)
 // sorts descending
 struct CardSorter cardSorter;
 
+
+//////////////////////////////////////////////////////////////////////
+///
+/// Minting
+///
+//////////////////////////////////////////////////////////////////////
+
+CBigNum GetTargetLimit(bool fProofOfStake)
+{
+    CBigNum bnTargetLimit;
+    if (fProofOfStake)
+    {
+        bnTargetLimit = fTestNet ? bnProofOfStakeLimitTestNet : bnProofOfStakeLimit;
+    }
+    else
+    {
+        bnTargetLimit = fTestNet ? bnProofOfWorkLimitTestNet : bnProofOfWorkLimit;
+    }
+    return bnTargetLimit;
+}
+
+int64_t GetTargetSpacing(bool fProofOfStake)
+{
+    int64_t nTargetSpacing;
+    if (fProofOfStake)
+    {
+        nTargetSpacing = fTestNet ? nTargetSpacingPoSTestNet : nTargetSpacingPoS;
+    }
+    else
+    {
+        nTargetSpacing = fTestNet ? nTargetSpacingPoWTestNet : nTargetSpacingPoW;
+    }
+    return nTargetSpacing;
+}
+
+int GetCoinbaseMaturity()
+{
+    return fTestNet ? nCoinbaseMaturityTestNet : nCoinbaseMaturity;
+}
+
+int GetStakeTimestampMask()
+{
+   return fTestNet ? STAKE_TIMESTAMP_MASK_TESTNET : STAKE_TIMESTAMP_MASK;
+}
+
+
+#if PROOF_MODEL == PURE_POS
+int GetLastPoWBlock()
+{
+    return fTestNet ? LAST_POW_BLOCK_TESTNET : LAST_POW_BLOCK;
+}
+
+int GetFirstPoSBlock()
+{
+    return fTestNet ? FIRST_POS_BLOCK_TESTNET : FIRST_POS_BLOCK;
+}
+#endif

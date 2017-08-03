@@ -17,6 +17,8 @@
 #include <boost/algorithm/string/predicate.hpp>
 #include <openssl/crypto.h>
 
+#include "addednode.h"
+
 #ifndef WIN32
 #include <signal.h>
 #endif
@@ -244,14 +246,13 @@ std::string HelpMessage()
         "  -dns                   " + _("Allow DNS lookups for -addnode, -seednode and -connect") + "\n" +
         "  -port=<port>           " + strprintf(_("Listen for connections on <port> (default: %d or testnet: %d)"),
                                                                           (int) P2P_PORT, (int) P2P_PORT_TESTNET) + "\n" +
-        "  -torport=<port>        " + _("Connect to internal Tor through <torport> (default: 48155)") + "\n" +
+        "  -torport=<port>        " + strprintf(_("Connect to Tor through <torport> (default: %d)"), TOR_PORT) + "\n" +
         "  -maxconnections=<n>    " + _("Maintain at most <n> connections to peers (default: 125)") + "\n" +
         "  -addnode=<ip>          " + _("Add a node to connect to and attempt to keep the connection open") + "\n" +
         "  -connect=<ip>          " + _("Connect only to the specified node(s)") + "\n" +
         "  -seednode=<ip>         " + _("Connect to a node to retrieve peer addresses, and disconnect") + "\n" +
         "  -externalip=<ip>       " + _("Specify your own public address") + "\n" +
         "  -onlynet=<net>         " + _("Only connect to nodes in network <net> (IPv4, IPv6 or Tor)") + "\n" +
-
         "  -onionseed             " + _("Find peers using .onion seeds (default: 1 unless -connect)") + "\n" +
         "  -discover              " + _("Discover own IP address (default: 1 when listening and no -externalip)") + "\n" +
         "  -irc                   " + _("Find peers using internet relay chat (default: 0)") + "\n" +
@@ -303,7 +304,8 @@ std::string HelpMessage()
 #endif
         "  -rpcuser=<user>        " + _("Username for JSON-RPC connections") + "\n" +
         "  -rpcpassword=<pw>      " + _("Password for JSON-RPC connections") + "\n" +
-        "  -rpcport=<port>        " + _("Listen for JSON-RPC connections on <port> (default: 50542 or testnet: 60542)") + "\n" +
+        "  -rpcport=<port>        " + strprintf(_("Listen for JSON-RPC connections on <port> (default: %d or testnet: %d)"),
+                                                                          (int) RPC_PORT, (int) RPC_PORT_TESTNET) + "\n" +
         "  -rpcallowip=<ip>       " + _("Allow JSON-RPC connections from specified IP address") + "\n" +
         "  -rpcconnect=<ip>       " + _("Send commands to node running on <ip> (default: 127.0.0.1)") + "\n" +
         "  -blocknotify=<cmd>     " + _("Execute command when the best block changes (%s in cmd is replaced by block hash)") + "\n" +
@@ -330,8 +332,9 @@ std::string HelpMessage()
         "  -rpcsslprivatekeyfile=<file.pem>         " + _("Server private key (default: server.pem)") + "\n" +
         "  -rpcsslciphers=<ciphers>                 " + _("Acceptable ciphers (default: TLSv1+HIGH:!SSLv2:!aNULL:!eNULL:!AH:!3DES:@STRENGTH)") + "\n" +
 
+        "  -burnkey=<key>    " + _("Random string") + "\n" +
 
-        "  -burnkey=<key>    " + _("Random string") + "\n" ;
+        "  -enablemultisigs  " + _("Enable rpc multisig support by default") + "\n" ;
 
     return strUsage;
 }
@@ -381,6 +384,11 @@ bool AppInit2()
     sigemptyset(&sa_hup.sa_mask);
     sa_hup.sa_flags = 0;
     sigaction(SIGHUP, &sa_hup, NULL);
+#endif
+
+#if PROOF_MODEL == PURE_POS
+    // ensure that there is not a gap where no blocks can be signed
+    assert ((GetFirstPoSBlock() - 1) <= GetLastPoWBlock());
 #endif
 
     // basic multicurrency checks and setup
@@ -711,7 +719,9 @@ bool AppInit2()
         if (nTxFee > VERY_HIGH_FEE * MIN_TX_FEE[nFeeColor])
         {
             char msg[120];
-            snprintf(msg, sizeof(msg), "Warning: -paytxfee_%d is set very high! This is the transaction fee you will pay if you send a transaction.", nColor);
+            snprintf(msg, sizeof(msg),
+                     "Warning: -paytxfee_%d is set very high! "
+                     "This is the transaction fee you will pay if you send a transaction.", nColor);
             InitWarning(_(msg));
         }
     }
@@ -969,7 +979,24 @@ bool AppInit2()
     for (int n = 0; n < NET_MAX; n++) {
         enum Network net = (enum Network)n;
         if (!setNets.count(net))
+        {
             SetLimited(net);
+        }
+        else
+        {
+            // add the ipv4 hardcodded nodes -- TODO: find better way
+            if (net == NET_IPV4)
+            {
+                // TODO: need better way to add hardcoded nodes
+                static const char *(*strAddedNodes)[1] =
+                          fTestNet ? strTestNetAddedNodes : strMainNetAddedNodes;
+
+                for (unsigned int i = 0; strAddedNodes[i][0] != NULL; i++)
+                {
+                   mapMultiArgs["-addnode"].push_back(strAddedNodes[i][0]);
+                }
+            }
+        }
     }
 
 #if defined(USE_IPV6)

@@ -47,7 +47,8 @@ double GetDifficulty(const CBlockIndex* blockindex)
 double GetPoWMHashPS()
 {
 #if PROOF_MODEL == PURE_POS
-    if (pindexBest->nHeight >= LAST_POW_BLOCK)
+    static const int nLastPoWBlock = GetLastPoWBlock();
+    if (pindexBest->nHeight >= nLastPoWBlock)
         return 0;
 #endif
 
@@ -103,7 +104,7 @@ double GetPoSKernelPS()
     if (nStakesTime)
         result = dStakeKernelsTriedAvg / nStakesTime;
 
-    result *= STAKE_TIMESTAMP_MASK + 1;
+    result *= GetStakeTimestampMask() + 1;
 
     return result;
 }
