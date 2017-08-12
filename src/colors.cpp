@@ -11,11 +11,14 @@
 // Wed Jul 20 00:00:00 2016 PDT
 static const int64_t STAKING_FIX1_TIME = 1468998000;
 
-// Tues Nov 28 00:00:00 2016 PDT
+// Tues Nov 28 00:00:00 2016 PST
 static const int64_t STAKING_FIX2_TIME = 1480320000;
 
 // Fri Aug 11 00:00:00 2017 PDT
-static const int64_t FORK_3_TIME = 1502434800;
+static const int64_t FORK_003_TIME = 1502434800;
+
+// Fri Aug 22 21:00:00 2017 PDT
+static const int64_t FORK_004_TIME = 1503417600;
 
 //////////////////////////////////////////////////////////////////////
 ///
@@ -897,7 +900,8 @@ int GetFork(int64_t nTime)
                                {                   0,  BRK_GENESIS},
                                {   STAKING_FIX1_TIME,  BRK_FORK001},
                                {   STAKING_FIX2_TIME,  BRK_FORK002},
-                               {         FORK_3_TIME,  BRK_FORK003}
+                               {       FORK_003_TIME,  BRK_FORK003},
+                               {       FORK_004_TIME,  BRK_FORK004}
                                            };
 
     if (fTestNet)
@@ -936,8 +940,8 @@ int GetMinPeerProtoVersion(int64_t nTime)
     // Make sure forks are ascending!
     const int aVersions[nVersions][2] = {
     //                                    Fork, Proto Version
-                   {               BRK_FORK002,         61009 },
-                   {               BRK_FORK003,         61010 }
+                   {               BRK_FORK003,         61010 },
+                   {               BRK_FORK004,         61011 }
                                           };
 
     int nFork = GetFork(nTime);

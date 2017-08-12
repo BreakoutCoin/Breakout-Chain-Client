@@ -1363,16 +1363,21 @@ struct AMOUNT GetProofOfStakeReward(CBlockIndex* pindexPrev, int nStakeColor)
         // deck staked
         if (nSubsidy < BASE_COIN)
         {
-            // prior to BRK_FORK003 subsidy of card stakes were 0 via bad logic
             if (GetFork(pindexPrev->nTime) < BRK_FORK003)
             {
                 nSubsidy = 0;
             }
-            else
+            else if (GetFork(pindexPrev->nTime) < BRK_FORK004)
             {
                 struct AMOUNT stSubsidy = GetPoWSubsidy(1 + pindexPrev->nHeight);
                 nSubsidy = 2 * ((stSubsidy.nValue * COIN[mintColor]) +
                                 (stSubsidy.nValue * CENT[mintColor] * nSubsidy));
+            }
+            else
+            {
+                struct AMOUNT stSubsidy = GetPoWSubsidy(1 + pindexPrev->nHeight);
+                nSubsidy = 2 * (stSubsidy.nValue + (nSubsidy * (stSubsidy.nValue / 100)));
+
             }
         }
         // BRX staked

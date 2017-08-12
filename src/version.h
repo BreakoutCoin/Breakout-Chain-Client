@@ -39,7 +39,7 @@ static const int DATABASE_VERSION = 70508;
 // 61008: staking improvement (1.4.2.0)
 // 61009: card staking and BRK inflation correction (1.4.5.0)
 //        createmultisigaddress (1.4.6.0)
-// 61010: card staking rewards nonzero (fully fixed)
+// 61010: card staking rewards nonzero
 //        hard-coded clearnet nodes
 //        code cleanup & parameter consolidation
 //        multisig api
@@ -48,7 +48,8 @@ static const int DATABASE_VERSION = 70508;
 //        pool friendly mining
 //        PoW is now scrypt (was sha256d)
 //        (1.5.0.0)
-static const int PROTOCOL_VERSION = 61010;
+// 61011: card staking fix (1.5.1.0)
+static const int PROTOCOL_VERSION = 61011;
 
 
 // intial proto version, to be increased after version/verack negotiation
