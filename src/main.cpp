@@ -1376,7 +1376,7 @@ struct AMOUNT GetProofOfStakeReward(CBlockIndex* pindexPrev, int nStakeColor)
             else
             {
                 struct AMOUNT stSubsidy = GetPoWSubsidy(1 + pindexPrev->nHeight);
-                nSubsidy = 2 * (stSubsidy.nValue + (nSubsidy * (stSubsidy.nValue / 100)));
+                nSubsidy = (10 * stSubsidy.nValue) + (nSubsidy * (stSubsidy.nValue / 10));
 
             }
         }
