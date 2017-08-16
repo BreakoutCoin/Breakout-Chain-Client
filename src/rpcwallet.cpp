@@ -2486,6 +2486,32 @@ Value validateaddress(const Array& params, bool fHelp)
                      strprintf("ticker %s is not valid\n", strTicker.c_str()));
         }
     }
+    // NOTE: Before you change how nColor is decided, remember that
+    //       exchanges rely on specific validateaddress behavior.
+    //
+    // Considerations here are that the GUI will automatically set nDefaultColor
+    // to BRK so a GUI user validating a BRX address could find it is invalid
+    // even though they have not explicitly set a default currency.
+    //
+    // For this reason, the init argument list should be checked explicitly.
+    // In the future, it will probably be better to make a flag that
+    // indicates whether nDefaultCurrency was set explicitly, either as an
+    // init argument or by the RPC command setdefaultcurrency, if ever implemented.
+    else
+    {
+        int nColorInit;
+        std::string strTicker = GetArg("-defaultcurrency", COLOR_TICKER[BREAKOUT_COLOR_NONE]);
+        if (!GetColorFromTicker(strTicker, nColorInit))
+        {
+            // this check happened at init, so bad -defaultcurrency should never happen
+            throw runtime_error(
+                     strprintf("-defaultcurrency ticker %s is not valid\n", strTicker.c_str()));
+        }
+        if (nColorInit != BREAKOUT_COLOR_NONE)
+        {
+            nColor = nColorInit;
+        }
+    }
 
     CBitcoinAddress address(params[0].get_str());
     bool isValid;
