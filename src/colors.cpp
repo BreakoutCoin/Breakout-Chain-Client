@@ -972,11 +972,11 @@ bool GetColorFromTicker(const std::string &ticker, int &nColorIn)
     nColorIn = (int) BREAKOUT_COLOR_NONE;
     for (int nColor = 1; nColor < N_COLORS; ++nColor)
     {
-           if (std::string(COLOR_TICKER[nColor]) == ticker)
-           {
-                 nColorIn = nColor;
-                 return true;
-           }
+        if (std::string(COLOR_TICKER[nColor]) == ticker)
+        {
+              nColorIn = nColor;
+              return true;
+        }
     }
     return false;
 }
@@ -985,8 +985,8 @@ bool GetTickerFromColor(int nColor, std::string &ticker)
 {
      if (nColor < 1 || nColor > N_COLORS)
      {
-              ticker = COLOR_TICKER[BREAKOUT_COLOR_NONE];
-              return false;
+         ticker = COLOR_TICKER[BREAKOUT_COLOR_NONE];
+         return false;
      }
      ticker = COLOR_TICKER[nColor];
      return true;

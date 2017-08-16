@@ -35,11 +35,19 @@ static const int DATABASE_VERSION = 70508;
 // 61002: original release version
 // 61005: mainnet launch
 // 61006: finalized deck PoS reward
-// 61007: added burn protocol (1.4.0.0)
-// 61008: staking improvement (1.4.2.0)
-// 61009: card staking and BRK inflation correction (1.4.5.0)
+// 61007:
+//   (1.4.0.0)
+//        added burn protocol
+// 61008:
+//   (1.4.2.0)
+//        staking improvement
+// 61009:
+//   (1.4.5.0)
+//        card staking and BRK inflation correction
 //        createmultisigaddress (1.4.6.0)
-// 61010: card staking rewards nonzero
+// 61010:
+//   (1.5.0.0)
+//        card staking rewards nonzero
 //        hard-coded clearnet nodes
 //        code cleanup & parameter consolidation
 //        multisig api
@@ -47,8 +55,11 @@ static const int DATABASE_VERSION = 70508;
 //        tor v0.3: 0.3.0.9
 //        pool friendly mining
 //        PoW is now scrypt (was sha256d)
-//        (1.5.0.0)
-// 61011: card staking fix (1.5.1.0)
+// 61011:
+//    (1.5.1.0)
+//        card staking fix
+//    (1.5.1.1)
+//        change in validateaddress behavior
 static const int PROTOCOL_VERSION = 61011;
 
 

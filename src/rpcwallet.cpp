@@ -426,6 +426,27 @@ Value getaddressesbyaccount(const Array& params, bool fHelp)
     return ret;
 }
 
+
+
+Value getdefaultcurrency(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() > 0)
+        throw runtime_error(
+            "getdefaultcurrency\n"
+            "Returns the ticker symbol of the default currency."
+        );
+
+    std::string strTicker;
+    if (!GetTickerFromColor(nDefaultCurrency, strTicker))
+    {
+        // this should never happen
+        throw runtime_error("defaultcurrency init option is invalid");
+    }
+
+    return strTicker;
+}
+
+
 Value sendtoaddress(const Array& params, bool fHelp)
 {
     if (fHelp || params.size() < 2 || params.size() > 7)
@@ -2501,13 +2522,7 @@ Value validateaddress(const Array& params, bool fHelp)
     {
         int nColorInit;
         std::string strTicker = GetArg("-defaultcurrency", COLOR_TICKER[BREAKOUT_COLOR_NONE]);
-        if (!GetColorFromTicker(strTicker, nColorInit))
-        {
-            // this check happened at init, so bad -defaultcurrency should never happen
-            throw runtime_error(
-                     strprintf("-defaultcurrency ticker %s is not valid\n", strTicker.c_str()));
-        }
-        if (nColorInit != BREAKOUT_COLOR_NONE)
+        if (GetColorFromTicker(strTicker, nColorInit))
         {
             nColor = nColorInit;
         }

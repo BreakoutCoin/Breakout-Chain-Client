@@ -274,6 +274,7 @@ static const CRPCCommand vRPCCommands[] =
     { "setaccount",                &setaccount,                true,   false },
     { "getaccount",                &getaccount,                false,  false },
     { "getaddressesbyaccount",     &getaddressesbyaccount,     true,   false },
+    { "getdefaultcurrency",        &getdefaultcurrency,        true,   false },
     // TODO: allow to set dynamically
     // { "setdefaultcurrency",        &setdefaultcurrency,        false,  false },
     // { "setdefaultstake",           &setdefaultstake,           false,  false },
