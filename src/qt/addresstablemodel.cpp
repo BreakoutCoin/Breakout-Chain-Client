@@ -70,7 +70,7 @@ public:
                 int nColor = boost::apply_visitor(GetAddressColorVisitor(), item.first);
                 CBitcoinAddress address(item.first, nColor);
                 const std::string& strName = item.second;
-                bool fMine = IsMine(*wallet, address.Get(), fMultiSig);
+                bool fMine = IsMine(*wallet, address.Get(), fMultiSig) && ISMINE_ALL;
                 cachedAddressTable.append(AddressTableEntry(fMine ? AddressTableEntry::Receiving : AddressTableEntry::Sending,
                                   QString::fromStdString(strName),
                                   QString::fromStdString(address.ToString())));

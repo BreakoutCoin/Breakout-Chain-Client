@@ -345,8 +345,7 @@ namespace Checkpoints
     // Is the sync-checkpoint outside maturity window?
     bool IsMatureSyncCheckpoint()
     {
-        // ADVISORY: static is an optimization, may not be suitable for forks
-        static unsigned int nStakeMinAge = GetStakeMinAge();
+        unsigned int nStakeMinAge = GetStakeMinAge(pindexBest->nTime);
         static int nCoinbaseMaturity = GetCoinbaseMaturity();
         LOCK(cs_hashSyncCheckpoint);
         // sync-checkpoint should always be accepted block

@@ -1294,10 +1294,10 @@ void static PruneOrphanBlocks()
 
 // miner's coin base reward
 // new coins: carefully author this function, it is specific to breakout
-struct AMOUNT GetPoWSubsidy(int nHeight)
+struct AMOUNT GetPoWSubsidy(CBlockIndex* pindexPrev)
 {
-
     struct AMOUNT stSubsidy;
+    int nHeight = pindexPrev->nHeight + 1;
     stSubsidy.nValue = 0;
     // the default value is BRO so that the chain can move during distribution
     stSubsidy.nColor = (int) BREAKOUT_COLOR_BROCOIN;
@@ -1311,17 +1311,24 @@ struct AMOUNT GetPoWSubsidy(int nHeight)
     else
     {
         stSubsidy.nColor = (int) BREAKOUT_COLOR_SISCOIN;
-        // Bitcoin emission characteristics same as BTC
-        // PoW blocks are expected every 10 min (half are PoW)
-        int halvings = nHeight / 420000;
+        // Siscoin emission characteristics same as BTC
+        // PoW blocks are expected every 2 min (half are PoW)
+        int halvings = nHeight / 2103840;
         if (halvings >= 64)
         {
              stSubsidy.nValue = 0;
         }
         else
         {
-            stSubsidy.nValue = 50 * COIN[BREAKOUT_COLOR_SISCOIN];
-            // 525,000 blocks == 4 yr
+            if (GetFork(pindexPrev->nTime) < BRK_FORK005)
+            {
+                stSubsidy.nValue = 50 * COIN[BREAKOUT_COLOR_SISCOIN];
+            }
+            else
+            {
+                // new block times are 5 times shorter
+                stSubsidy.nValue = 10 * COIN[BREAKOUT_COLOR_SISCOIN];
+            }
             stSubsidy.nValue >>= halvings;
         }
     }
@@ -1335,9 +1342,9 @@ struct AMOUNT GetPoWSubsidy(int nHeight)
 //    add them to the subsidy here
 // TODO: the ability for miners to collect fees for any currency is
 //       good argument for multicolored transactions, or to mark vtx[2+] as fee transactions
-struct AMOUNT GetProofOfWorkReward(int nHeight)
+struct AMOUNT GetProofOfWorkReward(CBlockIndex* pindexPrev)
 {
-    struct AMOUNT stSubsidy = GetPoWSubsidy(nHeight);
+    struct AMOUNT stSubsidy = GetPoWSubsidy(pindexPrev);
 
     if (fDebug && GetBoolArg("-printcreation"))
     {
@@ -1369,15 +1376,14 @@ struct AMOUNT GetProofOfStakeReward(CBlockIndex* pindexPrev, int nStakeColor)
             }
             else if (GetFork(pindexPrev->nTime) < BRK_FORK004)
             {
-                struct AMOUNT stSubsidy = GetPoWSubsidy(1 + pindexPrev->nHeight);
+                struct AMOUNT stSubsidy = GetPoWSubsidy(pindexPrev);
                 nSubsidy = 2 * ((stSubsidy.nValue * COIN[mintColor]) +
                                 (stSubsidy.nValue * CENT[mintColor] * nSubsidy));
             }
             else
             {
-                struct AMOUNT stSubsidy = GetPoWSubsidy(1 + pindexPrev->nHeight);
+                struct AMOUNT stSubsidy = GetPoWSubsidy(pindexPrev);
                 nSubsidy = (10 * stSubsidy.nValue) + (nSubsidy * (stSubsidy.nValue / 10));
-
             }
         }
         // BRX staked
@@ -1392,12 +1398,19 @@ struct AMOUNT GetProofOfStakeReward(CBlockIndex* pindexPrev, int nStakeColor)
                 // the original emission was too low by 1/2
                 minReward = (5 * (supply / 100)) / 105192;
             }
-            else
+            else if (GetFork(pindexPrev->nTime) < BRK_FORK005)
             {
                 // the original subsidy was 1/2 the correct amount for ~5% interest
                 nSubsidy += nSubsidy;
                 // multiply by 5% then divide by the number of blocks in a year (52596)
                 minReward = (5 * (supply / 100)) / 52596;
+            }
+            else
+            {
+                nSubsidy += nSubsidy;
+                // block times will be sped 5x, i.e.
+                //   (5 * (supply / 100)) / (5 * 52596) = supply / 5259600
+                minReward = supply / 5259600;
             }
             if (nSubsidy < minReward)
             {
@@ -1483,7 +1496,7 @@ unsigned int BreakoutGravityWave(const CBlockIndex* pindexLast, bool fProofOfSta
 
     CBigNum bnTargetLimit = GetTargetLimit(fProofOfStake);
 
-    int64_t nTargetSpacing = GetTargetSpacing(fProofOfStake);
+    int64_t nTargetSpacing = GetTargetSpacing(fProofOfStake, pindexLast->nTime);
 
     const CBlockIndex* pindexPrev = GetLastBlockIndex(pindexLast, fProofOfStake);
 
@@ -2151,6 +2164,14 @@ bool CBlock::ConnectBlock(CTxDB& txdb, CBlockIndex* pindex, bool fJustCheck)
     if (pindex->pprev != NULL)
     {
         pindex->vTotalMint = pindex->pprev->vTotalMint;
+        // some clients had negative vTotalMint so do a "hard reset"
+        bool fReset = ((GetFork(pindex->pprev->nTime) == BRK_FORK004) &&
+                       (GetFork(pindex->nTime) == BRK_FORK005));
+        if (fReset)
+        {
+            pindex->vTotalMint[BREAKOUT_COLOR_SISCOIN] =
+                        pindex->pprev->vMoneySupply[BREAKOUT_COLOR_SISCOIN];
+        }
     }
 
     unsigned int nSigOps = 0;
@@ -2160,7 +2181,7 @@ bool CBlock::ConnectBlock(CTxDB& txdb, CBlockIndex* pindex, bool fJustCheck)
 
         int nColor = tx.GetColor();
 
-        // Do not allow blocks that contain transactions which 'overwrite' older transactions,
+        // Do not allow blocks that contain transactions that 'overwrite' older transactions,
         // unless those are already completely spent.
         // If such overwrites are allowed, coinbases and transactions depending upon those
         // can be duplicated to remove the ability to spend the first instance -- even after
@@ -2321,10 +2342,42 @@ bool CBlock::ConnectBlock(CTxDB& txdb, CBlockIndex* pindex, bool fJustCheck)
         {
             if (SCAVENGABLE[nColor])
             {
-                int64_t nTotalMintPrev = (pindex->pprev ? pindex->pprev->vTotalMint[nColor] : 0);
+                int64_t nTotalMintPrev = 0;
+                if (pindex->pprev)
+                {
+                    bool fReset = ((nColor == BREAKOUT_COLOR_SISCOIN) &&
+                                   (GetFork(pindex->pprev->nTime) == BRK_FORK004) &&
+                                   (GetFork(pindex->nTime) == BRK_FORK005));
+                    if (fReset)
+                    {
+                        nTotalMintPrev = pindex->pprev->vMoneySupply[nColor];
+                    }
+                    else
+                    {
+                        nTotalMintPrev = pindex->pprev->vTotalMint[nColor];
+                    }
+                }
                 int64_t nMoneySupplyPrev = (pindex->pprev ? pindex->pprev->vMoneySupply[nColor] : 0);
                 vScavengedFees[nColor] += (nTotalMintPrev - nMoneySupplyPrev);
                 vFees[nColor] += (nTotalMintPrev - nMoneySupplyPrev);
+            }
+        }
+
+        if (fDebug && GetBoolArg("-printcreation"))
+        {
+            for (int nColor = 1; nColor < N_COLORS; ++nColor)
+            {
+                if (vFees[nColor] != 0)
+                {
+                     printf("ConnectBlock(): Fee for %s is %" PRId64 "\n",
+                                COLOR_TICKER[nColor], vFees[nColor]);
+                }
+                if (vScavengedFees[nColor] != 0)
+                {
+                     printf("ConnectBlock(): Scavenged fee for %s is %" PRId64 "\n",
+                                COLOR_TICKER[nColor], vScavengedFees[nColor]);
+                }
+
             }
         }
 
@@ -2333,9 +2386,16 @@ bool CBlock::ConnectBlock(CTxDB& txdb, CBlockIndex* pindex, bool fJustCheck)
 
         // fees can be many different colors
         // don't include them in the reward calc
-        struct AMOUNT reward = GetProofOfWorkReward(pindex->nHeight);
+        struct AMOUNT reward = GetProofOfWorkReward(pindex->pprev);
 
         int64_t nReward = reward.nValue + vFees[reward.nColor];
+
+        // ensure coinbase reward is correct color
+        if (txCoinBase.GetColor() != reward.nColor)
+        {
+            return DoS(100, error("ConnectBlock() : coinbase currency is %s, should be %s\n",
+                   COLOR_TICKER[txCoinBase.GetColor()], COLOR_TICKER[reward.nColor]));
+        }
 
         // Check coinbase reward
         // fees are in - out for non-coinbase transactions
@@ -2343,15 +2403,11 @@ bool CBlock::ConnectBlock(CTxDB& txdb, CBlockIndex* pindex, bool fJustCheck)
         // this mirrors single currency coins (e.g. bitcoin)
         if (txCoinBase.vout[0].nValue > nReward)
         {
-                      return DoS(100, error("ConnectBlock() : coinbase reward exceeded "
-                                            "(actual=%" PRId64 " vs calculated=%" PRId64 ")",
-                                            txCoinBase.vout[0].nValue, nReward));
-        }
-        // ensure coinbase reward is correct color
-        if (txCoinBase.GetColor() != reward.nColor)
-        {
-            return DoS(100, error("ConnectBlock() : coinbase currency is %s, should be %s\n",
-                   COLOR_TICKER[txCoinBase.GetColor()], COLOR_TICKER[reward.nColor]));
+            return DoS(100, error("ConnectBlock() : coinbase reward exceeded "
+                                   "([currency=%s] actual=%" PRId64
+                                   " vs calculated=%" PRId64 ")",
+                                   COLOR_TICKER[txCoinBase.vout[0].nColor],
+                                   txCoinBase.vout[0].nValue, nReward));
         }
 
         // check rest of fees, outputs in no particular order
@@ -2380,7 +2436,23 @@ bool CBlock::ConnectBlock(CTxDB& txdb, CBlockIndex* pindex, bool fJustCheck)
         // not a PoS block, set the pindex stake color to none
         pindex->nStakeColor = (int) BREAKOUT_COLOR_NONE;
         // make unclaimed mint reward available for scavenging if allowed
-        int64_t nTotalMintRewardPrev = (pindex->pprev ? pindex->pprev->vTotalMint[reward.nColor] : 0);
+
+
+        int64_t nTotalMintRewardPrev = 0;
+        if (pindex->pprev)
+        {
+            bool fReset = ((reward.nColor == BREAKOUT_COLOR_SISCOIN) &&
+                           (GetFork(pindex->pprev->nTime) == BRK_FORK004) &&
+                           (GetFork(pindex->nTime) == BRK_FORK005));
+            if (fReset)
+            {
+                nTotalMintRewardPrev = pindex->pprev->vMoneySupply[reward.nColor];
+            }
+            else
+            {
+                nTotalMintRewardPrev = pindex->pprev->vTotalMint[reward.nColor];
+            }
+        }
         pindex->vTotalMint[reward.nColor] = nTotalMintRewardPrev + reward.nValue;
     }
     if (IsProofOfStake())
@@ -2855,8 +2927,6 @@ bool CBlock::AddToBlockIndex(unsigned int nFile, unsigned int nBlockPos, const u
         pindexNew->pprev = (*miPrev).second;
         pindexNew->nHeight = pindexNew->pprev->nHeight + 1;
     }
-
-
 
     // ppcoin: compute chain trust score
     pindexNew->nChainTrust = (pindexNew->pprev ? pindexNew->pprev->nChainTrust : 0) + pindexNew->GetBlockTrust();
@@ -4031,8 +4101,7 @@ void static ProcessGetData(CNode* pfrom)
 
 bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv)
 {
-    // ADVISORY: static here is an optimization and may not always be suitable
-    static unsigned int nStakeMinAge = GetStakeMinAge();
+    unsigned int nStakeMinAge = GetStakeMinAge(pindexBest->nTime);
     static map<CService, CPubKey> mapReuseKey;
     RandAddSeedPerfmon();
     if (fDebug)

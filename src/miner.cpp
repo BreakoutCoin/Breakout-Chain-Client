@@ -140,7 +140,7 @@ CBlock* CreateNewBlock(CWallet* pwallet, bool fProofOfStake, int64_t pFees[])
     {
         CReserveKey reservekey(pwallet);
         CPubKey pubkey;
-        struct AMOUNT reward = GetProofOfWorkReward(nHeight);
+        struct AMOUNT reward = GetProofOfWorkReward(pindexPrev);
         if (!reservekey.GetReservedKey(pubkey, reward.nColor))
         {
             return NULL;
@@ -450,7 +450,7 @@ CBlock* CreateNewBlock(CWallet* pwallet, bool fProofOfStake, int64_t pFees[])
         if (!fProofOfStake)
         {
             // fees must be handled outside of the subsidy calculation
-            struct AMOUNT reward = GetProofOfWorkReward(nHeight);
+            struct AMOUNT reward = GetProofOfWorkReward(pindexPrev);
             pblock->vtx[0].vout[0].nValue = reward.nValue + nFees[reward.nColor];
             pblock->vtx[0].vout[0].nColor = reward.nColor;
             // make outputs for the non-coinbase currency fees
@@ -654,7 +654,7 @@ void StakeMiner(CWallet *pwallet)
 #if PROOF_MODEL == PURE_POS
     //
     static const int nFirstPoSBlock = GetFirstPoSBlock();
-    int nTargetSpacing = GetTargetSpacing(true);
+    int nTargetSpacing = GetTargetSpacing(true, pindexBest->nTime);
     unsigned int nMilliWaitForPoS = nTargetSpacing * 1000 / 2;
 #endif
 
@@ -714,7 +714,7 @@ void StakeMiner(CWallet *pwallet)
             SetThreadPriority(THREAD_PRIORITY_NORMAL);
             CheckStake(pblock.get(), *pwallet);
             SetThreadPriority(THREAD_PRIORITY_LOWEST);
-            int nTargetSpacing = GetTargetSpacing(true);
+            int nTargetSpacing = GetTargetSpacing(true, pindexBest->nTime);
             MilliSleep(nTargetSpacing * 1000);
         }
         else

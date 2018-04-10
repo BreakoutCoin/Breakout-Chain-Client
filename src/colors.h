@@ -64,6 +64,7 @@ enum ForkNumbers
     BRK_FORK002,
     BRK_FORK003,
     BRK_FORK004,
+    BRK_FORK005,
     TOTAL_FORKS
 };
 
@@ -281,11 +282,11 @@ bool CheckColor(int nColor);
 bool CanStake(int nColorIn);
 
 
-unsigned int GetStakeMinAge();
+unsigned int GetStakeMinAge(int64_t nTime);
 
-unsigned int GetStakeMaxAge();
+unsigned int GetStakeMaxAge(int64_t nTime);
 
-unsigned int GetModifierInterval();
+unsigned int GetModifierInterval(int64_t nTime);
 
 
 int GetStakeMinConfirmations(int nColor);
@@ -310,7 +311,7 @@ void FillNets(const std::map<int, int64_t> &mapDebit,
 
 // minting
 CBigNum GetTargetLimit(bool fProofOfStake);
-int64_t GetTargetSpacing(bool fProofOfStake);
+int64_t GetTargetSpacing(bool fProofOfStake, int64_t nTime);
 int GetCoinbaseMaturity();
 int GetStakeTimestampMask();
 

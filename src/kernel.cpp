@@ -31,9 +31,8 @@ static std::map<int, unsigned int> mapStakeModifierCheckpointsTestNet =
 // Get time weight
 int64_t GetWeight(int64_t nIntervalBeginning, int64_t nIntervalEnd, int nColor, int64_t nTimeBlockPrev)
 {
-    // ADVISORY: static is an optimization and may not be suitable
-    static unsigned int nStakeMinAge = GetStakeMinAge();
-    static unsigned int nStakeMaxAge = GetStakeMaxAge();
+    unsigned int nStakeMinAge = GetStakeMinAge(nTimeBlockPrev);
+    unsigned int nStakeMaxAge = GetStakeMaxAge(nTimeBlockPrev);
     if (!CanStake(nColor))
     {
            printf("Currency not valid: %d\n", nColor);
@@ -61,20 +60,20 @@ static bool GetLastStakeModifier(const CBlockIndex* pindex, uint256& bnStakeModi
 }
 
 // Get selection interval section (in seconds)
-static int64_t GetStakeModifierSelectionIntervalSection(int nSection)
+static int64_t GetStakeModifierSelectionIntervalSection(int nSection, unsigned int nTime)
 {
     // ADVISORY: static is optimization, may not be appropriate for forks
-    static unsigned int nModifierInterval = GetModifierInterval();
+    static unsigned int nModifierInterval = GetModifierInterval(nTime);
     assert (nSection >= 0 && nSection < 64);
     return (nModifierInterval * 63 / (63 + ((63 - nSection) * (MODIFIER_INTERVAL_RATIO - 1))));
 }
 
 // Get stake modifier selection interval (in seconds)
-static int64_t GetStakeModifierSelectionInterval()
+static int64_t GetStakeModifierSelectionInterval(unsigned int nTime)
 {
     int64_t nSelectionInterval = 0;
     for (int nSection=0; nSection<64; nSection++)
-        nSelectionInterval += GetStakeModifierSelectionIntervalSection(nSection);
+        nSelectionInterval += GetStakeModifierSelectionIntervalSection(nSection, nTime);
     return nSelectionInterval;
 }
 
@@ -138,8 +137,15 @@ static bool SelectBlockFromCandidates(vector<pair<int64_t, uint256> >& vSortedBy
 // blocks.
 bool ComputeNextStakeModifier(const CBlockIndex* pindexPrev, uint256& bnStakeModifier, bool& fGeneratedStakeModifier)
 {
-    // ADVISORY: static is optimization, may not be appropriate for forks
-    static unsigned int nModifierInterval = GetModifierInterval();
+    unsigned int nModifierInterval;
+    if (pindexPrev == NULL)
+    {
+        nModifierInterval = GetModifierInterval(0);
+    }
+    else
+    {
+        nModifierInterval = GetModifierInterval(pindexPrev->nTime);
+    }
 
     bnStakeModifier = 0;
     fGeneratedStakeModifier = false;
@@ -162,9 +168,9 @@ bool ComputeNextStakeModifier(const CBlockIndex* pindexPrev, uint256& bnStakeMod
 
     // Sort candidate blocks by timestamp
     vector<pair<int64_t, uint256> > vSortedByTimestamp;
-    int nTargetSpacing = GetTargetSpacing(true);
+    int nTargetSpacing = GetTargetSpacing(true, pindexPrev->nTime);
     vSortedByTimestamp.reserve(64 * nModifierInterval / nTargetSpacing);
-    int64_t nSelectionInterval = GetStakeModifierSelectionInterval();
+    int64_t nSelectionInterval = GetStakeModifierSelectionInterval(pindexPrev->nTime);
     int64_t nSelectionIntervalStart = (pindexPrev->GetBlockTime() / nModifierInterval) * nModifierInterval - nSelectionInterval;
     const CBlockIndex* pindex = pindexPrev;
     while (pindex && pindex->GetBlockTime() >= nSelectionIntervalStart)
@@ -183,7 +189,7 @@ bool ComputeNextStakeModifier(const CBlockIndex* pindexPrev, uint256& bnStakeMod
     for (int nRound=0; nRound<min(64, (int)vSortedByTimestamp.size()); nRound++)
     {
         // add an interval section to the current selection round
-        nSelectionIntervalStop += GetStakeModifierSelectionIntervalSection(nRound);
+        nSelectionIntervalStop += GetStakeModifierSelectionIntervalSection(nRound, pindexPrev->nTime);
         // select a block from the candidates of current round
         if (!SelectBlockFromCandidates(vSortedByTimestamp, mapSelectedBlocks, nSelectionIntervalStop, bnStakeModifier, &pindex))
             return error("ComputeNextStakeModifier: unable to select block at round %d", nRound);

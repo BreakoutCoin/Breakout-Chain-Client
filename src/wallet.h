@@ -1,5 +1,5 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2012 The Bitcoin developers
+// Copyright (c) 2009-2017 The Bitcoin developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 #ifndef BITCOIN_WALLET_H
@@ -93,6 +93,17 @@ private:
     // the maximum wallet format version: memory-only variable that specifies to what version this wallet may be upgraded
     int nWalletMaxVersion;
 
+    /**
+     * Private version of AddWatchOnly method which does not accept a
+     * timestamp, and which will reset the wallet's nTimeFirstKey value to 1 if
+     * the watch key did not previously have a timestamp associated with it.
+     * Because this is an inherited virtual method, it is accessible despite
+     * being marked private, but it is marked private anyway to encourage use
+     * of the other AddWatchOnly which accepts a timestamp and sets
+     * nTimeFirstKey more intelligently for more efficient rescans.
+     */
+    bool AddWatchOnly(const CScript& dest);
+
 public:
     mutable CCriticalSection cs_wallet;
 
@@ -101,6 +112,9 @@ public:
 
     std::set<int64_t> setKeyPool;
     std::map<CKeyID, CKeyMetadata> mapKeyMetadata;
+
+    // Map from Script ID to key metadata (for watch-only keys).
+    std::map<CScriptID, CKeyMetadata> m_script_metadata;
 
     std::set<CStealthAddress> stealthAddresses;
     StealthKeyMetaMap mapStealthKeyMeta;
@@ -170,6 +184,13 @@ public:
     bool LoadCryptedKey(const CPubKey &vchPubKey, const std::vector<unsigned char> &vchCryptedSecret);
     bool AddCScript(const CScript& redeemScript);
     bool LoadCScript(const CScript& redeemScript);
+
+    //! Adds a watch-only address to the store, and saves it to disk.
+    bool AddWatchOnly(const CScript& dest, int64_t nCreateTime);
+    bool RemoveWatchOnly(const CScript &dest);
+    //! Adds a watch-only address to the store, without saving it to disk (used by LoadWallet)
+    bool LoadWatchOnly(const CScript &dest);
+
     bool Lock();
     bool Unlock(const SecureString& strWalletPassphrase);
     bool ChangeWalletPassphrase(const SecureString& strOldWalletPassphrase, const SecureString& strNewWalletPassphrase);
@@ -287,11 +308,11 @@ public:
     std::set< std::set<CTxDestination> > GetAddressGroupings();
     std::map<CTxDestination, int64_t> GetAddressBalances();
 
-    bool IsMine(const CTxIn& txin, bool fMultiSig) const;
+    isminetype IsMine(const CTxIn& txin, bool fMultiSig) const;
     //       color   value
     std::pair<int, int64_t> GetDebit(const CTxIn &txin, bool fMultiSig) const;
     int64_t GetDebit(const CTxIn& txin, int nColor, bool fMultiSig) const;
-    bool IsMine(const CTxOut& txout, bool fMultiSig) const
+    isminetype IsMine(const CTxOut& txout, bool fMultiSig) const
     {
         return ::IsMine(*this, txout.scriptPubKey, fMultiSig);
     }
@@ -299,7 +320,7 @@ public:
     {
         if (!MoneyRange(txout.nValue, txout.nColor))
             throw std::runtime_error("CWallet::GetCredit() : value out of range");
-        return ((IsMine(txout, fMultiSig) && (txout.nColor == nColor)) ? txout.nValue : 0);
+        return (((IsMine(txout, fMultiSig) & ISMINE_ALL) && (txout.nColor == nColor)) ? txout.nValue : 0);
     }
 
     std::pair<int, int64_t> GetCredit(const CTxOut &txout, bool fMultiSig) const
@@ -317,12 +338,19 @@ public:
         return (IsChange(txout) ? txout.nValue : 0);
     }
 
-    bool IsMine(const CTransaction& tx, bool fMultiSig) const
+
+    isminetype IsMine(const CTransaction& tx, bool fMultiSig) const
     {
+        isminetype isMineTx = ISMINE_NO;
         BOOST_FOREACH(const CTxOut& txout, tx.vout)
-            if (IsMine(txout, fMultiSig) && txout.nValue >= vMinimumInputValue[txout.nColor])
-                return true;
-        return false;
+        {
+            isminetype isMineOut = IsMine(txout, fMultiSig);
+            if ((isMineOut & ISMINE_ALL) && txout.nValue >= vMinimumInputValue[txout.nColor])
+            {
+                isMineTx = isMineTx | isMineOut;
+            }
+        }
+        return isMineTx;
     }
 
     bool IsFromMe(const CTransaction& tx, bool fMultiSig) const
@@ -498,6 +526,9 @@ public:
      * @note called with lock cs_wallet held.
      */
     boost::signals2::signal<void (CWallet *wallet, const uint256 &hashTx, ChangeType status)> NotifyTransactionChanged;
+
+    /** Watch-only address added */
+    boost::signals2::signal<void (bool fHaveWatchOnly)> NotifyWatchonlyChanged;
 };
 
 /** A key allocated from the key pool. */

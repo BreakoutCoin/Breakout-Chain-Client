@@ -144,8 +144,8 @@ bool LoadExternalBlockFile(FILE* fileIn);
 
 bool CheckProofOfWork(uint256 hash, unsigned int nBits);
 unsigned int GetNextTargetRequired(const CBlockIndex* pindexLast, bool fProofOfStake);
-struct AMOUNT GetPoWSubsidy(int nHeight);
-struct AMOUNT GetProofOfWorkReward(int nHeight);
+struct AMOUNT GetPoWSubsidy(CBlockIndex* pindexPrev);
+struct AMOUNT GetProofOfWorkReward(CBlockIndex* pindexPrev);
 struct AMOUNT GetProofOfStakeReward(CBlockIndex* pindexPrev, int nStakeColor);
 unsigned int ComputeMinWork(unsigned int nBase, int64_t nTime);
 unsigned int ComputeMinStake(unsigned int nBase, int64_t nTime, unsigned int nBlockTime);

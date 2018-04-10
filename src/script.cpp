@@ -1,5 +1,5 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2012 The Bitcoin developers
+// Copyright (c) 2009-2017 The Bitcoin developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -1456,6 +1456,8 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, vector<vector<unsi
         mTemplates.insert(make_pair(TX_NULL_DATA, CScript() << OP_RETURN << OP_SMALLDATA << OP_RETURN << OP_SMALLDATA));
     }
 
+    vSolutionsRet.clear();
+
     // Shortcut for pay-to-script-hash, which are more constrained than the other types:
     // it is always OP_HASH160 20 [20 byte hash] OP_EQUAL
     if (scriptPubKey.IsPayToScriptHash())
@@ -1698,6 +1700,8 @@ bool HaveAnyKey(const vector<valtype>& pubkeys, const CKeyStore& keystore)
     return false;
 }
 
+// Will use GetScriptForDestination() instead of static_visitor
+#if 0
 class CKeyStoreIsMineVisitor : public boost::static_visitor<bool>
 {
 private:
@@ -1713,38 +1717,81 @@ public:
     }
 };
 
-bool IsMine(const CKeyStore &keystore, const CTxDestination &dest, bool fMultisig)
+isminetype IsMine(const CKeyStore &keystore, const CTxDestination &dest, bool fMultiSig)
 {
     return boost::apply_visitor(CKeyStoreIsMineVisitor(&keystore), dest);
 }
+#endif
 
-bool IsMine(const CKeyStore &keystore, const CScript& scriptPubKey, bool fMultiSig)
+// replaces CKeyStoreIsMineVisitor
+isminetype IsMine(const CKeyStore& keystore, const CScript& scriptPubKey, bool fMultiSig)
 {
+    bool isInvalid = false;
+    return IsMine(keystore, scriptPubKey, isInvalid, fMultiSig);
+}
+
+isminetype IsMine(const CKeyStore& keystore, const CTxDestination& dest, bool fMultiSig)
+{
+    bool isInvalid = false;
+    return IsMine(keystore, dest, isInvalid, fMultiSig);
+}
+
+isminetype IsMine(const CKeyStore &keystore, const CTxDestination& dest, bool& isInvalid, bool fMultiSig)
+{
+    CScript script = GetScriptForDestination(dest);
+    return IsMine(keystore, script, isInvalid, fMultiSig);
+}
+
+isminetype IsMine(const CKeyStore &keystore, const CScript& scriptPubKey, bool& isInvalid, bool fMultiSig)
+{
+    isInvalid = false;
+
     vector<valtype> vSolutions;
     txnouttype whichType;
     if (!Solver(scriptPubKey, whichType, vSolutions))
-        return false;
+    {
+        if (keystore.HaveWatchOnly(scriptPubKey))
+        {
+            return ISMINE_WATCH_UNSOLVABLE;
+        }
+        return ISMINE_NO;
+    }
 
     CKeyID keyID;
     switch (whichType)
     {
         case TX_NONSTANDARD:
         case TX_NULL_DATA:
-            return false;
+            break;
         case TX_PUBKEY:
             keyID = CPubKey(vSolutions[0]).GetID();
-            return keystore.HaveKey(keyID);
+            if (keystore.HaveKey(keyID))
+            {
+                return ISMINE_SPENDABLE;
+            }
+            break;
         case TX_PUBKEYHASH:
             keyID = CKeyID(uint160(vSolutions[0]), BREAKOUT_COLOR_NONE);
-            return keystore.HaveKey(keyID);
+            if (keystore.HaveKey(keyID))
+            {
+                return ISMINE_SPENDABLE;
+            }
+            break;
         case TX_SCRIPTHASH:
         {
+            CScriptID scriptID = CScriptID(uint160(vSolutions[0]));
             CScript subscript;
-            if (!keystore.GetCScript(CScriptID(uint160(vSolutions[0])), subscript))
+            if (keystore.GetCScript(scriptID, subscript))
             {
-                return false;
+                isminetype ret = IsMine(keystore, subscript, fMultiSig);
+                if (ret == ISMINE_SPENDABLE ||
+                    ret == ISMINE_WATCH_SOLVABLE ||
+                    (ret == ISMINE_NO && isInvalid))
+                {
+                    return ret;
+                }
             }
-            return IsMine(keystore, subscript, fMultiSig);
+            break;
         }
         case TX_MULTISIG:
         {
@@ -1753,18 +1800,31 @@ bool IsMine(const CKeyStore &keystore, const CScript& scriptPubKey, bool fMultiS
             // partially owned (somebody else has a key that can spend
             // them) enable spend-out-from-under-you attacks, especially
             // in shared-wallet situations.
-            vector<valtype> keys(vSolutions.begin()+1, vSolutions.begin()+vSolutions.size()-1);
+            vector<valtype> keys(vSolutions.begin()+1,
+                                 vSolutions.begin()+vSolutions.size()-1);
             if (fMultiSig)
             {
-                return HaveAnyKey(keys, keystore);
+                if (HaveAnyKey(keys, keystore))
+                {
+                    return ISMINE_SPENDABLE;
+                }
             }
-            else
+            else if (HaveKeys(keys, keystore) == keys.size())
             {
-                return HaveKeys(keys, keystore) == keys.size();
+                return ISMINE_SPENDABLE;
             }
+            break;
         }
+    }  // end of switch
+
+    if (keystore.HaveWatchOnly(scriptPubKey)) {
+        // TODO: implement ProduceSignature
+        // TODO: This could be optimized some by doing some work after the above solver
+        // SignatureData sigs;
+        // return ProduceSignature(DummySignatureCreator(&keystore), scriptPubKey, sigs) ? ISMINE_WATCH_SOLVABLE : ISMINE_WATCH_UNSOLVABLE;
+        return ISMINE_WATCH_UNSOLVABLE;
     }
-    return false;
+    return ISMINE_NO;
 }
 
 bool ExtractDestination(const CScript& scriptPubKey, CTxDestination& addressRet)
@@ -1854,9 +1914,16 @@ bool ExtractDestinations(const CScript& scriptPubKey, txnouttype& typeRet, vecto
         nRequiredRet = vSolutions.front()[0];
         for (unsigned int i = 1; i < vSolutions.size()-1; i++)
         {
-            CTxDestination address = CPubKey(vSolutions[i]).GetID();
+            CPubKey pubKey(vSolutions[i]);
+            if (!pubKey.IsValid())
+                continue;
+
+            CTxDestination address = pubKey.GetID();
             addressRet.push_back(address);
         }
+
+        if (addressRet.empty())
+            return false;
     }
     else
     {
@@ -2222,6 +2289,38 @@ public:
         return false;
     }
 };
+
+
+CScript GetScriptForDestination(const CTxDestination& dest)
+{
+    CScript script;
+
+    boost::apply_visitor(CScriptVisitor(&script), dest);
+    return script;
+}
+
+CScript GetScriptForRawPubKey(const CPubKey& pubKey)
+{
+    return CScript() << std::vector<unsigned char>(pubKey.begin(), pubKey.end()) << OP_CHECKSIG;
+}
+
+CScript GetScriptForMultisig(int nRequired, const std::vector<CPubKey>& keys)
+{
+    CScript script;
+
+    script << CScript::EncodeOP_N(nRequired);
+
+    std::vector<CPubKey>::const_iterator it;
+    for (it = keys.begin(); it != keys.end(); ++it)
+        script << ToByteVector(*it);
+    script << CScript::EncodeOP_N(keys.size()) << OP_CHECKMULTISIG;
+    return script;
+}
+
+bool IsValidDestination(const CTxDestination& dest) {
+    return dest.which() != 0;
+}
+
 
 void CScript::SetDestination(const CTxDestination& dest)
 {

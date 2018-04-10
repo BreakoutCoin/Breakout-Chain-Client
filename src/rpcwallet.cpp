@@ -685,11 +685,10 @@ Value verifymessage(const Array& params, bool fHelp)
 
 Value getreceivedbyaddress(const Array& params, bool fHelp)
 {
-    if (fHelp || params.size() < 1 || params.size() > 3)
+    if (fHelp || params.size() < 1 || params.size() > 2)
         throw runtime_error(
-            "getreceivedbyaddress <breakoutaddress> [minconf=1] [multisig=false]\n"
-            "Returns the total amount received by <breakoutaddress> in transactions with at least [minconf] confirmations.\n"
-            "If [multisig] is then partial-owner multisig accounts are included.");
+            "getreceivedbyaddress <breakoutaddress> [minconf=1]\n"
+            "Returns the total amount received by <breakoutaddress> in transactions with at least [minconf] confirmations.");
 
     // Bitcoin address
     CBitcoinAddress address = CBitcoinAddress(params[0].get_str());
@@ -698,14 +697,12 @@ Value getreceivedbyaddress(const Array& params, bool fHelp)
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid breakout address");
     scriptPubKey.SetDestination(address.Get());
 
-    bool fMultiSig = GetBoolArg("-enablemultisigs", false);
-    if (params.size() > 2)
-    {
-       fMultiSig = params[2].get_bool();
-    }
+    static const bool fMultiSig = true;
 
-    if (!IsMine(*pwalletMain,scriptPubKey, fMultiSig))
+    if (!(IsMine(*pwalletMain, scriptPubKey, fMultiSig) & ISMINE_ALL))
+    {
         return (double)0.0;
+    }
 
     // Minimum confirmations
     int nMinDepth = 1;
@@ -790,7 +787,7 @@ Value getreceivedbyaccount(const Array& params, bool fHelp)
         {
             CTxDestination address;
             if (ExtractDestination(txout.scriptPubKey, address) &&
-                IsMine(*pwalletMain, address, fMultiSig) &&
+                (IsMine(*pwalletMain, address, fMultiSig) & ISMINE_ALL) &&
                 setAddress.count(address))
             {
                 if (wtx.GetDepthInMainChain() >= nMinDepth)
@@ -1501,8 +1498,11 @@ Value ListReceived(const Array& params, bool fByAccounts)
         BOOST_FOREACH(const CTxOut& txout, wtx.vout)
         {
             CTxDestination address;
-            if (!ExtractDestination(txout.scriptPubKey, address) || !IsMine(*pwalletMain, address, fMultiSig))
+            if (!ExtractDestination(txout.scriptPubKey, address) ||
+                !(IsMine(*pwalletMain, address, fMultiSig) & ISMINE_ALL))
+            {
                 continue;
+            }
 
             // coloring of bitcoin addresses ensures that each tally item has only one color
             CBitcoinAddress btcAddr(address, txout.nColor);
@@ -1859,7 +1859,7 @@ Value listaccounts(const Array& params, bool fHelp)
 
     map<string, std::vector<int64_t> > mapAccountBalances;
     BOOST_FOREACH(const PAIRTYPE(CTxDestination, string)& entry, pwalletMain->mapAddressBook) {
-        if (IsMine(*pwalletMain, entry.first, fMultiSig)) // This address belongs to me
+        if (IsMine(*pwalletMain, entry.first, fMultiSig) & ISMINE_ALL) // This address belongs to me
         {
             mapAccountBalances[entry.second] = std::vector<int64_t>(N_COLORS, 0);
         }
@@ -2524,6 +2524,9 @@ Value validateaddress(const Array& params, bool fHelp)
         std::string strTicker = GetArg("-defaultcurrency", COLOR_TICKER[BREAKOUT_COLOR_NONE]);
         if (GetColorFromTicker(strTicker, nColorInit))
         {
+            // NOTE: Before you change how nColor is decided, remember that
+            //       exchanges rely on specific validateaddress behavior.
+            // SEE ABOVE
             nColor = nColorInit;
         }
     }
@@ -2546,12 +2549,16 @@ Value validateaddress(const Array& params, bool fHelp)
         CTxDestination dest = address.Get();
         string currentAddress = address.ToString();
         ret.push_back(Pair("address", currentAddress));
-        bool fMine = IsMine(*pwalletMain, dest, fMultiSig);
-        ret.push_back(Pair("ismine", fMine));
-        if (fMine) {
+        isminetype isMine = IsMine(*pwalletMain, dest, fMultiSig);
+        // don't change the semantics of ismine here
+        bool fMineSpendable = isMine & ISMINE_SPENDABLE;
+        ret.push_back(Pair("ismine", fMineSpendable));
+        if (fMineSpendable) {
             Object detail = boost::apply_visitor(DescribeAddressVisitor(), dest);
             ret.insert(ret.end(), detail.begin(), detail.end());
         }
+        bool fWatch = isMine & ISMINE_WATCH_ONLY;
+        ret.push_back(Pair("iswatch", fWatch));
         if (pwalletMain->mapAddressBook.count(dest))
             ret.push_back(Pair("account", pwalletMain->mapAddressBook[dest]));
         ret.push_back(Pair("ticker", COLOR_TICKER[address.nColor]));
@@ -2606,13 +2613,17 @@ Value validatepubkey(const Array& params, bool fHelp)
         {
             ret.push_back(Pair("address", currentAddress));
         }
-        bool fMine = IsMine(*pwalletMain, keyID, fMultiSig);
-        ret.push_back(Pair("ismine", fMine));
+        isminetype isMine = IsMine(*pwalletMain, dest, fMultiSig);
+        // don't change the semantics of ismine here
+        bool fMineSpendable = isMine & ISMINE_SPENDABLE;
+        ret.push_back(Pair("ismine", fMineSpendable));
         ret.push_back(Pair("iscompressed", isCompressed));
-        if (fMine) {
+        if (fMineSpendable) {
             Object detail = boost::apply_visitor(DescribeAddressVisitor(), dest);
             ret.insert(ret.end(), detail.begin(), detail.end());
         }
+        bool fWatch = isMine & ISMINE_WATCH_ONLY;
+        ret.push_back(Pair("iswatch", fWatch));
         if (pwalletMain->mapAddressBook.count(dest))
             ret.push_back(Pair("account", pwalletMain->mapAddressBook[dest]));
     }

@@ -1,5 +1,5 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2012 The Bitcoin developers
+// Copyright (c) 2009-2017 The Bitcoin developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -65,6 +65,23 @@ enum
     SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY = (1U << 6),
 };
 
+/** IsMine() return codes (borrowed from (c) 2009-2017 Bitcoin Core Developers)*/
+enum isminetype
+{
+    ISMINE_NO = 0,
+    ISMINE_WATCH_UNSOLVABLE = 1,
+    //! Indicates that we know how to create a scriptSig that would solve this if we were given the appropriate private keys
+    ISMINE_WATCH_SOLVABLE = 2,
+    ISMINE_WATCH_ONLY = ISMINE_WATCH_SOLVABLE | ISMINE_WATCH_UNSOLVABLE,
+    ISMINE_SPENDABLE = 4,
+    ISMINE_ALL = ISMINE_WATCH_ONLY | ISMINE_SPENDABLE
+};
+
+inline isminetype operator|(isminetype a, isminetype b)
+{
+    return static_cast<isminetype>(static_cast<int>(a) | static_cast<int>(b));
+}
+
 // Mandatory script verification flags that all new blocks must comply with for
 // them to be valid. (but old blocks may not comply with)
 //
@@ -122,6 +139,12 @@ public:
 
 
 const char* GetTxnOutputType(txnouttype t);
+
+template <typename T>
+std::vector<unsigned char> ToByteVector(const T& in)
+{
+    return std::vector<unsigned char>(in.begin(), in.end());
+}
 
 /** Script opcodes */
 enum opcodetype
@@ -743,11 +766,31 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, std::vector<std::v
 int ScriptSigArgsExpected(txnouttype t, const std::vector<std::vector<unsigned char> >& vSolutions);
 bool IsStandard(const CScript& scriptPubKey, txnouttype& whichType);
 // fMultiSig indicates whether partial ownership of a multisig keyset qualifies as mine
-bool IsMine(const CKeyStore& keystore, const CScript& scriptPubKey, bool fMultiSig);
-bool IsMine(const CKeyStore& keystore, const CTxDestination &dest, bool fMultiSig);
+isminetype IsMine(const CKeyStore& keystore, const CScript& scriptPubKey, bool fMultiSig);
+isminetype IsMine(const CKeyStore& keystore, const CTxDestination &dest, bool fMultiSig);
+isminetype IsMine(const CKeyStore &keystore, const CTxDestination& dest, bool& isInvalid, bool fMultiSig);
+isminetype IsMine(const CKeyStore &keystore, const CScript& scriptPubKey, bool& isInvalid, bool fMultiSig);
 void ExtractAffectedKeys(const CKeyStore &keystore, const CScript& scriptPubKey, std::vector<CKeyID> &vKeys);
 bool ExtractDestination(const CScript& scriptPubKey, CTxDestination& addressRet);
+
 bool ExtractDestinations(const CScript& scriptPubKey, txnouttype& typeRet, std::vector<CTxDestination>& addressRet, int& nRequiredRet);
+
+/**
+ * Generate a Bitcoin scriptPubKey for the given CTxDestination. Returns a P2PKH
+ * script for a CKeyID destination, a P2SH script for a CScriptID, and an empty
+ * script for CNoDestination.
+ */
+CScript GetScriptForDestination(const CTxDestination& dest);
+
+/** Generate a P2PK script for the given pubkey. */
+CScript GetScriptForRawPubKey(const CPubKey& pubkey);
+
+/** Generate a multisig script. */
+CScript GetScriptForMultisig(int nRequired, const std::vector<CPubKey>& keys);
+
+/** Check whether a CTxDestination is a CNoDestination. */
+bool IsValidDestination(const CTxDestination& dest);
+
 uint8_t SignSignature(const CKeyStore& keystore, const CScript& fromPubKey, CTransaction& txTo, unsigned int nIn, int nHashType=SIGHASH_ALL);
 uint8_t SignSignature(const CKeyStore& keystore, const CTransaction& txFrom, CTransaction& txTo, unsigned int nIn, int nHashType=SIGHASH_ALL);
 bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const CTransaction& txTo, unsigned int nIn,

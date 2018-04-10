@@ -46,7 +46,25 @@ Value defaultstake(const Array &params, bool fHelp)
     return Value::null;
 }
 
+CBlockIndex* GetBlockIndexByNumber(int nHeight)
+{
+    CBlock block;
+    CBlockIndex* pblockindex = mapBlockIndex[hashBestChain];
+    while (pblockindex->nHeight > nHeight)
+        pblockindex = pblockindex->pprev;
 
+    uint256 hash = *pblockindex->phashBlock;
+
+    pblockindex = mapBlockIndex[hash];
+    block.ReadFromDisk(pblockindex, true);
+
+    return pblockindex;
+}
+
+
+
+
+// TODO: allow to query for future blocks
 Value getsubsidy(const Array& params, bool fHelp)
 {
     if (fHelp || params.size() > 2) {
@@ -65,12 +83,38 @@ Value getsubsidy(const Array& params, bool fHelp)
 #endif
 
     if (params.size() == 0) {
-            struct AMOUNT subsidy = GetPoWSubsidy(nBestHeight + 1);
+            struct AMOUNT subsidy = GetPoWSubsidy(pindexBest);
             ret.push_back(Pair("blockvalue", subsidy.nValue));
             ret.push_back(Pair("currency", COLOR_TICKER[subsidy.nColor]));
     }
     else if (params.size() == 1) {
-            struct AMOUNT subsidy = GetPoWSubsidy((int) params[0].get_int());
+
+            int nHeight = (int) params[0].get_int();
+#if PROOF_MODEL == PURE_POS
+            if (nHeight > GetLastPoWBlock() || nHeight < 1)
+#else
+            if (nHeight > (int) nBestHeight + 1 || nHeight < 1)
+#endif
+            {
+                  throw runtime_error(
+                    "getsubsidy [height] [height]\n"
+                    "If no height is provided, return subsidy of current block.\n"
+                    "Returns the pow reward for block at height or from one to the other.\n"
+                    "Biggest height should be no more than the last pow block.");
+            }
+
+            CBlockIndex *pindexPrev;
+
+            if (nHeight == (int) nBestHeight + 1)
+            {
+                 pindexPrev = pindexBest;
+            }
+            else
+            {
+                pindexPrev = GetBlockIndexByNumber(nHeight)->pprev;
+            }
+
+            struct AMOUNT subsidy = GetPoWSubsidy(pindexPrev);
             ret.push_back(Pair("blockvalue", subsidy.nValue));
             ret.push_back(Pair("currency", COLOR_TICKER[subsidy.nColor]));
     }
@@ -81,7 +125,8 @@ Value getsubsidy(const Array& params, bool fHelp)
 #if PROOF_MODEL == PURE_POS
             if ((p1 < 1) || (p2 < 1) || (p1 > nLastPoWBlock) || (p2 > nLastPoWBlock)) {
 #else
-            if ((p1 < 1) || (p2 < 1)) {
+            if ((p1 < 1) || (p2 < 1) || (p1 > (int) nBestHeight) || (p2 > (int) nBestHeight))
+            {
 #endif
                   throw runtime_error(
                     "getsubsidy [height] [height]\n"
@@ -101,7 +146,8 @@ Value getsubsidy(const Array& params, bool fHelp)
 
            for (int i = first; i <= last; i++) {
               Object obj;
-              struct AMOUNT subsidy = GetPoWSubsidy(i);
+              CBlockIndex *pindex = GetBlockIndexByNumber(i);
+              struct AMOUNT subsidy = GetPoWSubsidy(pindex->pprev);
               obj.push_back(Pair("blockvalue", subsidy.nValue));
               obj.push_back(Pair("currency", COLOR_TICKER[subsidy.nColor]));
               ret.push_back(Pair(boost::lexical_cast<string>(i), obj));
@@ -140,7 +186,7 @@ Value getmininginfo(const Array& params, bool fHelp)
     }
     obj.push_back(Pair("difficulty",    diff));
 
-    struct AMOUNT subsidy = GetPoWSubsidy(nBestHeight + 1);
+    struct AMOUNT subsidy = GetPoWSubsidy(pindexBest);
     obj.push_back(Pair("blockvalue", subsidy.nValue));
     obj.push_back(Pair("currency", COLOR_TICKER[subsidy.nColor]));
     obj.push_back(Pair("netmhashps",     GetPoWMHashPS()));
@@ -164,7 +210,7 @@ Value getmininginfo(const Array& params, bool fHelp)
               if (subsidy.nValue > 0)
               {
                      Object mintObj;
-                     mintObj.push_back(Pair(COLOR_TICKER[subsidy.nColor], subsidy.nValue));
+                     mintObj.push_back(Pair(COLOR_TICKER[subsidy.nColor], (uint64_t) subsidy.nValue));
                      stakeObj.push_back(Pair(COLOR_TICKER[nStakeColor], mintObj));
               }
         }
@@ -186,7 +232,7 @@ Value getstakinginfo(const Array& params, bool fHelp)
             "getstakinginfo\n"
             "Returns an object containing staking-related information.");
 
-    int nTargetSpacing = GetTargetSpacing(true);
+    int nTargetSpacing = GetTargetSpacing(true, pindexBest->nTime);
 
 
     uint64_t nWeight = 0;

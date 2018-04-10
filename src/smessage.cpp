@@ -967,7 +967,7 @@ int SecureMsgAddWalletAddresses()
     uint32_t nAdded = 0;
     BOOST_FOREACH(const PAIRTYPE(CTxDestination, std::string)& entry, pwalletMain->mapAddressBook)
     {
-        if (!IsMine(*pwalletMain, entry.first, fMultiSig))
+        if (!(IsMine(*pwalletMain, entry.first, fMultiSig) & ISMINE_SPENDABLE))
             continue;
         
         CBitcoinAddress coinAddress(entry.first);
@@ -3692,7 +3692,7 @@ int SecureMsgSend(std::string& addressFrom, std::string& addressTo, std::string&
     BOOST_FOREACH(const PAIRTYPE(CTxDestination, std::string)& entry, pwalletMain->mapAddressBook)
     {
         // -- get first owned address
-        if (!IsMine(*pwalletMain, entry.first, fMultiSig))
+        if (!(IsMine(*pwalletMain, entry.first, fMultiSig) & ISMINE_SPENDABLE))
             continue;
         
         const CBitcoinAddress& address = entry.first;

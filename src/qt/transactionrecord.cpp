@@ -56,14 +56,15 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet *
         {
             const CTxOut& txout = wtx.vout[nOut];
 
-            if (wallet->IsMine(txout, fMultiSig))
+            if (wallet->IsMine(txout, fMultiSig) & ISMINE_ALL)
             {
                 TransactionRecord sub(hash, nTime);
                 sub.nColor = txout.nColor;
                 CTxDestination address;
                 sub.idx = parts.size(); // sequence number
                 sub.credit = txout.nValue;
-                if (ExtractDestination(txout.scriptPubKey, address) && IsMine(*wallet, address, fMultiSig))
+                if (ExtractDestination(txout.scriptPubKey, address) && 
+                    (IsMine(*wallet, address, fMultiSig) & ISMINE_ALL))
                 {
                     // Received by Bitcoin Address
                     sub.type = TransactionRecord::RecvWithAddress;
@@ -121,8 +122,10 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet *
         bool fAllFromMe = true;
         BOOST_FOREACH(const CTxIn& txin, wtx.vin)
         {
-            if (wallet->IsMine(txin, fMultiSig))
+            if (wallet->IsMine(txin, fMultiSig) & ISMINE_SPENDABLE)
+            {
                 continue;
+            }
             fAllFromMe = false;
             break;
         };
@@ -134,9 +137,13 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet *
             CScript::const_iterator pc = txout.scriptPubKey.begin();
             if (txout.scriptPubKey.GetOp(pc, firstOpCode)
                 && firstOpCode == OP_RETURN)
+            {
                 continue;
-            if (wallet->IsMine(txout, fMultiSig))
+            }
+            if (wallet->IsMine(txout, fMultiSig) & ISMINE_SPENDABLE)
+            {
                 continue;
+            }
             
             fAllToMe = false;
             break;
@@ -205,7 +212,7 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet *
                     && firstOpCode == OP_RETURN)
                     continue;
 
-                if(wallet->IsMine(txout, fMultiSig))
+                if (wallet->IsMine(txout, fMultiSig) & ISMINE_SPENDABLE)
                 {
                     // Ignore parts sent to self, as this is usually the change
                     // from a transaction sent back to our own address.

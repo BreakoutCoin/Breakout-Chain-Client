@@ -7,18 +7,29 @@
 /// Forks
 ///
 //////////////////////////////////////////////////////////////////////
-// fork times
+
 // Wed Jul 20 00:00:00 2016 PDT
+// Allow nonstandard outputs for burn protocol compatibility
 static const int64_t STAKING_FIX1_TIME = 1468998000;
 
 // Tues Nov 28 00:00:00 2016 PST
+// Increase BRK reward to correct inflation
 static const int64_t STAKING_FIX2_TIME = 1480320000;
 
 // Fri Aug 11 00:00:00 2017 PDT
+// (1) Add service and OP_RETURN fees
+// (2) Allow for pooled mining (hash coinbase sigs)
 static const int64_t FORK_003_TIME = 1502434800;
 
-// Fri Aug 22 21:00:00 2017 PDT
+// Fri Aug 22 09:00:00 2017 PDT
+// Fixed calculation of deck PoS subsidy
 static const int64_t FORK_004_TIME = 1503417600;
+
+// Wed Apr 25 22:00:00 2018 PDT
+// Reduce block spacing to 1 min average
+// SIS mining fix
+static const int64_t FORK_005_TIME = 1524632400;
+
 
 //////////////////////////////////////////////////////////////////////
 ///
@@ -64,10 +75,12 @@ CBigNum bnProofOfStakeLimitTestNet(~uint256(0) >> 8);
 // but with multicurrency hybrid PoW/PoS, there is no need
 static const unsigned int nTargetSpacingPoS = 600;        // 10 min
 static const unsigned int nTargetSpacingPoW = 600;        // 10 min
+static const unsigned int nTargetSpacingPoSNew = 120;     // 2 min (1/2 PoW)
+static const unsigned int nTargetSpacingPoWNew = 120;     // 2 min (1/2 PoW)
 static const unsigned int nTargetSpacingPoSTestNet = 60;  // 1 min
 static const unsigned int nTargetSpacingPoWTestNet = 300; // 5 min (1/6 PoW)
 
-static const int nCoinbaseMaturity = 240;        // 240 blocks (12 hr)
+static const int nCoinbaseMaturity = 240;        // 240 blocks (20 hr, 4 hr new)
 static const int nCoinbaseMaturityTestNet = 10;  // 10 blocks
 
 //////////////////////////////////////////////////////////////////////
@@ -104,12 +117,15 @@ const int MODIFIER_INTERVAL_RATIO = 3;
 //////////////////////////////////////////////////////////////////////
 
 unsigned int nStakeMinAge = 60 * 60 * 24 * 12;      // 12 days
-unsigned int nStakeMinAgeTestNet = 10 * 60;         // 10 min
 unsigned int nStakeMaxAge = 60 * 60 * 24 * 24;      // 24 days
+unsigned int nStakeMinAgeNew = 60 * 60 * 24 * 2;    // 2 days
+unsigned int nStakeMaxAgeNew = 60 * 60 * 24 * 4;    // 4 days
+unsigned int nStakeMinAgeTestNet = 10 * 60;         // 10 min
 unsigned int nStakeMaxAgeTestNet = 120 * 60;        // 120 minutes
 
 // time to elapse before new modifier is computed (10 blocks)
 unsigned int nModifierInterval = 30 * 60;           // 30 min
+unsigned int nModifierIntervalNew = 6 * 60;         // 6 min
 unsigned int nModifierIntervalTestNet = 60;         // 60 seconds
 
 
@@ -717,10 +733,10 @@ const int64_t PRIORITY_MULTIPLIER[N_COLORS] = { 0, 1, 1, 1,
 
 
 // as of FORK002, owning 1 card is equivalent to owning 1048576 BRX for purposes
-// of stake weight // this is like having 16.7% of all the stake weight of the full
+// of stake weight this is like having 16.7% of all the stake weight of the full
 // BRX money supply, which means cards will stake as soon as they are mature
 // there is a chance to control the chain for 53 blocks if one person collects
-// the deck, but that is probably more difficult and expensive that buying all
+// the deck, but that is probably more difficult and expensive than buying all
 // available BRX
 static const int64_t nCW = COIN[BREAKOUT_COLOR_BROSTAKE] * 1048576;
 
@@ -901,7 +917,8 @@ int GetFork(int64_t nTime)
                                {   STAKING_FIX1_TIME,  BRK_FORK001},
                                {   STAKING_FIX2_TIME,  BRK_FORK002},
                                {       FORK_003_TIME,  BRK_FORK003},
-                               {       FORK_004_TIME,  BRK_FORK004}
+                               {       FORK_004_TIME,  BRK_FORK004},
+                               {       FORK_005_TIME,  BRK_FORK005}
                                            };
 
     if (fTestNet)
@@ -935,13 +952,14 @@ int GetFork(int64_t nTime)
 int GetMinPeerProtoVersion(int64_t nTime)
 {
     // helps to prevent buffer overrun
-    static const int nVersions = 2;
+    static const int nVersions = 3;
 
     // Make sure forks are ascending!
     const int aVersions[nVersions][2] = {
     //                                    Fork, Proto Version
                    {               BRK_FORK003,         61010 },
-                   {               BRK_FORK004,         61011 }
+                   {               BRK_FORK004,         61011 },
+                   {               BRK_FORK005,         61012 }
                                           };
 
     int nFork = GetFork(nTime);
@@ -1011,21 +1029,44 @@ bool CanStake(int nColor)
 }
 
 
-unsigned int GetStakeMinAge()
+unsigned int GetStakeMinAge(int64_t nTime)
 {
-    return fTestNet ? nStakeMinAgeTestNet : nStakeMinAge;
+    if (fTestNet)
+    {
+        return nStakeMinAgeTestNet;
+    }
+    if (GetFork(nTime) < BRK_FORK005)
+    {
+        return nStakeMinAge;
+    }
+    return nStakeMinAgeNew;
+}
+
+unsigned int GetStakeMaxAge(int64_t nTime)
+{
+    if (fTestNet)
+    {
+        return nStakeMaxAgeTestNet;
+    }
+    if (GetFork(nTime) < BRK_FORK005)
+    {
+        return nStakeMaxAge;
+    }
+    return nStakeMaxAgeNew;
 }
 
 
-unsigned int GetStakeMaxAge()
+unsigned int GetModifierInterval(int64_t nTime)
 {
-    return fTestNet ? nStakeMaxAgeTestNet : nStakeMaxAge;
-}
-
-
-unsigned int GetModifierInterval()
-{
-     return fTestNet ? nModifierIntervalTestNet : nModifierInterval;
+     if (fTestNet)
+     {
+         return nModifierIntervalTestNet;
+     }
+     if (GetFork(nTime) < BRK_FORK005)
+     {
+         return nModifierInterval;
+     }
+     return nModifierIntervalNew;
 }
 
 int GetStakeMinConfirmations(int nColor)
@@ -1232,16 +1273,30 @@ CBigNum GetTargetLimit(bool fProofOfStake)
     return bnTargetLimit;
 }
 
-int64_t GetTargetSpacing(bool fProofOfStake)
+int64_t GetTargetSpacing(bool fProofOfStake, int64_t nTime)
 {
     int64_t nTargetSpacing;
     if (fProofOfStake)
     {
-        nTargetSpacing = fTestNet ? nTargetSpacingPoSTestNet : nTargetSpacingPoS;
+        if (GetFork(nTime) < BRK_FORK005)
+        {
+            nTargetSpacing = fTestNet ? nTargetSpacingPoSTestNet : nTargetSpacingPoS;
+        }
+        else
+        {
+            nTargetSpacing = fTestNet ? nTargetSpacingPoSTestNet : nTargetSpacingPoSNew;
+        }
     }
     else
     {
-        nTargetSpacing = fTestNet ? nTargetSpacingPoWTestNet : nTargetSpacingPoW;
+        if (GetFork(nTime) < BRK_FORK005)
+        {
+            nTargetSpacing = fTestNet ? nTargetSpacingPoWTestNet : nTargetSpacingPoW;
+        }
+        else
+        {
+            nTargetSpacing = fTestNet ? nTargetSpacingPoWTestNet : nTargetSpacingPoWNew;
+        }
     }
     return nTargetSpacing;
 }

@@ -322,6 +322,7 @@ static const CRPCCommand vRPCCommands[] =
     { "dumpprivkey",               &dumpprivkey,               false,  false },
     { "dumpwallet",                &dumpwallet,                true,   false },
     { "importwallet",              &importwallet,              false,  false },
+    { "importaddress",             &importaddress,             false,  false },
     { "importprivkey",             &importprivkey,             false,  false },
 #ifdef IMPORT_WALLET
     { "encodebase58",              &encodebase58,              false,  false },
@@ -1300,6 +1301,7 @@ Array RPCConvertValues(const std::string &strMethod, const std::vector<std::stri
     if (strMethod == "pbkdf2"                       && n > 2) ConvertTo<boost::int64_t>(params[2]);
     if (strMethod == "pbkdf2"                       && n > 3) ConvertTo<boost::int64_t>(params[3]);
 #endif
+    if (strMethod == "importaddress"                && n > 2) ConvertTo<bool>(params[2]);
 
     return params;
 }

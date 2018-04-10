@@ -308,6 +308,112 @@ Value importwallet(const Array& params, bool fHelp)
     return Value::null;
 }
 
+// this is from bitcoin core -- required to declare for recursive call in ImportScript()
+// void ImportAddress(CWallet*, const CTxDestination& dest, const std::string& strLabel);
+
+// TODO: make isRedeemScript meaningful
+void ImportScript(CWallet* const pwallet, const CScript& script,
+                           const std::string& strLabel, bool isRedeemScript)
+{
+
+    // use loosest definition of ownership wrt multisig
+    static const bool fMultiSig = true;
+
+    if (!isRedeemScript && (IsMine(*pwallet, script, fMultiSig) & ISMINE_ALL))
+    {
+        throw JSONRPCError(RPC_WALLET_ERROR, "The wallet already contains the private key for this address or script");
+    }
+
+    pwallet->MarkDirty();
+
+    if (!pwallet->HaveWatchOnly(script) && !pwallet->AddWatchOnly(script, 0 /* nCreateTime */)) {
+        throw JSONRPCError(RPC_WALLET_ERROR, "Error adding address to wallet");
+    }
+
+// import redeem scripts will be added later
+#if 0
+    if (isRedeemScript) {
+        if (!pwallet->HaveCScript(script) && !pwallet->AddCScript(script)) {
+            throw JSONRPCError(RPC_WALLET_ERROR, "Error adding p2sh redeemScript to wallet");
+        }
+        ImportAddress(pwallet, CScriptID(script), strLabel);
+    } else {
+        CTxDestination destination;
+        if (ExtractDestination(script, destination)) {
+            pwallet->SetAddressBook(destination, strLabel, "receive");
+        }
+    }
+#else
+    CTxDestination destination;
+    if (ExtractDestination(script, destination))
+    {
+        int nColor = boost::apply_visitor(GetAddressColorVisitor(), destination);
+        pwallet->SetAddressBookName(destination, nColor, strLabel);
+    }
+#endif
+}
+
+void ImportAddress(CWallet* const pwallet, const CTxDestination& dest, const std::string& strLabel)
+{
+    CScript script = GetScriptForDestination(dest);
+    ImportScript(pwallet, script, strLabel, false);
+    // add to address book or update label
+
+    if (IsValidDestination(dest))
+    {
+        int nColor = boost::apply_visitor(GetAddressColorVisitor(), dest);
+        pwallet->SetAddressBookName(dest, nColor, strLabel);
+    }
+}
+
+Value importaddress(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() < 1 || params.size() > 3)
+    {
+        throw runtime_error(
+             "importaddress <address> [label] [rescan]\n"
+             "If [rescan] is true (default true), then the wallet will be rescanned.\n"
+             "This call can take a long time to complete if [rescan] is true.");
+    }
+
+    std::string strLabel = "";
+    if (params.size() > 1)
+    {
+        strLabel = params[1].get_str();
+    }
+
+    bool fRescan = true;
+    if (params.size() > 2)
+    {
+        fRescan = params[2].get_bool();
+    }
+
+    CBitcoinAddress address(params[0].get_str());
+    bool isValid = address.IsValid();
+
+    if (!isValid)
+    {
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid Breakout address");
+    }
+
+    CTxDestination dest = address.Get();
+
+    {
+        LOCK2(cs_main, pwalletMain->cs_wallet);
+        ImportAddress(pwalletMain, dest, strLabel);
+
+        if (fRescan)
+        {
+            // whenever a key is imported, we need to scan the whole chain
+            pwalletMain->nTimeFirstKey = 1; // 0 would be considered 'no value'
+
+            pwalletMain->ScanForWalletTransactions(pindexGenesisBlock, true);
+            pwalletMain->ReacceptWalletTransactions();
+        }
+    }
+
+    return Value::null;
+}
 
 Value dumpprivkey(const Array& params, bool fHelp)
 {

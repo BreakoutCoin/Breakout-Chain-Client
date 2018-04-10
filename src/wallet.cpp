@@ -1,5 +1,5 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2012 The Bitcoin developers
+// Copyright (c) 2009-2017 The Bitcoin developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -166,6 +166,52 @@ bool CWallet::LoadCScript(const CScript& redeemScript)
 
     return CCryptoKeyStore::AddCScript(redeemScript);
 }
+
+// adding these from bitcoin for compatibility
+bool CWallet::AddWatchOnly(const CScript& dest)
+{
+    if (!CCryptoKeyStore::AddWatchOnly(dest))
+    {
+        return false;
+    }
+    uint160 in = uint160(Hash160(dest.begin(), dest.end()));
+    const CKeyMetadata& meta = m_script_metadata[CScriptID(in)];
+    // from bitcoin core
+    // UpdateTimeFirstKey(meta.nCreateTime);
+    NotifyWatchonlyChanged(true);
+    return CWalletDB(strWalletFile).WriteWatchOnly(dest, meta);
+}
+
+bool CWallet::AddWatchOnly(const CScript& dest, int64_t nCreateTime)
+{
+    uint160 in = uint160(Hash160(dest.begin(), dest.end()));
+    m_script_metadata[CScriptID(in)].nCreateTime = nCreateTime;
+    return AddWatchOnly(dest);
+}
+
+bool CWallet::RemoveWatchOnly(const CScript &dest)
+{
+    AssertLockHeld(cs_wallet);
+    if (!CCryptoKeyStore::RemoveWatchOnly(dest))
+    {
+        return false;
+    }
+    if (!HaveWatchOnly())
+    {
+        NotifyWatchonlyChanged(false);
+    }
+    if (!CWalletDB(strWalletFile).EraseWatchOnly(dest))
+    {
+        return false;
+    }
+    return true;
+}
+
+bool CWallet::LoadWatchOnly(const CScript &dest)
+{
+    return CCryptoKeyStore::AddWatchOnly(dest);
+}
+
 
 bool CWallet::Lock()
 {
@@ -497,7 +543,8 @@ void CWallet::WalletUpdateSpent(const CTransaction &tx, bool fBlock)
                 CWalletTx& wtx = (*mi).second;
                 if (txin.prevout.n >= wtx.vout.size())
                     printf("WalletUpdateSpent: bad wtx %s\n", wtx.GetHash().ToString().c_str());
-                else if (!wtx.IsSpent(txin.prevout.n) && IsMine(wtx.vout[txin.prevout.n], fMultiSig))
+                else if (!wtx.IsSpent(txin.prevout.n) &&
+                         (IsMine(wtx.vout[txin.prevout.n], fMultiSig) & ISMINE_ALL))
                 {
                     printf("WalletUpdateSpent found spent coin %s %s %s\n",
                            FormatMoney(wtx.GetCredit(wtx.vout[txin.prevout.n].nColor, fMultiSig),
@@ -519,7 +566,7 @@ void CWallet::WalletUpdateSpent(const CTransaction &tx, bool fBlock)
 
             BOOST_FOREACH(const CTxOut& txout, tx.vout)
             {
-                if (IsMine(txout, fMultiSig))
+                if (IsMine(txout, fMultiSig) & ISMINE_ALL)
                 {
                     wtx.MarkUnspent(&txout - &tx.vout[0]);
                     wtx.WriteToDisk();
@@ -684,7 +731,8 @@ bool CWallet::AddToWalletIfInvolvingMe(const CTransaction& tx, const CBlock* pbl
         if (fExisted && !fUpdate) return false;
         mapValue_t mapNarr;
         FindStealthTransactions(tx, mapNarr);
-        if (fExisted || IsMine(tx, fMultiSig) || IsFromMe(tx, fMultiSig))
+        // involving me is interpreted in the broadest possible terms
+        if (fExisted || (IsMine(tx, fMultiSig) & ISMINE_ALL) || IsFromMe(tx, fMultiSig))
         {
             CWalletTx wtx(this,tx);
             if (!mapNarr.empty())
@@ -712,8 +760,7 @@ bool CWallet::EraseFromWallet(uint256 hash)
     return true;
 }
 
-
-bool CWallet::IsMine(const CTxIn &txin, bool fMultiSig) const
+isminetype CWallet::IsMine(const CTxIn &txin, bool fMultiSig) const
 {
     {
         LOCK(cs_wallet);
@@ -722,13 +769,13 @@ bool CWallet::IsMine(const CTxIn &txin, bool fMultiSig) const
         {
             const CWalletTx& prev = (*mi).second;
             if (txin.prevout.n < prev.vout.size())
-                if (IsMine(prev.vout[txin.prevout.n], fMultiSig))
-                {
-                    return true;
-                }
+            {
+                // inclusive because `& ISMINE_*` filtering is used downstream
+                return IsMine(prev.vout[txin.prevout.n], fMultiSig);
+            }
         }
     }
-    return false;
+    return ISMINE_NO;
 }
 
 // multisig is dependent on context
@@ -742,7 +789,7 @@ std::pair<int, int64_t> CWallet::GetDebit(const CTxIn &txin, bool fMultiSig) con
             const CWalletTx& prev = (*mi).second;
             if (txin.prevout.n < prev.vout.size())
             {
-                if (IsMine(prev.vout[txin.prevout.n], fMultiSig))
+                if (IsMine(prev.vout[txin.prevout.n], fMultiSig) & ISMINE_ALL)
                 {
                     return std::make_pair(prev.vout[txin.prevout.n].nColor,
                                                  prev.vout[txin.prevout.n].nValue);
@@ -763,7 +810,7 @@ int64_t CWallet::GetDebit(const CTxIn &txin, int nColor, bool fMultiSig) const
             const CWalletTx& prev = (*mi).second;
             if (txin.prevout.n < prev.vout.size())
             {
-                if (IsMine(prev.vout[txin.prevout.n], fMultiSig) &&
+                if ((IsMine(prev.vout[txin.prevout.n], fMultiSig) & ISMINE_ALL) &&
                                   prev.vout[txin.prevout.n].nColor == nColor)
                 {
                     return prev.vout[txin.prevout.n].nValue;
@@ -792,7 +839,8 @@ bool CWallet::IsChange(const CTxOut& txout) const
     // a better way of identifying which outputs are 'the send' and which are
     // 'the change' will need to be implemented (maybe extend CWalletTx to remember
     // which output, if any, was change).
-    if (ExtractDestination(txout.scriptPubKey, address) && ::IsMine(*this, address, fMultiSig))
+    if (ExtractDestination(txout.scriptPubKey, address) &&
+        (::IsMine(*this, address, fMultiSig) & ISMINE_ALL))
     {
         LOCK(cs_wallet);
         if (!mapAddressBook.count(address))
@@ -898,9 +946,9 @@ void CWalletTx::GetAmounts(int nColor, list<pair<CTxDestination,
             // Don't report 'change' txouts
             if (pwallet->IsChange(txout))
                 continue;
-            fIsMine = pwallet->IsMine(txout, fMultiSig);
+            fIsMine = (pwallet->IsMine(txout, fMultiSig) & ISMINE_ALL);
         }
-        else if (!(fIsMine = pwallet->IsMine(txout, fMultiSig)))
+        else if (!(fIsMine = (pwallet->IsMine(txout, fMultiSig) & ISMINE_ALL)))
             continue;
 
         // In either case, we need to get the destination address
@@ -1103,7 +1151,7 @@ void CWallet::ReacceptWalletTransactions()
                 {
                     if (wtx.IsSpent(i))
                         continue;
-                    if (!txindex.vSpent[i].IsNull() && IsMine(wtx.vout[i], fMultiSig))
+                    if (!txindex.vSpent[i].IsNull() && (IsMine(wtx.vout[i], fMultiSig) & ISMINE_ALL))
                     {
                         wtx.MarkSpent(i);
                         fUpdated = true;
@@ -1386,7 +1434,8 @@ void CWallet::AvailableCoins(int nColor, vector<COutput>& vCoins,
             {
                 if ((pcoin->vout[i].nColor == nColor) &&
                     !(pcoin->IsSpent(i)) &&
-                    IsMine(pcoin->vout[i], fMultiSig) &&
+                    // spendable only
+                    (IsMine(pcoin->vout[i], fMultiSig) & ISMINE_SPENDABLE) &&
                     pcoin->vout[i].nValue >= vMinimumInputValue[pcoin->vout[i].nColor] &&
                     (!coinControl ||
                      !coinControl->HasSelected() ||
@@ -1422,7 +1471,8 @@ void CWallet::AvailableCoinsMinConf(int nColor, vector<COutput>& vCoins, int nCo
             {
                 if ((pcoin->vout[i].nColor == nColor) &&
                      !(pcoin->IsSpent(i)) &&
-                     IsMine(pcoin->vout[i], fMultiSig) &&
+                     // spendable only
+                     (IsMine(pcoin->vout[i], fMultiSig) & ISMINE_SPENDABLE) &&
                      pcoin->vout[i].nValue >= vMinimumInputValue[pcoin->vout[i].nColor])
                 {
                      vCoins.push_back(COutput(pcoin, i, pcoin->GetDepthInMainChain()));
@@ -3461,7 +3511,7 @@ DBErrors CWallet::LoadWallet(bool& fFirstRunRet)
     return DB_LOAD_OK;
 }
 
-
+// TODO: CTxDestination is colored, so there is no reason to pass nColor here
 bool CWallet::SetAddressBookName(const CTxDestination& address, int nColor, const string& strName)
 {
     // no reason why a multisig can't go into the address book
@@ -3473,7 +3523,7 @@ bool CWallet::SetAddressBookName(const CTxDestination& address, int nColor, cons
         LOCK(cs_wallet); // mapAddressBook
         std::map<CTxDestination, std::string>::iterator mi = mapAddressBook.find(address);
         nMode = (mi == mapAddressBook.end()) ? CT_NEW : CT_UPDATED;
-        fOwned = ::IsMine(*this, address, fMultiSig);
+        fOwned = (::IsMine(*this, address, fMultiSig) & ISMINE_ALL);
         
         mapAddressBook[address] = strName;
     }
@@ -3503,7 +3553,7 @@ bool CWallet::DelAddressBookName(const CTxDestination& address)
 
     int nColor = boost::apply_visitor(GetAddressColorVisitor(), address);
     
-    bool fOwned = ::IsMine(*this, address, fMultiSig);
+    bool fOwned = (::IsMine(*this, address, fMultiSig) & ISMINE_ALL);
     string sName = "";
     if (fOwned)
     {
@@ -3764,7 +3814,7 @@ std::map<CTxDestination, int64_t> CWallet::GetAddressBalances()
             for (unsigned int i = 0; i < pcoin->vout.size(); i++)
             {
                 CTxDestination addr;
-                if (!IsMine(pcoin->vout[i], fMultiSig))
+                if (!(IsMine(pcoin->vout[i], fMultiSig) & ISMINE_ALL))
                     continue;
                 if(!ExtractDestination(pcoin->vout[i].scriptPubKey, addr))
                     continue;
@@ -3795,7 +3845,7 @@ set< set<CTxDestination> > CWallet::GetAddressGroupings()
     {
         CWalletTx *pcoin = &walletEntry.second;
 
-        if (pcoin->vin.size() > 0 && IsMine(pcoin->vin[0], fMultiSig))
+        if (pcoin->vin.size() > 0 && (IsMine(pcoin->vin[0], fMultiSig) & ISMINE_ALL))
         {
             // group all input addresses with each other
             BOOST_FOREACH(CTxIn txin, pcoin->vin)
@@ -3822,7 +3872,7 @@ set< set<CTxDestination> > CWallet::GetAddressGroupings()
 
         // group lone addrs by themselves
         for (unsigned int i = 0; i < pcoin->vout.size(); i++)
-            if (IsMine(pcoin->vout[i], fMultiSig))
+            if (IsMine(pcoin->vout[i], fMultiSig) & ISMINE_ALL)
             {
                 CTxDestination address;
                 if(!ExtractDestination(pcoin->vout[i].scriptPubKey, address))
@@ -3899,7 +3949,7 @@ void CWallet::FixSpentCoins(std::vector<int>& vMismatchFound,
         for (unsigned int n=0; n < pcoin->vout.size(); n++)
         {
             int nColor = pcoin->vout[n].nColor;
-            if (IsMine(pcoin->vout[n], fMultiSig) &&
+            if ((IsMine(pcoin->vout[n], fMultiSig) & ISMINE_ALL) &&
                                 pcoin->IsSpent(n) &&
                                 (txindex.vSpent.size() <= n || txindex.vSpent[n].IsNull()))
             {
@@ -3916,7 +3966,9 @@ void CWallet::FixSpentCoins(std::vector<int>& vMismatchFound,
                     pcoin->WriteToDisk();
                 }
             }
-            else if (IsMine(pcoin->vout[n], fMultiSig) && !pcoin->IsSpent(n) && (txindex.vSpent.size() > n && !txindex.vSpent[n].IsNull()))
+            else if ((IsMine(pcoin->vout[n], fMultiSig) & ISMINE_ALL) &&
+                     !pcoin->IsSpent(n) &&
+                     (txindex.vSpent.size() > n && !txindex.vSpent[n].IsNull()))
             {
                 printf("FixSpentCoins found spent coin %s %s %s[%d], %s\n",
                     FormatMoney(pcoin->vout[n].nValue, nColor).c_str(),
@@ -3952,7 +4004,9 @@ void CWallet::DisableTransaction(const CTransaction &tx)
         if (mi != mapWallet.end())
         {
             CWalletTx& prev = (*mi).second;
-            if (txin.prevout.n < prev.vout.size() && IsMine(prev.vout[txin.prevout.n], fMultiSig))
+            if (txin.prevout.n < prev.vout.size() &&
+                // coinstake must be spendable to sign it
+                (IsMine(prev.vout[txin.prevout.n], fMultiSig) & ISMINE_SPENDABLE))
             {
                 prev.MarkUnspent(txin.prevout.n);
                 prev.WriteToDisk();

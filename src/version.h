@@ -60,7 +60,12 @@ static const int DATABASE_VERSION = 70508;
 //        card staking fix
 //    (1.5.1.1)
 //        change in validateaddress behavior
-static const int PROTOCOL_VERSION = 61011;
+// 61012:
+//    (1.6.1.0)
+//        SIS mining fix
+//        shorter block times (5 min -> 1 min)
+//        watch addresses
+static const int PROTOCOL_VERSION = 61012;
 
 
 // intial proto version, to be increased after version/verack negotiation

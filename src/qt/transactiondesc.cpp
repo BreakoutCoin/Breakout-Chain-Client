@@ -35,7 +35,7 @@ QString TransactionDesc::TxInToHTML(const CTxIn &txin, const CWallet* wallet)
     static const bool fMultiSig = true;
 
     QString strHTML;
-    if (wallet->IsMine(txin, fMultiSig))
+    if (wallet->IsMine(txin, fMultiSig) & ISMINE_ALL)
     {
         std::pair<int, int64_t> deb = wallet->GetDebit(txin, fMultiSig);
         if (CheckColor(deb.first))
@@ -54,7 +54,7 @@ QString TransactionDesc::TxOutToHTML(const CTxOut &txout, const CWallet* wallet)
     static const bool fMultiSig = true;
 
     QString strHTML;
-    if (wallet->IsMine(txout, fMultiSig))
+    if (wallet->IsMine(txout, fMultiSig) & ISMINE_ALL)
     {
         std::pair<int, int64_t> cred= wallet->GetCredit(txout, fMultiSig);
         if (CheckColor(cred.first))
@@ -146,10 +146,11 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx)
             // Credit
             BOOST_FOREACH(const CTxOut& txout, wtx.vout)
             {
-                if (wallet->IsMine(txout, fMultiSig))
+                if (wallet->IsMine(txout, fMultiSig) & ISMINE_ALL)
                 {
                     CTxDestination address;
-                    if (ExtractDestination(txout.scriptPubKey, address) && IsMine(*wallet, address, fMultiSig))
+                    if (ExtractDestination(txout.scriptPubKey, address) &&
+                        (IsMine(*wallet, address, fMultiSig) & ISMINE_ALL))
                     {
                         if (wallet->mapAddressBook.count(address))
                         {
@@ -157,11 +158,31 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx)
                             strHTML += "<b>" + tr("To") + ":</b> ";
                             CBitcoinAddress addr(address, txout.nColor);
                             strHTML += GUIUtil::HtmlEscape(addr.ToString());
-                            if (!wallet->mapAddressBook[address].empty())
-                                strHTML += " (" + tr("own address") + ", " + tr("label") + ": " +
-                                               GUIUtil::HtmlEscape(wallet->mapAddressBook[address]) + ")";
+                            // indicate distinction between own address and watch address
+                            if (IsMine(*wallet, address, fMultiSig) & ISMINE_SPENDABLE)
+                            {
+                                if (!wallet->mapAddressBook[address].empty())
+                                {
+                                    strHTML += " (" + tr("own address") + ", " + tr("label") + ": " +
+                                                   GUIUtil::HtmlEscape(wallet->mapAddressBook[address]) + ")";
+                                }
+                                else
+                                {
+                                    strHTML += " (" + tr("own address") + ")";
+                                }
+                            }
                             else
-                                strHTML += " (" + tr("own address") + ")";
+                            {
+                                if (!wallet->mapAddressBook[address].empty())
+                                {
+                                    strHTML += " (" + tr("watch address") + ", " + tr("label") + ": " +
+                                                   GUIUtil::HtmlEscape(wallet->mapAddressBook[address]) + ")";
+                                }
+                                else
+                                {
+                                    strHTML += " (" + tr("watch address") + ")";
+                                }
+                            }
                             strHTML += "<br>";
                         }
                     }
@@ -220,7 +241,7 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx)
         bool fAllFromMe = true;
         BOOST_FOREACH(const CTxIn& txin, wtx.vin)
         {
-            fAllFromMe = fAllFromMe && wallet->IsMine(txin, fMultiSig);
+            fAllFromMe = fAllFromMe && (wallet->IsMine(txin, fMultiSig) & ISMINE_SPENDABLE);
             if (!fAllFromMe)
             {
                 break;
@@ -230,7 +251,7 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx)
         bool fAllToMe = true;
         BOOST_FOREACH(const CTxOut& txout, wtx.vout)
         {
-            fAllToMe = fAllToMe && wallet->IsMine(txout, fMultiSig);
+            fAllToMe = fAllToMe && (wallet->IsMine(txout, fMultiSig) & ISMINE_SPENDABLE);
             if (!fAllToMe)
             {
                 break;
@@ -244,7 +265,7 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx)
             //
             BOOST_FOREACH(const CTxOut& txout, wtx.vout)
             {
-                if (wallet->IsMine(txout, fMultiSig))
+                if (wallet->IsMine(txout, fMultiSig) & ISMINE_SPENDABLE)
                 {
                     continue;
                 }
@@ -377,7 +398,8 @@ QString TransactionDesc::toHTML(CWallet *wallet, CWalletTx &wtx)
                     }
                     strHTML += " " + tr("Amount") + "=" +
                                  BitcoinUnits::formatWithUnit(BitcoinUnits::BTC, vout.nValue, vout.nColor);
-                    strHTML += " IsMine=" + (wallet->IsMine(vout, fMultiSig) ? tr("true") : tr("false")) + "</li>";
+                    isminetype isMine = wallet->IsMine(vout, fMultiSig);
+                    strHTML += " IsMine=" + ((isMine & ISMINE_SPENDABLE) ? tr("true") : tr("false")) + "</li>";
                 }
             }
         }

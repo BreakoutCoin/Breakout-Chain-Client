@@ -213,6 +213,22 @@ public:
         return Write(std::make_pair(std::string("cscript"), hash), redeemScript, false);
     }
 
+    bool WriteWatchOnly(const CScript &dest, const CKeyMetadata &keyMeta)
+    {
+        if (!Write(std::make_pair(std::string("watchmeta"), dest), keyMeta)) {
+            return false;
+        }
+        return Write(std::make_pair(std::string("watchs"), dest), '1');
+    }
+
+    bool EraseWatchOnly(const CScript &dest)
+    {
+        if (!Erase(std::make_pair(std::string("watchmeta"), dest))) {
+            return false;
+        }
+        return Erase(std::make_pair(std::string("watchs"), dest));
+    }
+
     bool WriteBestBlock(const CBlockLocator& locator)
     {
         nWalletDBUpdated++;

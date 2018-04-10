@@ -1,5 +1,5 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2013 The Bitcoin developers
+// Copyright (c) 2009-2017 The Bitcoin developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 #ifndef BITCOIN_KEY_H
@@ -89,6 +89,7 @@ public:
     // nColor is serialized
     int nColor;
     CScriptID() : uint160(0) { nColor = BREAKOUT_COLOR_NONE; }
+    // CScriptID(const CScript& in) : uint160(Hash160(in.begin(), in.end())) {}
     CScriptID(const uint160 &in) : uint160(in) { nColor = BREAKOUT_COLOR_NONE; }
 
     // must implement serialization interface because of color
