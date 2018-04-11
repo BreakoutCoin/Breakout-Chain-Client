@@ -62,8 +62,7 @@ static bool GetLastStakeModifier(const CBlockIndex* pindex, uint256& bnStakeModi
 // Get selection interval section (in seconds)
 static int64_t GetStakeModifierSelectionIntervalSection(int nSection, unsigned int nTime)
 {
-    // ADVISORY: static is optimization, may not be appropriate for forks
-    static unsigned int nModifierInterval = GetModifierInterval(nTime);
+    unsigned int nModifierInterval = GetModifierInterval(nTime);
     assert (nSection >= 0 && nSection < 64);
     return (nModifierInterval * 63 / (63 + ((63 - nSection) * (MODIFIER_INTERVAL_RATIO - 1))));
 }
