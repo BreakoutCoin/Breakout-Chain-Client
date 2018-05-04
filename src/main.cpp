@@ -1405,16 +1405,23 @@ struct AMOUNT GetProofOfStakeReward(CBlockIndex* pindexPrev, int nStakeColor)
                 // multiply by 5% then divide by the number of blocks in a year (52596)
                 minReward = (5 * (supply / 100)) / 52596;
             }
-            else
+            else if (GetFork(pindexPrev->nTime) < BRK_FORK006)
             {
                 nSubsidy += nSubsidy;
                 // block times will be sped 5x, i.e.
                 //   (5 * (supply / 100)) / (5 * 52596) = supply / 5259600
                 minReward = supply / 5259600;
             }
+            else
+            {
+                // adjust nSubsidy for block time reduction
+                nSubsidy = (2 * nSubsidy) / 5;
+                //   (5 * (supply / 100)) / (5 * 52596) = supply / 5259600
+                minReward = supply / 5259600;
+            }
             if (nSubsidy < minReward)
             {
-               nSubsidy = minReward;
+                nSubsidy = minReward;
             }
         }
     }
@@ -3645,7 +3652,7 @@ bool LoadBlockIndex(bool fAllowNew)
         const char* pszTimestamp = "Obama Backs Clinton and Urges Party to Come Together";
         CTransaction txNew;
         txNew.nVersion = 1;
-        txNew.nTime = 1465544351;
+        txNew.nTime = BRK_GENESIS_TIME;
         txNew.vin.resize(1);
         txNew.vout.resize(1);
         txNew.strTxComment = hashNames.ToString();
@@ -3657,7 +3664,7 @@ bool LoadBlockIndex(bool fAllowNew)
         block.hashPrevBlock = 0;
         block.hashMerkleRoot = block.BuildMerkleTree();
         block.nVersion = 1;
-        block.nTime    = 1465544351;
+        block.nTime    = BRK_GENESIS_TIME;
         block.nBits    = GetTargetLimit(false).GetCompact();
         block.nNonce   = 64912865;
         if(fTestNet)

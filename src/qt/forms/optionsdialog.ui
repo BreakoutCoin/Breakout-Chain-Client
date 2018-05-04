@@ -54,7 +54,7 @@
             </size>
            </property>
            <property name="text">
-            <string>Pay Brosta&amp;ke Transaction Fee</string>
+            <string>Pay Breakout Sta&amp;ke Transaction Fee</string>
            </property>
            <property name="textFormat">
             <enum>Qt::PlainText</enum>
@@ -443,7 +443,7 @@
          <item>
           <widget class="QLabel" name="unitLabelBrostake">
            <property name="text">
-            <string>Brosta&amp;ke Unit to show amounts in:</string>
+            <string>Breakout Sta&amp;ke Unit to show amounts in:</string>
            </property>
            <property name="textFormat">
             <enum>Qt::PlainText</enum>
@@ -467,7 +467,7 @@
          <item>
           <widget class="QLabel" name="unitLabelBrocoin">
            <property name="text">
-            <string>&amp;Brocoin Unit to show amounts in:</string>
+            <string>&amp;Breakout Coin Unit to show amounts in:</string>
            </property>
            <property name="textFormat">
             <enum>Qt::PlainText</enum>

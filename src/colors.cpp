@@ -10,11 +10,11 @@
 
 // Wed Jul 20 00:00:00 2016 PDT
 // Allow nonstandard outputs for burn protocol compatibility
-static const int64_t STAKING_FIX1_TIME = 1468998000;
+static const int64_t FORK_001_TIME = 1468998000;
 
 // Tues Nov 28 00:00:00 2016 PST
 // Increase BRK reward to correct inflation
-static const int64_t STAKING_FIX2_TIME = 1480320000;
+static const int64_t FORK_002_TIME = 1480320000;
 
 // Fri Aug 11 00:00:00 2017 PDT
 // (1) Add service and OP_RETURN fees
@@ -25,10 +25,14 @@ static const int64_t FORK_003_TIME = 1502434800;
 // Fixed calculation of deck PoS subsidy
 static const int64_t FORK_004_TIME = 1503417600;
 
-// Wed Apr 25 22:00:00 2018 PDT
+// Tue Apr 24 22:00:00 2018 PDT
 // Reduce block spacing to 1 min average
 // SIS mining fix
 static const int64_t FORK_005_TIME = 1524632400;
+
+// Thu May 17 22:00:00 2018 PDT
+// Fix minimum BRX PoS reward
+static const int64_t FORK_006_TIME = 1526619600;
 
 
 //////////////////////////////////////////////////////////////////////
@@ -913,12 +917,13 @@ int GetFork(int64_t nTime)
     // Make sure Heights are ascending!
     const int64_t aForks[TOTAL_FORKS][2] = {
     //                                   Time,         Fork Number
-                               {                   0,  BRK_GENESIS},
-                               {   STAKING_FIX1_TIME,  BRK_FORK001},
-                               {   STAKING_FIX2_TIME,  BRK_FORK002},
+                               {    BRK_GENESIS_TIME,  BRK_GENESIS},
+                               {       FORK_001_TIME,  BRK_FORK001},
+                               {       FORK_002_TIME,  BRK_FORK002},
                                {       FORK_003_TIME,  BRK_FORK003},
                                {       FORK_004_TIME,  BRK_FORK004},
                                {       FORK_005_TIME,  BRK_FORK005}
+                               {       FORK_006_TIME,  BRK_FORK006}
                                            };
 
     if (fTestNet)
@@ -952,14 +957,15 @@ int GetFork(int64_t nTime)
 int GetMinPeerProtoVersion(int64_t nTime)
 {
     // helps to prevent buffer overrun
-    static const int nVersions = 3;
+    static const int nVersions = 4;
 
     // Make sure forks are ascending!
     const int aVersions[nVersions][2] = {
     //                                    Fork, Proto Version
                    {               BRK_FORK003,         61010 },
                    {               BRK_FORK004,         61011 },
-                   {               BRK_FORK005,         61012 }
+                   {               BRK_FORK005,         61012 },
+                   {               BRK_FORK005,         61013 }
                                           };
 
     int nFork = GetFork(nTime);

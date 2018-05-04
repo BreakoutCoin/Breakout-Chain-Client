@@ -46,7 +46,7 @@ SendCoinsDialog::SendCoinsDialog(QWidget *parent) :
 #if QT_VERSION >= 0x040700
     /* Do not move this to the XML file, Qt before 4.7 will choke on it */
     ui->lineEditCoinControlChange->setPlaceholderText(
-                      tr("Enter a Brocoin address (e.g. brj6Q4FUHXjAzCRb6SB3pXPfuva5xrfjgHY)"));
+                      tr("Enter a Breakout Coin address (e.g. brj6Q4FUHXjAzCRb6SB3pXPfuva5xrfjgHY)"));
     ui->editTxComment->setPlaceholderText(
                       tr("Enter a transaction comment (Note: This information is public)"));
 #endif
@@ -517,14 +517,14 @@ void SendCoinsDialog::setChangeAddressPlaceholderText(int nColor)
 #if QT_VERSION >= 0x040700
         /* Do not move this to the XML file, Qt before 4.7 will choke on it */
         ui->lineEditCoinControlChange->setPlaceholderText(
-                    tr("Enter a Brostake address (e.g. bxMpqqmeKUFfFeVYJn3iHK9UvjdhApUrcNq)"));
+                    tr("Enter a Breakout Stake address (e.g. bxMpqqmeKUFfFeVYJn3iHK9UvjdhApUrcNq)"));
 #endif
         break;
     case BREAKOUT_COLOR_BROCOIN:
 #if QT_VERSION >= 0x040700
         /* Do not move this to the XML file, Qt before 4.7 will choke on it */
         ui->lineEditCoinControlChange->setPlaceholderText(
-                    tr("Enter a Brocoin address (e.g. brj6Q4FUHXjAzCRb6SB3pXPfuva5xrfjgHY)"));
+                    tr("Enter a Breakout Coin address (e.g. brj6Q4FUHXjAzCRb6SB3pXPfuva5xrfjgHY)"));
 #endif
         break;
     case BREAKOUT_COLOR_SISCOIN:

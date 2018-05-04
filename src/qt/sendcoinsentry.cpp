@@ -127,7 +127,7 @@ void SendCoinsEntry::updateCurrency()
 #if QT_VERSION >= 0x040700
         /* Do not move this to the XML file, Qt before 4.7 will choke on it */
         ui->payTo->setPlaceholderText(
-                    tr("Enter a Brostake address (e.g. bxMpqqmeKUFfFeVYJn3iHK9UvjdhApUrcNq)"));
+                    tr("Enter a Breakout Stake address (e.g. bxMpqqmeKUFfFeVYJn3iHK9UvjdhApUrcNq)"));
 #endif
         ui->payTo->setToolTip(qstt.arg(COLOR_NAME[nColor]).arg("bxMpqqmeKUFfFeVYJn3iHK9UvjdhApUrcNq"));
         break;
@@ -135,7 +135,7 @@ void SendCoinsEntry::updateCurrency()
 #if QT_VERSION >= 0x040700
         /* Do not move this to the XML file, Qt before 4.7 will choke on it */
         ui->payTo->setPlaceholderText(
-                    tr("Enter a Brocoin address (e.g. brj6Q4FUHXjAzCRb6SB3pXPfuva5xrfjgHY)"));
+                    tr("Enter a Breakout Coin address (e.g. brj6Q4FUHXjAzCRb6SB3pXPfuva5xrfjgHY)"));
 #endif
         ui->payTo->setToolTip(qstt.arg(COLOR_NAME[nColor]).arg("brj6Q4FUHXjAzCRb6SB3pXPfuva5xrfjgHY"));
         break;

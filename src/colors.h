@@ -14,6 +14,8 @@
 
 #include "bignum.h"
 
+// breakout genesis block time
+#define BRK_GENESIS_TIME 1465544351
 
 // define to 1 for building testnet, 0 for main net
 #define TESTNET_BUILD 0
@@ -65,6 +67,7 @@ enum ForkNumbers
     BRK_FORK003,
     BRK_FORK004,
     BRK_FORK005,
+    BRK_FORK006,
     TOTAL_FORKS
 };
 

@@ -65,7 +65,10 @@ static const int DATABASE_VERSION = 70508;
 //        SIS mining fix
 //        shorter block times (5 min -> 1 min)
 //        watch addresses
-static const int PROTOCOL_VERSION = 61012;
+// 61013:
+//    (1.6.2.0)
+//        reduce max pos reward for block time reduction
+static const int PROTOCOL_VERSION = 61013;
 
 
 // intial proto version, to be increased after version/verack negotiation
