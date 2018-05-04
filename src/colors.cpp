@@ -922,7 +922,7 @@ int GetFork(int64_t nTime)
                                {       FORK_002_TIME,  BRK_FORK002},
                                {       FORK_003_TIME,  BRK_FORK003},
                                {       FORK_004_TIME,  BRK_FORK004},
-                               {       FORK_005_TIME,  BRK_FORK005}
+                               {       FORK_005_TIME,  BRK_FORK005},
                                {       FORK_006_TIME,  BRK_FORK006}
                                            };
 
