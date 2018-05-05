@@ -965,7 +965,7 @@ int GetMinPeerProtoVersion(int64_t nTime)
                    {               BRK_FORK003,         61010 },
                    {               BRK_FORK004,         61011 },
                    {               BRK_FORK005,         61012 },
-                   {               BRK_FORK005,         61013 }
+                   {               BRK_FORK006,         61013 }
                                           };
 
     int nFork = GetFork(nTime);
