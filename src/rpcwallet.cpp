@@ -870,6 +870,46 @@ Value gethand(const Array& params, bool fHelp)
     return aryCards;
 }
 
+Value getprivatekeys(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() > 0)
+        throw runtime_error(
+            "getprivatekeys");
+
+    EnsureWalletIsUnlocked();
+
+    // FIXME: make these params
+    int init[] = {1, 2};
+    std::set<int> setColors(init, init + (sizeof(init) / sizeof(int)));
+    bool fMultiSig = false;
+
+    mapSecretByAddressByColor_t mapAddrs;
+    pwalletMain->GetPrivateKeys(setColors, fMultiSig, mapAddrs);
+
+    Object objRet;
+    mapSecretByAddressByColor_t::const_iterator it;
+    for (it = mapAddrs.begin(); it != mapAddrs.end(); ++it)
+    {
+        Object objColor;
+        int nColor = it->first;
+        const mapSecretByAddress_t &mapSecrets = it->second;
+        mapSecretByAddress_t::const_iterator sit;
+        for (sit = mapSecrets.begin(); sit != mapSecrets.end(); ++sit)
+        {
+            std::string strAddr = sit->first.ToString();
+            std::string strSecret = sit->second.first.ToString();
+            int64_t nAmt = sit->second.second;
+            std::string strAddrSecret = "(" + strAddr + " | " + strSecret + ")";
+            Pair pairAddr(strAddrSecret, ValueFromAmount(nAmt, nColor));
+            objColor.push_back(pairAddr);
+        }
+        std::string strColor(COLOR_TICKER[nColor]);
+        objRet.push_back(Pair(strColor, objColor));
+    }
+
+    return objRet;
+}
+        
 
 Value getbalances(const Array& params, bool fHelp)
 {

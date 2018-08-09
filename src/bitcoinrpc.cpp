@@ -292,6 +292,7 @@ static const CRPCCommand vRPCCommands[] =
     { "encryptwallet",             &encryptwallet,             false,  false },
     { "validateaddress",           &validateaddress,           true,   false },
     { "validatepubkey",            &validatepubkey,            true,   false },
+    { "getprivatekeys",            &getprivatekeys,            false,  false },
     { "getbalance",                &getbalance,                false,  false },
     { "getbalances",               &getbalances,               false,  false },
     // TODO: this is specific for breakout

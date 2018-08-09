@@ -32,6 +32,13 @@ class CCoinControl;
 typedef std::map<CKeyID, CStealthKeyMetadata> StealthKeyMetaMap;
 typedef std::map<std::string, std::string> mapValue_t;
 
+// (secret, value)
+typedef std::pair<CBitcoinSecret, int64_t> pairAddressValue_t;
+// { address: (secret, value), ... }
+typedef std::map<CBitcoinAddress, pairAddressValue_t> mapSecretByAddress_t;
+// { color: { address: (secret, value), ... }, ... }
+typedef std::map<int, mapSecretByAddress_t> mapSecretByAddressByColor_t;
+
 /** (client) version numbers for particular wallet features */
 enum WalletFeature
 {
@@ -225,6 +232,8 @@ public:
     // gets balance for coin of nColor
     int64_t GetBalance(int nColor) const;
     void GetBalances(int nMinDepth, std::vector<int64_t> &vBalance) const;
+    void GetPrivateKeys(std::set<int> setColors, bool fMultiSig,
+                        mapSecretByAddressByColor_t &mapAddrs) const;
     void GetHand(int nMinDepth, std::vector<int> &vCards) const;
     int64_t GetUnconfirmedBalance(int nColor) const;
     int64_t GetImmatureBalance(int nColor) const;

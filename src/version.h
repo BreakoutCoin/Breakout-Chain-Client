@@ -68,6 +68,8 @@ static const int DATABASE_VERSION = 70508;
 // 61013:
 //    (1.6.2.0)
 //        reduce max pos reward for block time reduction
+//    (1.6.2.1)
+//        adding getprivatekeys RPC
 static const int PROTOCOL_VERSION = 61013;
 
 

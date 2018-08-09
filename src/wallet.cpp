@@ -1336,6 +1336,89 @@ void CWallet::GetBalances(int nMinDepth, std::vector<int64_t> &vBalance) const
     }
 }
 
+// TODO: very nested, need to do some factoring
+void CWallet::GetPrivateKeys(std::set<int> setColors, bool fMultiSig,
+                             mapSecretByAddressByColor_t &mapAddrs) const
+{
+    mapAddrs.clear();
+    {
+        LOCK2(cs_main, cs_wallet);
+        for (map<uint256, CWalletTx>::const_iterator it = mapWallet.begin();
+                                                     it != mapWallet.end(); ++it)
+        {
+            const CWalletTx* pcoin = &(*it).second;
+            int nDepth = pcoin->GetDepthInMainChain();
+            if (nDepth < 0)
+                continue;
+            for (unsigned int i = 0; i < pcoin->vout.size(); i++)
+            {
+                CTxOut out = pcoin->vout[i];
+                if ((setColors.find(out.nColor) != setColors.end()) &&
+                    !(pcoin->IsSpent(i)) &&
+                    // spendable only
+                    (IsMine(out, fMultiSig) & ISMINE_SPENDABLE) &&
+                    out.nValue >= vMinimumInputValue[out.nColor])
+                {
+                    CTxDestination dest;
+                    if (!ExtractDestination(out.scriptPubKey, dest))
+                    {
+                         // FIXME: add error message here
+                         continue;
+                    }
+                    CBitcoinAddress address(dest, out.nColor);
+                    CKeyID keyID;
+                    if (!address.GetKeyID(keyID))
+                    {
+                         // FIXME: add error message here
+                         continue;
+                    }
+                    // mit->first == color, mit->second == { address: (secret, value), ... }
+                    mapSecretByAddressByColor_t::iterator mit = mapAddrs.find(out.nColor);
+                    if (mit == mapAddrs.end())
+                    {
+                        // color doesn't exist, add color and address
+                        CKey vchSecret;
+                        if (!GetKey(keyID, vchSecret))
+                        {
+                             // FIXME: add error message here
+                             continue;
+                        }
+                        CBitcoinSecret secret(vchSecret);
+                        mapSecretByAddress_t mapSecrets;
+                        mapSecrets[address] = make_pair(secret, out.nValue);
+                        mapAddrs[out.nColor] = mapSecrets;
+                    }
+                    else
+                    {
+                        // color exists, find address
+                        mapSecretByAddress_t &mapSecrets = mit->second;
+                        // mmit->first == address, mmit->second == (secret, value)
+                        mapSecretByAddress_t::iterator mmit = mapSecrets.find(address);
+                        if (mmit == mapSecrets.end())
+                        {
+                            // address doesn't exist, add address and secret
+                            CKey vchSecret;
+                            if (!GetKey(keyID, vchSecret))
+                            {
+                                 // FIXME: add error message here
+                                 continue;
+                            }
+                            CBitcoinSecret secret(vchSecret);
+                            mapSecrets[address] = make_pair(secret, out.nValue);
+                        }
+                        else
+                        {
+                            // address exists, add out.nValue to second
+                            pairAddressValue_t &pairAddrVal = mmit->second;
+                            pairAddrVal.second += out.nValue;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 // specific to breakout but a pointer could be passed for IsDeck()
 //      and cardSorter to generalize
 void CWallet::GetHand(int nMinDepth, std::vector<int> &vCards) const
