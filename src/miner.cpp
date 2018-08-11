@@ -113,7 +113,13 @@ public:
 CBlock* CreateNewBlock(CWallet* pwallet, bool fProofOfStake, int64_t pFees[])
 {
     // Create new block
+
+#if __cplusplus >= 201103L
+    unique_ptr<CBlock> pblock(new CBlock());
+#else
     auto_ptr<CBlock> pblock(new CBlock());
+#endif
+
     if (!pblock.get())
         return NULL;
 
@@ -433,7 +439,7 @@ CBlock* CreateNewBlock(CWallet* pwallet, bool fProofOfStake, int64_t pFees[])
         nLastBlockSize = nBlockSize;
 
         if (fDebug && GetBoolArg("-printpriority"))
-            printf("CreateNewBlock(): total size %"PRIu64"\n", nBlockSize);
+            printf("CreateNewBlock(): total size %" PRIu64 "\n", nBlockSize);
 
         // add scavengable fees
         for (int j = 1; j < N_COLORS; ++j)
@@ -704,7 +710,12 @@ void StakeMiner(CWallet *pwallet)
         // Create new block
         //
         int64_t nFees[N_COLORS];
+
+#if __cplusplus >= 201103L
+        unique_ptr<CBlock> pblock(CreateNewBlock(pwallet, true, nFees));
+#else
         auto_ptr<CBlock> pblock(CreateNewBlock(pwallet, true, nFees));
+#endif
         if (!pblock.get())
             return;
 

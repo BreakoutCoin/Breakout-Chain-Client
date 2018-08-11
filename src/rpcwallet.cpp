@@ -1290,7 +1290,7 @@ CScript _createmultisig_redeemScript(const Array& params)
     if ((int)keys.size() < nRequired)
         throw runtime_error(
             strprintf("not enough keys supplied "
-                      "(got %"PRIszu" keys, but need at least %d to redeem)", keys.size(), nRequired));
+                      "(got %" PRIszu " keys, but need at least %d to redeem)", keys.size(), nRequired));
     if (keys.size() > MAX_MULTISIG_KEYS)
         throw runtime_error(
             strprintf("Number of addresses involved in the multisignature address creation > %d\nReduce the number",
@@ -1690,8 +1690,10 @@ static void MaybePushAddress(Object & entry, const CTxDestination &dest, int nCo
 {
     CBitcoinAddress addr;
     if (addr.Set(dest))
+    {
         addr.nColor = nColor;
         entry.push_back(Pair("address", addr.ToString()));
+    }
 }
 
 void ListTransactions(const CWalletTx& wtx, const string& strAccount, int nMinDepth, bool fLong, Array& ret, bool fMultiSig)

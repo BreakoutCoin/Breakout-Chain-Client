@@ -618,7 +618,9 @@ Value pbkdf2(const Array& params, bool fHelp)
     byte* salt = (byte*) params[1].get_str().c_str();
     size_t saltlen = strlen((const char*)salt);
     
-    byte derived[keylen];
+    // byte derived[keylen];
+    std::vector<byte> vecDerived(keylen);
+    byte* derived = &vecDerived[0];
 
     CryptoPP::PKCS5_PBKDF2_HMAC<CryptoPP::SHA256> pbkdf2;
     pbkdf2.DeriveKey(derived, sizeof(derived), 0, 
