@@ -243,10 +243,12 @@ bool CWallet::Lock()
     return LockKeyStore();
 }
 
-bool CWallet::Unlock(const SecureString& strWalletPassphrase)
+bool CWallet::Unlock(const SecureString& strWalletPassphrase, bool lockedOK)
 {
-    if (!IsLocked())
+    if ((!lockedOK) && (!IsLocked()))
+    {
         return false;
+    }
 
     CCrypter crypter;
     CKeyingMaterial vMasterKey;

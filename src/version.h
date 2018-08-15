@@ -70,6 +70,9 @@ static const int DATABASE_VERSION = 70508;
 //        reduce max pos reward for block time reduction
 //    (1.6.2.1)
 //        adding getprivatekeys RPC
+//    (1.6.2.2)
+//        gui for private keys
+//        better unlock/lock behavior
 static const int PROTOCOL_VERSION = 61013;
 
 

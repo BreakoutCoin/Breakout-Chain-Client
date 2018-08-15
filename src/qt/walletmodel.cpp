@@ -66,6 +66,18 @@ bool WalletModel::getHand(std::vector<int> &vCards) const
     return (vCards.size() > 0);
 }
 
+bool WalletModel::getPrivateKeys(mapSecretByAddressByColor_t &mapAddrs) const
+{
+    std::set<int> setColors;
+    for (int i = 1; i < (int) BREAKOUT_COLOR_END; ++i)
+    {
+       setColors.insert(i);
+    }
+    bool fMultiSig = false;
+    wallet->GetPrivateKeys(setColors, fMultiSig, mapAddrs);
+    return mapAddrs.size() > 0;
+}
+
 bool WalletModel::getUnconfirmedBalance(const std::vector<int> &vColors,
                                         std::map<int, qint64> &mapBalance) const
 {
@@ -616,11 +628,11 @@ TransactionTableModel *WalletModel::getTransactionTableModel()
 
 WalletModel::EncryptionStatus WalletModel::getEncryptionStatus() const
 {
-    if(!wallet->IsCrypted())
+    if (!wallet->IsCrypted())
     {
         return Unencrypted;
     }
-    else if(wallet->IsLocked())
+    else if (wallet->IsLocked())
     {
         return Locked;
     }
@@ -646,7 +658,7 @@ bool WalletModel::setWalletEncrypted(bool encrypted, const SecureString &passphr
 
 bool WalletModel::setWalletLocked(bool locked, const SecureString &passPhrase)
 {
-    if(locked)
+    if (locked)
     {
         // Lock
         return wallet->Lock();
@@ -654,7 +666,7 @@ bool WalletModel::setWalletLocked(bool locked, const SecureString &passPhrase)
     else
     {
         // Unlock
-        return wallet->Unlock(passPhrase);
+        return wallet->Unlock(passPhrase, true);
     }
 }
 
@@ -745,37 +757,38 @@ void WalletModel::unsubscribeFromCoreSignals()
 // WalletModel::UnlockContext implementation
 WalletModel::UnlockContext WalletModel::requestUnlock()
 {
-    bool was_locked = getEncryptionStatus() == Locked;
-    
-    if ((!was_locked) && fWalletUnlockStakingOnly)
-    {
-       setWalletLocked(true);
-       was_locked = getEncryptionStatus() == Locked;
-    }
-    if(was_locked)
+    bool was_locked = (getEncryptionStatus() == Locked);
+    bool was_mintOnly = ((!was_locked) && fWalletUnlockStakingOnly);
+    if (was_locked || was_mintOnly)
     {
         // Request UI to unlock wallet
         emit requireUnlock();
     }
-    // If wallet is still locked, unlock was failed or cancelled, mark context as invalid
-    bool valid = getEncryptionStatus() != Locked;
 
-    return UnlockContext(this, valid, was_locked && !fWalletUnlockStakingOnly);
+    // If wallet is still locked or mint only, unlock was failed or cancelled
+    // Mark context as invalid
+    bool valid = (getEncryptionStatus() != Locked);
+
+    return UnlockContext(this, valid, was_locked, was_mintOnly);
 }
 
-WalletModel::UnlockContext::UnlockContext(WalletModel *wallet, bool valid, bool relock):
+WalletModel::UnlockContext::UnlockContext(WalletModel *wallet, bool valid,
+                                                               bool relock,
+                                                               bool mint ):
         wallet(wallet),
         valid(valid),
-        relock(relock)
+        relock(relock),
+        mint(mint)
 {
 }
 
 WalletModel::UnlockContext::~UnlockContext()
 {
-    if(valid && relock)
+    if (valid && relock)
     {
-        wallet->setWalletLocked(true);
+         wallet->setWalletLocked(true);
     }
+    fWalletUnlockStakingOnly = mint;
 }
 
 void WalletModel::UnlockContext::CopyFrom(const UnlockContext& rhs)

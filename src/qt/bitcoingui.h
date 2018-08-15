@@ -105,6 +105,7 @@ private:
 #ifdef IMPORT_WALLET
     QAction *importWalletAction;
 #endif
+    QAction *getPrivkeysAction;
     QAction *backupWalletAction;
     QAction *updateWalletAction;
     QAction *changePassphraseAction;
@@ -192,6 +193,8 @@ private slots:
     /** Import the wallet */
     void importWallet();
 #endif
+    /** Get Private Keys **/
+    void getPrivkeys();
     /** Backup the wallet */
     void backupWallet();
     /** Clear and rescan wallet with optional backup */

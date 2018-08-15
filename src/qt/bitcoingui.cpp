@@ -11,6 +11,7 @@
 #include "addressbookpage.h"
 #include "sendcoinsdialog.h"
 #include "signverifymessagedialog.h"
+#include "getprivkeysdialog.h"
 #include "optionsdialog.h"
 #include "aboutdialog.h"
 #include "clientmodel.h"
@@ -391,6 +392,7 @@ void BitcoinGUI::createActions()
     lockWalletAction->setToolTip(tr("Lock Mining"));
     signMessageAction = new QAction(QIcon(":/icons/edit"), tr("Sign &message..."), this);
     verifyMessageAction = new QAction(QIcon(":/icons/transaction_0"), tr("&Verify message..."), this);
+    getPrivkeysAction = new QAction(QIcon(":/icons/key"), tr("&Get Private Keys"), this);
 
     exportAction = new QAction(QIcon(":/icons/export"), tr("&Export..."), this);
     exportAction->setToolTip(tr("Export the data in the current tab to a file"));
@@ -413,6 +415,7 @@ void BitcoinGUI::createActions()
     connect(lockWalletAction, SIGNAL(triggered()), this, SLOT(lockWallet()));
     connect(signMessageAction, SIGNAL(triggered()), this, SLOT(gotoSignMessageTab()));
     connect(verifyMessageAction, SIGNAL(triggered()), this, SLOT(gotoVerifyMessageTab()));
+    connect(getPrivkeysAction, SIGNAL(triggered()), this, SLOT(getPrivkeys()));
 }
 
 void BitcoinGUI::createMenuBar()
@@ -427,14 +430,16 @@ void BitcoinGUI::createMenuBar()
 
     // Configure the menus
     QMenu *file = appMenuBar->addMenu(tr("&File"));
-#ifdef IMPORT_WALLET
-    file->addAction(importWalletAction);
-#endif
     file->addAction(backupWalletAction);
     file->addAction(updateWalletAction);
     file->addAction(exportAction);
     file->addAction(signMessageAction);
     file->addAction(verifyMessageAction);
+    file->addSeparator();
+#ifdef IMPORT_WALLET
+    file->addAction(importWalletAction);
+#endif
+    file->addAction(getPrivkeysAction);
     file->addSeparator();
     file->addAction(quitAction);
 
@@ -1298,6 +1303,18 @@ void BitcoinGUI::importWallet()
 #endif
 
 
+void BitcoinGUI::getPrivkeys()
+{
+    mapSecretByAddressByColor_t mapAddrs;
+    walletModel->getPrivateKeys(mapAddrs);
+
+    GetPrivkeysDialog dlg;
+    if (dlg.setModel(mapAddrs, walletModel))
+    {
+        dlg.exec();
+    }
+}
+
 void BitcoinGUI::backupWallet()
 {
     #if QT_VERSION < 0x050000
@@ -1312,7 +1329,6 @@ void BitcoinGUI::backupWallet()
         }
     }
 }
-
 
 void BitcoinGUI::updateWallet()
 {
@@ -1384,10 +1400,17 @@ void BitcoinGUI::unlockWallet()
     if(!walletModel)
         return;
     // Unlock wallet when requested by wallet model
-    if(walletModel->getEncryptionStatus() == WalletModel::Locked)
+    if (walletModel->getEncryptionStatus() == WalletModel::Locked)
     {
         AskPassphraseDialog::Mode mode = sender() == unlockWalletAction ?
               AskPassphraseDialog::UnlockStaking : AskPassphraseDialog::Unlock;
+        AskPassphraseDialog dlg(mode, this);
+        dlg.setModel(walletModel);
+        dlg.exec();
+    }
+    else if (fWalletUnlockStakingOnly)
+    {
+        AskPassphraseDialog::Mode mode = AskPassphraseDialog::UnlockStaking;
         AskPassphraseDialog dlg(mode, this);
         dlg.setModel(walletModel);
         dlg.exec();

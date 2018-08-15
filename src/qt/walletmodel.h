@@ -8,6 +8,7 @@
 #include "allocators.h" /* for SecureString */
 
 #include "colors.h"
+#include "wallet.h"
 
 #define IMPORT_WALLET 1
 
@@ -93,6 +94,8 @@ public:
     bool getBalance(const std::vector<int> &vColors,
                     std::map<int, qint64> &mapBalance) const;
     bool getHand(std::vector<int> &vCards) const;
+    bool getPrivateKeys(mapSecretByAddressByColor_t &mapAddrs) const;
+
     bool getUnconfirmedBalance(const std::vector<int> &vColors,
                                std::map<int, qint64> &mapBalance) const;
     bool getStake(const std::vector<int> &vColors,
@@ -142,10 +145,11 @@ public:
     class UnlockContext
     {
     public:
-        UnlockContext(WalletModel *wallet, bool valid, bool relock);
+        UnlockContext(WalletModel *wallet, bool valid, bool relock, bool mintonly);
         ~UnlockContext();
 
         bool isValid() const { return valid; }
+        bool mintOnly() const { return mint; }
 
         // Copy operator and constructor transfer the context
         UnlockContext(const UnlockContext& obj) { CopyFrom(obj); }
@@ -154,6 +158,7 @@ public:
         WalletModel *wallet;
         bool valid;
         mutable bool relock; // mutable, as it can be set to false by copying
+        mutable bool mint;
 
         void CopyFrom(const UnlockContext& rhs);
     };
