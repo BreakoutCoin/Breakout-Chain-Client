@@ -332,6 +332,8 @@ std::string HelpMessage()
         "  -rpcsslprivatekeyfile=<file.pem>         " + _("Server private key (default: server.pem)") + "\n" +
         "  -rpcsslciphers=<ciphers>                 " + _("Acceptable ciphers (default: TLSv1+HIGH:!SSLv2:!aNULL:!eNULL:!AH:!3DES:@STRENGTH)") + "\n" +
 
+        "  -permitdirtybootstrap  " + _("Allow duplicate stake for bootstrap from block***.dat file") + "\n" +
+
         "  -burnkey=<key>    " + _("Random string") + "\n" +
 
         "  -enablemultisigs  " + _("Enable rpc multisig support by default") + "\n" ;
@@ -470,8 +472,8 @@ bool AppInit2()
     fUseFastIndex = GetBoolArg("-fastindex", true);
     nMinerSleep = GetArg("-minersleep", 500);  // in milliseconds
 
-    CheckpointsMode = Checkpoints::STRICT;
-    std::string strCpMode = GetArg("-cppolicy", "strict");
+    CheckpointsMode = Checkpoints::PERMISSIVE;
+    std::string strCpMode = GetArg("-cppolicy", "permissive");
 
     if(strCpMode == "strict")
         CheckpointsMode = Checkpoints::STRICT;

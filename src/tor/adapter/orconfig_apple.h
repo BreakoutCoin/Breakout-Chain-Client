@@ -1,6 +1,8 @@
 /* orconfig.h.  Generated from orconfig.h.in by configure.  */
 /* orconfig.h.in.  Generated from configure.ac by autoheader.  */
 
+#include <openssl/opensslv.h>
+
 /* Define if building universal (internal helper macro) */
 /* #undef AC_APPLE_UNIVERSAL_BUILD */
 
@@ -14,7 +16,7 @@
 #define SHARE_DATADIR "/usr/share"
 
 /* home tor folder */
-#define LOCALSTATEDIR "~/.tor"
+#define LOCALSTATEDIR ""
 
 /* Defined if we have a curve25519 implementation */
 #define CURVE25519_ENABLED 1
@@ -378,16 +380,16 @@
 /* #undef HAVE_SSL_CIPHER_FIND */
 
 /* Define to 1 if you have the `SSL_get_client_ciphers' function. */
-/* #undef HAVE_SSL_GET_CLIENT_CIPHERS */
+#define HAVE_SSL_GET_CLIENT_CIPHERS 1
 
 /* Define to 1 if you have the `SSL_get_client_random' function. */
-/* #undef HAVE_SSL_GET_CLIENT_RANDOM */
+#define HAVE_SSL_GET_CLIENT_RANDOM 1
 
 /* Define to 1 if you have the `SSL_get_server_random' function. */
-/* #undef HAVE_SSL_GET_SERVER_RANDOM */
+#define HAVE_SSL_GET_SERVER_RANDOM 1
 
 /* Define to 1 if you have the `SSL_SESSION_get_master_key' function. */
-/* #undef HAVE_SSL_SESSION_GET_MASTER_KEY */
+#define HAVE_SSL_SESSION_GET_MASTER_KEY 1
 
 /* Define to 1 if you have the `statvfs' function. */
 #define HAVE_STATVFS 1
@@ -445,7 +447,7 @@
 
 /* Define to 1 if `get_cipher_by_char' is a member of `struct ssl_method_st'.
    */
-#define HAVE_STRUCT_SSL_METHOD_ST_GET_CIPHER_BY_CHAR 1
+/* #undef HAVE_STRUCT_SSL_METHOD_ST_GET_CIPHER_BY_CHAR */
 
 /* Define to 1 if `tv_sec' is a member of `struct timeval'. */
 #define HAVE_STRUCT_TIMEVAL_TV_SEC 1

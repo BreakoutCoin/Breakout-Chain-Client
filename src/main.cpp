@@ -3160,7 +3160,11 @@ bool CBlock::AcceptBlock()
         hashProof = GetHash();
     }
 
-    bool cpSatisfies = Checkpoints::CheckSync(hash, pindexPrev);
+    bool cpSatisfies = true;
+    if (CheckpointsMode != Checkpoints::PERMISSIVE)
+    {
+        cpSatisfies = Checkpoints::CheckSync(hash, pindexPrev);
+    }
 
     // Check that the block satisfies synchronized checkpoint
     if (CheckpointsMode == Checkpoints::STRICT && !cpSatisfies)
@@ -3256,9 +3260,11 @@ bool static IsCanonicalBlockSignature(CBlock* pblock)
     return IsDERSignature(pblock->vchBlockSig, false);
 }
 
-bool ProcessBlock(CNode* pfrom, CBlock* pblock)
+bool ProcessBlock(CNode* pfrom, CBlock* pblock, bool fIsBootstrap)
 {
     AssertLockHeld(cs_main);
+
+    bool fAllowDuplicateStake = (fIsBootstrap && GetBoolArg("-permitdirtybootstrap", false));
 
     // Check for duplicate
     uint256 hash = pblock->GetHash();
@@ -3280,8 +3286,16 @@ bool ProcessBlock(CNode* pfrom, CBlock* pblock)
     // ppcoin: check proof-of-stake
     // Limited duplicity on stake: prevents block flood attack
     // Duplicate stake allowed only when there is orphan child block
-    if (pblock->IsProofOfStake() && setStakeSeen.count(pblock->GetProofOfStake()) && !mapOrphanBlocksByPrev.count(hash) && !Checkpoints::WantedByPendingSyncCheckpoint(hash))
-        return error("ProcessBlock() : duplicate proof-of-stake (%s, %d) for block %s", pblock->GetProofOfStake().first.ToString().c_str(), pblock->GetProofOfStake().second, hash.ToString().c_str());
+    if (pblock->IsProofOfStake() &&
+        setStakeSeen.count(pblock->GetProofOfStake()) &&
+        !mapOrphanBlocksByPrev.count(hash) &&
+        !Checkpoints::WantedByPendingSyncCheckpoint(hash) &&
+        !fAllowDuplicateStake)
+    {
+        return error("ProcessBlock() : duplicate proof-of-stake (%s, %d) for block %s",
+                     pblock->GetProofOfStake().first.ToString().c_str(),
+                     pblock->GetProofOfStake().second, hash.ToString().c_str());
+    }
 
     // Preliminary checks
     if (!pblock->CheckBlock())
@@ -3861,7 +3875,7 @@ bool LoadExternalBlockFile(FILE* fileIn)
                 {
                     CBlock block;
                     blkdat >> block;
-                    if (ProcessBlock(NULL,&block))
+                    if (ProcessBlock(NULL, &block, true))
                     {
                         nLoaded++;
                         nPos += 4 + nSize;
