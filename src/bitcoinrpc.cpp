@@ -14,7 +14,7 @@
 #undef printf
 #include <boost/asio.hpp>
 #include <boost/asio/ip/v6_only.hpp>
-#include <boost/bind.hpp>
+#include <boost/bind/bind.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/foreach.hpp>
 #include <boost/iostreams/concepts.hpp>
@@ -33,6 +33,7 @@ extern const char* Value_type_name[];
 using namespace std;
 using namespace boost;
 using namespace boost::asio;
+using namespace boost::placeholders;
 using namespace json_spirit;
 
 void ThreadRPCServer2(void* parg);

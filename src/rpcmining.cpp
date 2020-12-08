@@ -731,7 +731,8 @@ Value submitblock(const Array& params, bool fHelp)
           printf("The rpc block is.\n");
           block.print();
     }
-    bool fAccepted = ProcessBlock(NULL, &block);
+    bool fOrphan;
+    bool fAccepted = ProcessBlock(NULL, &block, fOrphan);
     if (!fAccepted)
         return "rejected";
 

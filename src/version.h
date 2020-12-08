@@ -73,7 +73,10 @@ static const int DATABASE_VERSION = 70508;
 //    (1.6.2.2)
 //        gui for private keys
 //        better unlock/lock behavior
-static const int PROTOCOL_VERSION = 61013;
+// 61014
+//    (1.6.3.0)
+//        removed sync checkpoints
+static const int PROTOCOL_VERSION = 61014;
 
 
 // intial proto version, to be increased after version/verack negotiation
@@ -82,7 +85,7 @@ static const int PROTOCOL_VERSION = 61013;
 // the answer is somewhere in class CDataStream
 // probably inconsistency with Serialize() and GetSerializeSize()
 // will enforce appropriate width with int8_t until I figure it out or it matters
-static const int8_t INIT_PROTO_VERSION = 209;
+static const int8_t INIT_PROTO_VERSION = (int8_t)209;
 
 
 // This is replaced by a function, peers will be dropped that do not
