@@ -504,6 +504,16 @@
         </widget>
        </item>
        <item>
+        <widget class="QCheckBox" name="displayGenerated">
+         <property name="toolTip">
+          <string>Whether to show generated transactions in the transaction list.</string>
+         </property>
+         <property name="text">
+          <string>Display &amp;generated transactions in transaction list</string>
+         </property>
+        </widget>
+       </item>
+       <item>
         <widget class="QCheckBox" name="coinControlFeatures">
          <property name="toolTip">
           <string>Whether to show coin control features or not.</string>

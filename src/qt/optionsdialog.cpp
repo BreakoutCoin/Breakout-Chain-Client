@@ -174,6 +174,7 @@ void OptionsDialog::setMapper()
     mapper->addMapping(ui->unitBrocoin, OptionsModel::DisplayUnitBrocoin);
     mapper->addMapping(ui->currencySelector, OptionsModel::DefaultColor);
     mapper->addMapping(ui->displayAddresses, OptionsModel::DisplayAddresses);
+    mapper->addMapping(ui->displayGenerated, OptionsModel::DisplayGenerated);
     mapper->addMapping(ui->coinControlFeatures, OptionsModel::CoinControlFeatures);
 }
 

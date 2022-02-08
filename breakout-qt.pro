@@ -12,13 +12,13 @@ win32 {
    contains(WINBITS, 32) {
        MSYS = MinGW/msys/1.0
    } else {
-       MSYS = mingw64/msys
+       MSYS = msys64
    }
 }
 
 TEMPLATE = app
 TARGET = "Breakout-Coin"
-VERSION = 1.6.3.0
+VERSION = 1.6.4.0
 INCLUDEPATH += src src/json src/qt src/tor
 INCLUDEPATH += src/tor/adapter src/tor/common src/tor/ext
 INCLUDEPATH += src/tor/ext/curve25519_donna src/tor/ext/ed25519/donna
@@ -67,19 +67,21 @@ win32 {
    contains(WINBITS, 32) {
       INCLUDEPATH += C:/$$MSYS/local/boost_1_57_0/
    } else {
-      INCLUDEPATH += C:/$$MSYS/local/include/boost-1_55/
+      INCLUDEPATH += C:/$$MSYS/usr/local/include/boost-1_57/
    }
 }
 
 win32 {
-   INCLUDEPATH += C:/$$MSYS/local/include
-   INCLUDEPATH += C:/$$MSYS/local/ssl/include
-   INCLUDEPATH += C:/$$MSYS/local/
-   INCLUDEPATH += C:/$$MSYS/include/
-   win32:contains(WINBITS, 32) {
+   contains(WINBITS, 32) {
+      INCLUDEPATH += C:/$$MSYS/local/include
+      INCLUDEPATH += C:/$$MSYS/local/ssl/include
+      INCLUDEPATH += C:/$$MSYS/local/
+      INCLUDEPATH += C:/$$MSYS/include
       INCLUDEPATH += C:/$$MSYS/local/BerkeleyDB.4.8/include
    } else {
-      INCLUDEPATH += C:/$$MSYS/local/BerkeleyDB.4.8/include
+      INCLUDEPATH += C:/$$MSYS/usr/include
+      INCLUDEPATH += C:/$$MSYS/usr/local/include
+      INCLUDEPATH += C:/$$MSYS/mingw64/include
    }
 }
 
@@ -851,8 +853,12 @@ CODECFORTR = UTF-8
 TRANSLATIONS = $$files(src/qt/locale/bitcoin_*.ts)
 
 isEmpty(QMAKE_LRELEASE) {
-    win32:QMAKE_LRELEASE = $$[QT_INSTALL_BINS]\\lrelease.exe
-    else:QMAKE_LRELEASE = $$[QT_INSTALL_BINS]/lrelease
+    message(QT Install bins: $$[QT_INSTALL_BINS])
+    win32 {
+      QMAKE_LRELEASE = "$$[QT_INSTALL_BINS]\\lrelease.exe"
+    } else {
+      QMAKE_LRELEASE = $$[QT_INSTALL_BINS]/lrelease
+    }
 }
 isEmpty(QM_DIR):QM_DIR = $$PWD/src/qt/locale
 # automatically build translations, so they can be included in resource file
@@ -875,7 +881,7 @@ isEmpty(BOOST_LIB_SUFFIX) {
       contains(WINBITS, 32) {
          BOOST_LIB_SUFFIX = -mgw49-mt-s-1_57
       } else {
-         BOOST_LIB_SUFFIX = -mgw47-mt-d-1_55
+         BOOST_LIB_SUFFIX = -mgw102-mt-1_57
       }
     }
 }
@@ -935,9 +941,17 @@ macx {
 
 # Set libraries and includes at end, to use platform-defined defaults if not overridden
 INCLUDEPATH += $$BOOST_INCLUDE_PATH $$BDB_INCLUDE_PATH $$OPENSSL_INCLUDE_PATH $$QRENCODE_INCLUDE_PATH
-win32:LIBS += -L"C:/$$MSYS/local/lib"
-win32:LIBS += -L"C:/$$MSYS/lib"
-win32:LIBS += -L"C:/$$MSYS/local/ssl/lib"
+win32 {
+   contains(WINBITS, 32) {
+      LIBS += -L"C:/$$MSYS/local/lib"
+      LIBS += -L"C:/$$MSYS/lib"
+      LIBS += -L"C:/$$MSYS/local/ssl/lib"
+   } else {
+      LIBS += -L"C:/$$MSYS/usr/lib"
+      LIBS += -L"C:/$$MSYS/usr/local/lib"
+      LIBS += -L"C:/$$MSYS/mingw64/lib"
+   }
+}
 LIBS += -lssl -levent -lz -lcrypto
 macx:win32 {
   LIBS += -lcryptopp
@@ -952,9 +966,7 @@ win32 {
     LIBS += "C:/$$MSYS/local/lib/libevent.a"
     LIBS += "C:/$$MSYS/local/lib/libqrencode.a"
   } else {
-    LIBS += -L"C:/$$MSYS/local/BerkeleyDB.4.8/lib"
-    LIBS += "C:/mingw64/bin/libwinpthread-1.dll"
-    LIBS += "C:/$$MSYS/local/lib/libboost_filesystem-mgw47-mt-d-1_55.dll"
+    LIBS += "C:/$$MSYS/mingw64/bin/libwinpthread-1.dll"
     LIBS += -static
   }
 }
@@ -1027,6 +1039,13 @@ win32:LIBS += -lboost_chrono$$BOOST_LIB_SUFFIX
 
 win32 {
    contains(WINBITS, 64) {
+      LIBS += "C:/Windows/System32/Crypt32.dll"
+      LIBS += "C:/Windows/System32/iphlpapi.dll"
+   }
+}
+
+win32 {
+   contains(WINBITS, 64) {
        LIBS += -pthread
    } else {
        LIBS += -pthread -lpthread
@@ -1042,6 +1061,4 @@ win32:LIBS += -lws2_32 -lshlwapi -lmswsock -lole32 -loleaut32 -luuid -lgdi32
     LIBS += -Wl,-Bdynamic,-rpath,.
 }
 
-
 system($$QMAKE_LRELEASE -silent $$_PRO_FILE_)
-

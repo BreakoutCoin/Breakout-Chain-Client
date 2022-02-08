@@ -48,6 +48,7 @@ void OptionsModel::Init()
     nDisplayUnitBrostake = settings.value("nDisplayUnitBrostake", BitcoinUnits::BTC).toInt();
     nDisplayUnitBrocoin = settings.value("nDisplayUnitBrocoin", BitcoinUnits::BTC).toInt();
     bDisplayAddresses = settings.value("bDisplayAddresses", false).toBool();
+    bDisplayGenerated = settings.value("bDisplayGenerated", false).toBool();
     fMinimizeToTray = settings.value("fMinimizeToTray", false).toBool();
     fMinimizeOnClose = settings.value("fMinimizeOnClose", false).toBool();
     fCoinControlFeatures = settings.value("fCoinControlFeatures", false).toBool();
@@ -96,7 +97,11 @@ bool OptionsModel::Upgrade()
         }
     }
     QList<QString> boolOptions;
-    boolOptions << "bDisplayAddresses" << "fMinimizeToTray" << "fMinimizeOnClose" << "fUseProxy" << "fUseUPnP";
+    boolOptions << "bDisplayAddresses" <<
+                   "bDisplayGenerated" <<
+                   "fMinimizeToTray" <<
+                   "fMinimizeOnClose" <<
+                   "fUseProxy" << "fUseUPnP";
     foreach(QString key, boolOptions)
     {
         bool value = false;
@@ -184,6 +189,8 @@ QVariant OptionsModel::data(const QModelIndex & index, int role) const
             return QVariant(nDisplayUnitBrocoin);
         case DisplayAddresses:
             return QVariant(bDisplayAddresses);
+        case DisplayGenerated:
+            return QVariant(bDisplayGenerated);
         case DetachDatabases:
             return QVariant(bitdb.GetDetach());
         case Language:
@@ -293,6 +300,10 @@ bool OptionsModel::setData(const QModelIndex & index, const QVariant & value, in
             bDisplayAddresses = value.toBool();
             settings.setValue("bDisplayAddresses", bDisplayAddresses);
             break;
+        case DisplayGenerated:
+            bDisplayGenerated = value.toBool();
+            settings.setValue("bDisplayGenerated", bDisplayGenerated);
+            break;
         case DetachDatabases: {
             bool fDetachDB = value.toBool();
             bitdb.SetDetach(fDetachDB);
@@ -381,4 +392,9 @@ int OptionsModel::getDisplayUnit(int nColor)
 bool OptionsModel::getDisplayAddresses()
 {
     return bDisplayAddresses;
+}
+
+bool OptionsModel::getDisplayGenerated()
+{
+    return bDisplayGenerated;
 }

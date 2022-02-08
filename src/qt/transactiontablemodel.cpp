@@ -69,14 +69,17 @@ public:
      */
     void refreshWallet()
     {
+        bool fGenerated = parent->walletModel->getOptionsModel()->getDisplayGenerated();
         OutputDebugStringF("refreshWallet\n");
         cachedWallet.clear();
         {
             LOCK2(cs_main, wallet->cs_wallet);
             for(std::map<uint256, CWalletTx>::iterator it = wallet->mapWallet.begin(); it != wallet->mapWallet.end(); ++it)
             {
-                if(TransactionRecord::showTransaction(it->second))
+                if (TransactionRecord::showTransaction(it->second, fGenerated))
+                {
                     cachedWallet.append(TransactionRecord::decomposeTransaction(wallet, it->second));
+                }
             }
         }
     }
@@ -88,6 +91,7 @@ public:
      */
     void updateWallet(const uint256 &hash, int status)
     {
+        bool fGenerated = parent->walletModel->getOptionsModel()->getDisplayGenerated();
         OutputDebugStringF("updateWallet %s %i\n", hash.ToString().c_str(), status);
         {
             LOCK2(cs_main, wallet->cs_wallet);
@@ -106,18 +110,19 @@ public:
             bool inModel = (lower != upper);
 
             // Determine whether to show transaction or not
-            bool showTransaction = (inWallet && TransactionRecord::showTransaction(mi->second));
+            bool fShowTx = (inWallet &&
+                            TransactionRecord::showTransaction(mi->second, fGenerated));
 
             if(status == CT_UPDATED)
             {
-                if(showTransaction && !inModel)
+                if(fShowTx && !inModel)
                     status = CT_NEW; /* Not in model, but want to show, treat as new */
-                if(!showTransaction && inModel)
+                if(!fShowTx && inModel)
                     status = CT_DELETED; /* In model, but want to hide, treat as deleted */
             }
 
-            OutputDebugStringF("   inWallet=%i inModel=%i Index=%i-%i showTransaction=%i derivedStatus=%i\n",
-                     inWallet, inModel, lowerIndex, upperIndex, showTransaction, status);
+            OutputDebugStringF("   inWallet=%i inModel=%i Index=%i-%i fShowTx=%i derivedStatus=%i\n",
+                     inWallet, inModel, lowerIndex, upperIndex, fShowTx, status);
 
             switch(status)
             {
@@ -132,7 +137,7 @@ public:
                     OutputDebugStringF("Warning: updateWallet: Got CT_NEW, but transaction is not in wallet\n");
                     break;
                 }
-                if(showTransaction)
+                if(fShowTx)
                 {
                     // Added -- insert at the right position
                     QList<TransactionRecord> toInsert =

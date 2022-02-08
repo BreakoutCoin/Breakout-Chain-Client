@@ -319,9 +319,15 @@ bool CTxDB::LoadBlockIndex()
     CDataStream ssStartKey(SER_DISK, CLIENT_VERSION);
     ssStartKey << make_pair(string("blockindex"), uint256(0));
     iterator->Seek(ssStartKey.str());
+    int nBlocksRead = 0;
     // Now read each entry.
     while (iterator->Valid())
     {
+        nBlocksRead += 1;
+        if ((nBlocksRead % 10000) == 0)
+        {
+            printf("%d blocks read\n", nBlocksRead);
+        }
         // Unpack keys and values.
         CDataStream ssKey(SER_DISK, CLIENT_VERSION);
         ssKey.write(iterator->key().data(), iterator->key().size());
@@ -337,7 +343,7 @@ bool CTxDB::LoadBlockIndex()
 
         uint256 blockHash = diskindex.GetBlockHash();
 
-        if (fDebug) {
+        if (fDebug && ((nBlocksRead % 1000) == 0)) {
               printf("CTxDB::LoadBlockIndex: block %d %s\n", diskindex.nHeight, blockHash.ToString().c_str());
               printf("                       prev %s\n", diskindex.hashPrev.ToString().c_str());
               printf("                       next %s\n", diskindex.hashNext.ToString().c_str());
@@ -368,7 +374,10 @@ bool CTxDB::LoadBlockIndex()
 
         // Watch for genesis block
         if (pindexGenesisBlock == NULL && blockHash == (!fTestNet ? hashGenesisBlock : hashGenesisBlockTestNet))
+        {
+            printf("Found genesis block at %d\n", nBlocksRead);
             pindexGenesisBlock = pindexNew;
+        }
 
         if (!pindexNew->CheckIndex()) {
             delete iterator;
@@ -377,10 +386,13 @@ bool CTxDB::LoadBlockIndex()
 
         // NovaCoin: build setStakeSeen
         if (pindexNew->IsProofOfStake())
+        {
             setStakeSeen.insert(make_pair(pindexNew->prevoutStake, pindexNew->nStakeTime));
+        }
 
         iterator->Next();
     }
+    printf("Total blocks read: %d\n", nBlocksRead);
     delete iterator;
 
     if (fRequestShutdown)
@@ -388,7 +400,15 @@ bool CTxDB::LoadBlockIndex()
 
     // Calculate nChainTrust
     vector<pair<int, CBlockIndex*> > vSortedByHeight;
+    if (fDebug)
+    {
+        printf("mapBlockIndex size: %d k\n", mapBlockIndex.size()/1000);
+    }
     vSortedByHeight.reserve(mapBlockIndex.size());
+    if (fDebug)
+    {
+        printf("vSortedByHeight reserved: %d k\n", mapBlockIndex.size()/1000);
+    }
     BOOST_FOREACH(const PAIRTYPE(uint256, CBlockIndex*)& item, mapBlockIndex)
     {
         CBlockIndex* pindex = item.second;

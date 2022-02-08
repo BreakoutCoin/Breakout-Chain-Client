@@ -32,6 +32,7 @@ public:
         DisplayUnitBrostake,    // BitcoinUnits::Unit
         DisplayUnitBrocoin,     // BitcoinUnits::Unit
         DisplayAddresses,       // bool
+        DisplayGenerated,       // bool
         DetachDatabases,        // bool
         Language,               // QString
         CoinControlFeatures,    // bool
@@ -58,6 +59,7 @@ public:
     int getDisplayUnitBrostake();
     int getDisplayUnitBrocoin();
     bool getDisplayAddresses();
+    bool getDisplayGenerated();
     bool getCoinControlFeatures();
     QString getLanguage() { return language; }
 
@@ -65,6 +67,7 @@ private:
     int nDisplayUnitBrostake;
     int nDisplayUnitBrocoin;
     bool bDisplayAddresses;
+    bool bDisplayGenerated;
     bool fMinimizeToTray;
     bool fMinimizeOnClose;
     bool fCoinControlFeatures;
