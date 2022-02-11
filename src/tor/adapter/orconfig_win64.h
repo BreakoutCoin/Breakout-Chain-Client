@@ -268,8 +268,8 @@
 #define SIZEOF_SIZE_T 4
 
 /* Define to 1 if you have the ANSI C header files. */
-#if !defined(STDC_HEADERS)
-  #define STDC_HEADERS
+#if !defined(STDC_HEADERS_)
+  #define STDC_HEADERS_
 #endif
 
 /* Define to 1 if time_t is signed. */

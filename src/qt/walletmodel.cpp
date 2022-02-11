@@ -735,6 +735,15 @@ static void NotifyBlocksChanged(WalletModel *walletmodel)
     }
 }
 
+void WalletModel::subscribeToTransactionSignal()
+{
+    wallet->NotifyTransactionChanged.connect(boost::bind(NotifyTransactionChanged, this, _1, _2, _3));
+}
+
+void WalletModel::unsubscribeFromTransactionSignal()
+{
+    wallet->NotifyTransactionChanged.disconnect(boost::bind(NotifyTransactionChanged, this, _1, _2, _3));
+}
 
 void WalletModel::subscribeToCoreSignals()
 {

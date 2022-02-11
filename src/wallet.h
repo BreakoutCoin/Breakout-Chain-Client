@@ -225,10 +225,15 @@ public:
     bool AddToWalletIfInvolvingMe(const CTransaction& tx, const CBlock* pblock, bool fUpdate = false, bool fFindBlock = false);
     bool EraseFromWallet(uint256 hash);
     void WalletUpdateSpent(const CTransaction& prevout, bool fBlock = false);
-    int ScanForWalletTransactions(CBlockIndex* pindexStart, bool fUpdate = false, void (*pProgress)(int)=NULL);
+    int ScanForWalletTransactions(CBlockIndex* pindexStart,
+                                  bool fUpdate = false,
+                                  const CProgressHelper& progress = progressQuiet);
     int ScanForWalletTransaction(const uint256& hashTx);
-    void ReacceptWalletTransactions();
+    void ReacceptWalletTransactions(const CProgressHelper& progress = progressQuiet);
     void ResendWalletTransactions(bool fForce = false);
+    int ClearWalletTransactions(std::string& strError,
+                                const CProgressHelper& progress = progressQuiet);
+
     // gets balance for coin of nColor
     int64_t GetBalance(int nColor) const;
     void GetBalances(int nMinDepth, std::vector<int64_t> &vBalance) const;

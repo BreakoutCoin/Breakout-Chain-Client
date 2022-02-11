@@ -107,7 +107,7 @@ private:
 #endif
     QAction *getPrivkeysAction;
     QAction *backupWalletAction;
-    QAction *updateWalletAction;
+    QAction *rebuildWalletAction;
     QAction *changePassphraseAction;
     QAction *unlockWalletAction;
     QAction *lockWalletAction;
@@ -198,7 +198,7 @@ private slots:
     /** Backup the wallet */
     void backupWallet();
     /** Clear and rescan wallet with optional backup */
-    void updateWallet();
+    void rebuildWallet();
     /** Change encrypted wallet passphrase */
     void changePassphrase();
     /** Ask for passphrase to unlock wallet temporarily */

@@ -675,7 +675,10 @@ bool CWallet::AddToWallet(const CWalletTx& wtxIn)
         }
 
         //// debug print
-        printf("AddToWallet %s  %s%s\n", wtxIn.GetHash().ToString().substr(0,10).c_str(), (fInsertedNew ? "new" : ""), (fUpdated ? "update" : ""));
+        printf("AddToWallet %s  %s%s\n",
+               wtxIn.GetHash().ToString().c_str(),
+               (fInsertedNew ? "new" : ""),
+               (fUpdated ? "update" : ""));
 
         // Write to disk
         if (fInsertedNew || fUpdated)
@@ -1077,8 +1080,16 @@ bool CWalletTx::WriteToDisk()
 // Scan the block chain (starting in pindexStart) for transactions
 // from or to us. If fUpdate is true, found transactions that already
 // exist in the wallet will be updated.
-int CWallet::ScanForWalletTransactions(CBlockIndex* pindexStart, bool fUpdate, void (*pProgress)(int))
+int CWallet::ScanForWalletTransactions(CBlockIndex* pindexStart,
+                                       bool fUpdate,
+                                       const CProgressHelper& progress)
 {
+    // Saves divide by 0 on progress
+    if (nBestHeight == 0)
+    {
+        return 0;
+    }
+
     int ret = 0;
 
     CBlockIndex* pindex = pindexStart;
@@ -1086,9 +1097,7 @@ int CWallet::ScanForWalletTransactions(CBlockIndex* pindexStart, bool fUpdate, v
         LOCK2(cs_main, cs_wallet);
         while (pindex)
         {
-            if (pProgress != NULL) {
-                  (*pProgress)(pindex->nHeight);
-            }
+            progress.update(pindex->nHeight, nBestHeight);
             // no need to read and scan block, if block was created before
             // our wallet birthday (as adjusted for block time variability)
             if (nTimeFirstKey && (pindex->nTime < (nTimeFirstKey - 7200))) {
@@ -1118,7 +1127,7 @@ int CWallet::ScanForWalletTransaction(const uint256& hashTx)
     return 0;
 }
 
-void CWallet::ReacceptWalletTransactions()
+void CWallet::ReacceptWalletTransactions(const CProgressHelper& progress)
 {
     // no reason to exlcude multisig transactions from wallet acceptance
     static const bool fMultiSig = true;
@@ -1130,8 +1139,12 @@ void CWallet::ReacceptWalletTransactions()
         LOCK2(cs_main, cs_wallet);
         fRepeat = false;
         vector<CDiskTxPos> vMissingTx;
+        unsigned int nTotal = mapWallet.size();
+        unsigned int nDone = 0;
         BOOST_FOREACH(PAIRTYPE(const uint256, CWalletTx)& item, mapWallet)
         {
+            progress.update(nDone, nTotal);
+            nDone += 1;
             CWalletTx& wtx = item.second;
             if ((wtx.IsCoinBase() && wtx.IsSpent(0)) || (wtx.IsCoinStake() && wtx.IsSpent(1)))
                 continue;
@@ -1182,11 +1195,134 @@ void CWallet::ReacceptWalletTransactions()
         if (!vMissingTx.empty())
         {
             // TODO: optimize this to scan just part of the block chain?
-            if (ScanForWalletTransactions(pindexGenesisBlock))
+            if (ScanForWalletTransactions(pindexGenesisBlock, false, progress))
+            {
                 fRepeat = true;  // Found missing transactions: re-do re-accept.
+            }
         }
     }
 }
+
+int CWallet::ClearWalletTransactions(string& strError,
+                                     const CProgressHelper& progress)
+{
+    strError.clear();
+    // More transactions may be in the db than in map wallet,
+    //   so use map wallet to track progress.
+    uint32_t nTotalTx = mapWallet.size();
+    uint32_t nErasedTx = 0;
+    uint32_t nTransactions = 0;
+    {
+        LOCK2(cs_main, cs_wallet);
+        CWalletDB walletdb(strWalletFile);
+        walletdb.TxnBegin();
+        Dbc* pcursor = walletdb.GetTxnCursor();
+        if (!pcursor)
+        {
+            strError = "Cannot get wallet DB cursor";
+            return 0;
+        }
+
+        Dbt datKey;
+        Dbt datValue;
+
+        datKey.set_flags(DB_DBT_USERMEM);
+        datValue.set_flags(DB_DBT_USERMEM);
+
+        std::vector<unsigned char> vchKey;
+        std::vector<unsigned char> vchType;
+        std::vector<unsigned char> vchKeyData;
+        std::vector<unsigned char> vchValueData;
+
+        vchKeyData.resize(100);
+        vchValueData.resize(100);
+
+        datKey.set_ulen(vchKeyData.size());
+        datKey.set_data(&vchKeyData[0]);
+
+        datValue.set_ulen(vchValueData.size());
+        datValue.set_data(&vchValueData[0]);
+
+        unsigned int fFlags = DB_NEXT; // same as using DB_FIRST for new cursor
+        while (true)
+        {
+            int ret = pcursor->get(&datKey, &datValue, fFlags);
+
+            if (ret == ENOMEM
+                || ret == DB_BUFFER_SMALL)
+            {
+                if (datKey.get_size() > datKey.get_ulen())
+                {
+                    vchKeyData.resize(datKey.get_size());
+                    datKey.set_ulen(vchKeyData.size());
+                    datKey.set_data(&vchKeyData[0]);
+                };
+
+                if (datValue.get_size() > datValue.get_ulen())
+                {
+                    vchValueData.resize(datValue.get_size());
+                    datValue.set_ulen(vchValueData.size());
+                    datValue.set_data(&vchValueData[0]);
+                };
+                // -- try once more, when DB_BUFFER_SMALL cursor is not expected to move
+                ret = pcursor->get(&datKey, &datValue, fFlags);
+            };
+
+            if (ret == DB_NOTFOUND)
+            {
+                break;
+            }
+            else if ((datKey.get_data() == NULL) ||
+                     (datValue.get_data() == NULL) ||
+                     (ret != 0))
+            {
+                strError = strprintf("Wallet DB error %d, %s",
+                                     ret, db_strerror(ret));
+                return nTransactions;
+            };
+
+            CDataStream ssValue(SER_DISK, CLIENT_VERSION);
+            ssValue.SetType(SER_DISK);
+            ssValue.clear();
+            ssValue.write((char*)datKey.get_data(), datKey.get_size());
+
+            ssValue >> vchType;
+
+            std::string strType(vchType.begin(), vchType.end());
+
+            //printf("strType %s\n", strType.c_str());
+
+            if (strType == "tx")
+            {
+                uint256 hash;
+                ssValue >> hash;
+
+                if ((ret = pcursor->del(0)) != 0)
+                {
+                    printf("Delete transaction failed %d, %s\n", ret, db_strerror(ret));
+                    continue;
+                };
+
+                if (mapWallet.count(hash))
+                {
+                    mapWallet.erase(hash);
+                    NotifyTransactionChanged(this, hash, CT_DELETED);
+                    nErasedTx += 1;
+                    progress.update(nErasedTx, nTotalTx);
+                }
+                nTransactions++;
+            };
+        };
+        pcursor->close();
+        walletdb.TxnCommit();
+
+        //pwalletMain->mapWallet.clear();
+    }
+    return nTransactions;
+}
+
+
+
 
 void CWalletTx::RelayWalletTransaction(CTxDB& txdb)
 {
@@ -4165,7 +4301,9 @@ void CWallet::UpdatedTransaction(const uint256 &hashTx)
         // Only notify UI if this transaction is in this wallet
         map<uint256, CWalletTx>::const_iterator mi = mapWallet.find(hashTx);
         if (mi != mapWallet.end())
+        {
             NotifyTransactionChanged(this, hashTx, CT_UPDATED);
+        }
     }
 }
 

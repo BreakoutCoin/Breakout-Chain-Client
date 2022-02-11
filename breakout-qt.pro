@@ -18,7 +18,7 @@ win32 {
 
 TEMPLATE = app
 TARGET = "Breakout-Coin"
-VERSION = 1.6.4.0
+VERSION = 1.6.5.0
 INCLUDEPATH += src src/json src/qt src/tor
 INCLUDEPATH += src/tor/adapter src/tor/common src/tor/ext
 INCLUDEPATH += src/tor/ext/curve25519_donna src/tor/ext/ed25519/donna
@@ -67,7 +67,7 @@ win32 {
    contains(WINBITS, 32) {
       INCLUDEPATH += C:/$$MSYS/local/boost_1_57_0/
    } else {
-      INCLUDEPATH += C:/$$MSYS/usr/local/include/boost-1_57/
+      INCLUDEPATH += C:/$$MSYS/usr/local/include/boost-1_65_1/
    }
 }
 
@@ -881,7 +881,7 @@ isEmpty(BOOST_LIB_SUFFIX) {
       contains(WINBITS, 32) {
          BOOST_LIB_SUFFIX = -mgw49-mt-s-1_57
       } else {
-         BOOST_LIB_SUFFIX = -mgw102-mt-1_57
+         BOOST_LIB_SUFFIX = -mgw102-mt-1_65_1
       }
     }
 }

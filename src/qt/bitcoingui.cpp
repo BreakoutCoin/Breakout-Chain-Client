@@ -91,6 +91,9 @@
 extern CWallet* pwalletMain;
 extern int64_t nLastCoinStakeSearchInterval;
 extern unsigned int nTargetSpacing;
+
+extern void StartShutdown();
+
 double GetPoSKernelPS();
 
 // unpack dates in this format: ["1/15/2015", "7/19/2014"]
@@ -382,8 +385,8 @@ void BitcoinGUI::createActions()
 #endif
     backupWalletAction = new QAction(QIcon(":/icons/filesave"), tr("&Backup Wallet..."), this);
     backupWalletAction->setToolTip(tr("Backup wallet to another location"));
-    updateWalletAction = new QAction(QIcon(":/icons/options"), tr("&Rebuild Wallet"), this);
-    updateWalletAction->setToolTip(tr("Purge and re-scan wallet"));
+    rebuildWalletAction = new QAction(QIcon(":/icons/options"), tr("&Rebuild Wallet"), this);
+    rebuildWalletAction->setToolTip(tr("Purge and re-scan wallet"));
     changePassphraseAction = new QAction(QIcon(":/icons/key"), tr("&Change Passphrase..."), this);
     changePassphraseAction->setToolTip(tr("Change the passphrase used for wallet encryption"));
     unlockWalletAction = new QAction(QIcon(":/icons/mint_closed"), tr("&Unlock Wallet"), this);
@@ -409,7 +412,7 @@ void BitcoinGUI::createActions()
     connect(importWalletAction, SIGNAL(triggered()), this, SLOT(importWallet()));
 #endif
     connect(backupWalletAction, SIGNAL(triggered()), this, SLOT(backupWallet()));
-    connect(updateWalletAction, SIGNAL(triggered()), this, SLOT(updateWallet()));
+    connect(rebuildWalletAction, SIGNAL(triggered()), this, SLOT(rebuildWallet()));
     connect(changePassphraseAction, SIGNAL(triggered()), this, SLOT(changePassphrase()));
     connect(unlockWalletAction, SIGNAL(triggered()), this, SLOT(unlockWallet()));
     connect(lockWalletAction, SIGNAL(triggered()), this, SLOT(lockWallet()));
@@ -431,7 +434,7 @@ void BitcoinGUI::createMenuBar()
     // Configure the menus
     QMenu *file = appMenuBar->addMenu(tr("&File"));
     file->addAction(backupWalletAction);
-    file->addAction(updateWalletAction);
+    file->addAction(rebuildWalletAction);
     file->addAction(exportAction);
     file->addAction(signMessageAction);
     file->addAction(verifyMessageAction);
@@ -1330,11 +1333,18 @@ void BitcoinGUI::backupWallet()
     }
 }
 
-void BitcoinGUI::updateWallet()
+void dialogProgress(void *d, unsigned int v)
+{
+    static_cast<QProgressDialog*>(d)->setValue(v);
+}
+
+
+void BitcoinGUI::rebuildWallet()
 {
     {
       QMessageBox::StandardButton reply;
-      reply = QMessageBox::question(this, "Backup First", "Backup wallet first? (Recommended)",
+      reply = QMessageBox::question(this, "Breakout Chain",
+                                    "Backup wallet first? (Recommended)",
                                     QMessageBox::Yes|QMessageBox::No);
       if (reply == QMessageBox::Yes) {
         this->backupWallet();
@@ -1343,7 +1353,8 @@ void BitcoinGUI::updateWallet()
 
     {
       QMessageBox::StandardButton reply;
-      reply = QMessageBox::question(this, "Rebuild", "Rebuilding takes a lot of time, proceed?",
+      reply = QMessageBox::question(this, "Breakout Chain",
+                                    "Rebuilding takes a lot of time, proceed?",
                                     QMessageBox::Yes|QMessageBox::No);
       if (reply == QMessageBox::No) {
         return;
@@ -1353,39 +1364,71 @@ void BitcoinGUI::updateWallet()
 
     MilliSleep(10);
 
-    QProgressDialog dialog("Re-Scanning. Please wait...", "Cancel", 0, 100, this);
-    dialog.setWindowModality(Qt::WindowModal);
-    dialog.setCancelButton(0);
-    dialog.setMinimumDuration(0);
-    dialog.show();
+    {
+        QProgressDialog dialog("Rescan - Clearing wallet transactions. "
+                               "Please wait.",
+                               "Cancel", 0, 100, this);
+        dialog.setWindowModality(Qt::WindowModal);
+        dialog.setCancelButton(0);
+        dialog.setMinimumDuration(0);
+        dialog.setValue(0);
+        dialog.show();
 
-    CBlockIndex *pindex = pindexGenesisBlock;
-    if (pindex == NULL) {
-        // no reason to notify user (?)
-        return;
+        CBlockIndex *pindex = pindexGenesisBlock;
+        if (pindex == NULL) {
+            // no reason to notify user (?)
+            return;
+        }
+
+        // Updating after every change takes a long time.
+        if (walletModel)
+        {
+            walletModel->unsubscribeFromTransactionSignal();
+        }
+
+        CProgressHelper progress(&dialogProgress, &dialog, 100);
+
+        {
+
+            LOCK2(cs_main, pwalletMain->cs_wallet);
+
+            std::string strError;
+            pwalletMain->ClearWalletTransactions(strError, progress);
+
+            dialog.setLabelText("Rescan - Scanning for wallet transactions. "
+                                "Please wait.");
+            progress.setEvery(1000);
+
+            pwalletMain->MarkDirty();
+
+            pwalletMain->ScanForWalletTransactions(pindex,
+                                                   true,
+                                                   progress);
+
+            dialog.setLabelText("Rescan - Reaccepting wallet transactions. "
+                                "Please wait.");
+            progress.setEvery(100);
+
+            pwalletMain->ReacceptWalletTransactions(progress);
+        }
+
+        if (walletModel)
+        {
+            walletModel->subscribeToTransactionSignal();
+        }
+
+        dialog.setValue(100);
     }
-
-    // MilliSleep(10);
-    dialog.setValue(0);
-    // MilliSleep(10);
-
-    clearwallettransactions(json_spirit::Array(), false);
-
-    dialog.setValue(1);
-    // MilliSleep(10);
 
     {
-        LOCK2(cs_main, pwalletMain->cs_wallet);
-
-        pwalletMain->MarkDirty();
-
-        dialog.setValue(30);
-        pwalletMain->ScanForWalletTransactions(pindex, true);
-        dialog.setValue(35);
-        pwalletMain->ReacceptWalletTransactions();
+        QMessageBox::StandardButton reply;
+        reply = QMessageBox::information(
+                   this,
+                   "Breakout Chain",
+                   "Breakout Chain must quit to rebuild the transaction table.",
+                   QMessageBox::Ok);
+        StartShutdown();
     }
-
-    dialog.setValue(100);
 }
 
 void BitcoinGUI::changePassphrase()

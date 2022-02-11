@@ -1384,7 +1384,9 @@ bool AppInit2()
         uiInterface.InitMessage(_("Rescanning..."));
         printf("Rescanning last %d blocks (from block %d)...\n", pindexBest->nHeight - pindexRescan->nHeight, pindexRescan->nHeight);
         nStart = GetTimeMillis();
-        pwalletMain->ScanForWalletTransactions(pindexRescan, true);
+        string strProgressLabel("Progress of ScanForWalletTransactions");
+        CProgressHelper progress(&stdOutProgress, &strProgressLabel, 1000);
+        pwalletMain->ScanForWalletTransactions(pindexRescan, true, progress);
         printf(" rescan      %15" PRId64 "ms\n", GetTimeMillis() - nStart);
     }
 

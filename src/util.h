@@ -243,11 +243,69 @@ void runCommand(std::string strCommand);
 
 
 
+class CProgressHelper
+{
+private:
+    void (*pProgress)(void*, unsigned int);
+    void* pContext;
+    unsigned int nEvery;
+public:
+    CProgressHelper()
+    {
+        pProgress = NULL;
+        pContext = NULL;
+        nEvery = std::numeric_limits<unsigned int>::max();
+    }
+    CProgressHelper(void (*pProgressIn)(void*, unsigned int),
+                    void* pContextIn,
+                    unsigned int nEveryIn)
+    {
+        pProgress = pProgressIn;
+        pContext = pContextIn;
+        nEvery = nEveryIn;
+    }
+    void update(unsigned int pct) const
+    {
+        if (pProgress)
+        {
+            pProgress(pContext, std::min(100u, pct));
+        }
+    }
+    void update(unsigned int n, unsigned int total) const
+    {
+        // no matter if total is 0 or not, update to 0 if n is 0
+        if (n)
+        {
+            if (((n % nEvery) == 0) && total)
+            {
+                if (n < total)
+                {
+                    update((100 * n) / total);
+                }
+                else
+                {
+                    update(100);
+                }
+            }
+        }
+        else
+        {
+            update(0);
+        }
+    }
+    void setContext(void* pContextIn)
+    {
+        pContext = pContextIn;
+    }
+    void setEvery(unsigned int nEveryIn)
+    {
+       nEvery = nEveryIn;
+    }
+};
 
-
-
-
-
+extern const CProgressHelper progressQuiet;
+extern void stdErrProgress(void *d, unsigned int v);
+extern void stdOutProgress(void *d, unsigned int v);
 
 inline std::string i64tostr(int64_t n)
 {

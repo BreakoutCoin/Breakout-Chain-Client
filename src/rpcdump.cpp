@@ -407,8 +407,12 @@ Value importaddress(const Array& params, bool fHelp)
             // whenever a key is imported, we need to scan the whole chain
             pwalletMain->nTimeFirstKey = 1; // 0 would be considered 'no value'
 
-            pwalletMain->ScanForWalletTransactions(pindexGenesisBlock, true);
-            pwalletMain->ReacceptWalletTransactions();
+            string strProgressLabel("Progress of ScanForWalletTransactions");
+            CProgressHelper progress(&stdErrProgress, &strProgressLabel, 1000);
+            pwalletMain->ScanForWalletTransactions(pindexGenesisBlock, true, progress);
+            strProgressLabel = "Progress of ReacceptWalletTransactions";
+            progress.setContext(&strProgressLabel);
+            pwalletMain->ReacceptWalletTransactions(progress);
         }
     }
 

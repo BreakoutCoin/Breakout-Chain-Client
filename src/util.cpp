@@ -95,6 +95,18 @@ void locking_callback(int mode, int i, const char* file, int line)
     }
 }
 
+const CProgressHelper progressQuiet;
+
+void stdErrProgress(void *d, unsigned int v)
+{
+    fprintf(stderr, "%s: %u %%\n", static_cast<string*>(d)->c_str(), v);
+}
+
+void stdOutProgress(void *d, unsigned int v)
+{
+    printf("%s: %u %%\n", static_cast<string*>(d)->c_str(), v);
+}
+
 LockedPageManager LockedPageManager::instance;
 
 // Init
