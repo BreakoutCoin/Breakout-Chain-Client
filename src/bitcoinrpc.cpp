@@ -41,6 +41,7 @@ using namespace boost::asio;
 #if BOOST_VERSION >= 106500
 using namespace boost::placeholders;
 #endif
+
 using namespace json_spirit;
 
 void ThreadRPCServer2(void* parg);

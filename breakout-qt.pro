@@ -18,7 +18,7 @@ win32 {
 
 TEMPLATE = app
 TARGET = "Breakout-Coin"
-VERSION = 1.6.5.0
+VERSION = 1.6.5.1
 INCLUDEPATH += src src/json src/qt src/tor
 INCLUDEPATH += src/tor/adapter src/tor/common src/tor/ext
 INCLUDEPATH += src/tor/ext/curve25519_donna src/tor/ext/ed25519/donna
@@ -43,7 +43,10 @@ win32 {
 !macx:!win32:CONFIG += static
 
 
-macx:INCLUDEPATH += /opt/local/include/db48
+macx {
+  INCLUDEPATH += /usr/local/include
+  LIBS += -L/usr/local/lib
+}
 
 !macx:!win32 {
    # debian
@@ -106,25 +109,19 @@ UI_DIR = build
 
 # use: qmake "RELEASE=1"
 contains(RELEASE, 1) {
-    # Mac: ensure compatibility with at least 10.7, 64 bit
-    macx:XXFLAGS += -mmacosx-version-min=10.7 -arch x86_64 \
-                    -isysroot /Developer/SDKs/MacOSX10.7.sdk
+
+}
+
+    macx {
+      message(Setting mac version to 10.13)
+      # Mac: ensure compatibility with at least 10.13, 64 bit
+      QMAKE_CXXFLAGS += -mmacosx-version-min=10.13 -arch x86_64
+      QMAKE_MACOSX_DEPLOYMENT_TARGET = 10.13
+    }
     !win32:!macx {
         # Linux: static link
         LIBS += -static -Bstatic
     }
-}
-
-
-# OS X is never static
-# macx:mystaticconfig {
-#   QMAKE_LIBS_QT =
-#   QMAKE_LIBS_QT_THREAD =
-#   LIBS += $(QTDIR)/lib/libqt.a -lz -framework Carbon
-#   LIBS += /usr/local/lib/libqrencode.3.dylib
-#   CONFIG += mystaticconfig
-# }
-
 
 # bug in gcc 4.4 breaks some pointer code
 # QMAKE_CXXFLAGS += -fno-strict-aliasing
@@ -140,7 +137,6 @@ USE_QRCODE=1
 contains(USE_QRCODE, 1) {
     message(Building with QRCode support)
     DEFINES += USE_QRCODE
-    macx:LIBS += /opt/local/lib/libqrencode.3.dylib
     LIBS += -lqrencode
 } else {
     message(Building without QRCode support)
@@ -891,26 +887,35 @@ isEmpty(BOOST_THREAD_LIB_SUFFIX) {
 }
 
 isEmpty(BDB_LIB_PATH) {
-    macx:BDB_LIB_PATH = /opt/local/lib/db48
+    macx:BDB_LIB_PATH = /usr/local/opt/berkeley-db@4/lib
 }
 
 isEmpty(BDB_LIB_SUFFIX) {
-    macx:BDB_LIB_SUFFIX = -4.8
+    macx:BDB_LIB_SUFFIX =
 }
 
 isEmpty(BDB_INCLUDE_PATH) {
-    macx:BDB_INCLUDE_PATH = /opt/local/include/db48
+    macx:BDB_INCLUDE_PATH = /usr/local/opt/berkeley-db@4/include
 }
 
 isEmpty(BOOST_LIB_PATH) {
-    macx:BOOST_LIB_PATH = /opt/local/lib
+    macx:BOOST_LIB_PATH = /usr/local/opt/boost/lib
     # custom linux
     # !macx:!win32:BOOST_LIB_PATH = /usr/local/boost/stage/lib
 }
 
 isEmpty(BOOST_INCLUDE_PATH) {
-    macx:BOOST_INCLUDE_PATH = /opt/local/include
+    macx:BOOST_INCLUDE_PATH = /usr/local/opt/boost/include
 }
+
+isEmpty(OPENSSL_LIB_PATH) {
+    macx:OPENSSL_LIB_PATH = /usr/local/opt/openssl@1.1/lib
+}
+
+isEmpty(OPENSSL_INCLUDE_PATH) {
+    macx:OPENSSL_INCLUDE_PATH = /usr/local/opt/openssl@1.1/include
+}
+
 
 win32:DEFINES += WIN32
 win32:RC_FILE = src/qt/res/bitcoin-qt.rc
@@ -1004,11 +1009,6 @@ macx|win32 {
     LIBS += -ldb_cxx$$BDB_LIB_SUFFIX
 }
 
-macx {
-    LIBS += -ldb_cxx-4.8
-    LIBS += /opt/local/lib/db48/libdb_cxx-4.8.a
-}
-
 !macx:!win32 {
     # debian
     LIBS += /usr/lib/x86_64-linux-gnu/libssl.a
@@ -1032,10 +1032,9 @@ win32|macx {
     LIBS += -lboost_system$$BOOST_LIB_SUFFIX \
             -lboost_filesystem$$BOOST_LIB_SUFFIX \
             -lboost_program_options$$BOOST_LIB_SUFFIX \
-            -lboost_thread$$BOOST_THREAD_LIB_SUFFIX
+            -lboost_thread$$BOOST_THREAD_LIB_SUFFIX \
+            -lboost_chrono$$BOOST_LIB_SUFFIX
 }
-
-win32:LIBS += -lboost_chrono$$BOOST_LIB_SUFFIX
 
 win32 {
    contains(WINBITS, 64) {

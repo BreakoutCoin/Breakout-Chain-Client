@@ -11,6 +11,10 @@
 #include <QDateTime>
 #include <QTimer>
 
+#if BOOST_VERSION >= 106500
+using namespace boost::placeholders;
+#endif
+
 static const int64_t nClientStartupTime = GetTime();
 
 ClientModel::ClientModel(OptionsModel *optionsModel, QObject *parent) :
