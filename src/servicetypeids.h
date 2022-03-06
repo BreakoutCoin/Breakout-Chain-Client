@@ -9,7 +9,11 @@ enum SERVICE_TYPE {
         // SERVICE-1: EXIST; proof of existence for documents
         SERVICE_EXIST,
         // SERVICE-2: VOTE; voting
-        SERVICE_VOTE
+        SERVICE_VOTE,
+        // SERVICE-3: XCOUT; cross chain transfer out
+        SERVICE_XCOUT,
+        // SERVICE-4: XCIN; cross chain transfer in
+        SERVICE_XCIN
 };
 
 #endif

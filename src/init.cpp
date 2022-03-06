@@ -334,7 +334,7 @@ std::string HelpMessage()
 
         "  -burnkey=<key>    " + _("Random string") + "\n" +
 
-        "  -enablemultisigs  " + _("Enable rpc multisig support by default") + "\n" ;
+        "  -enablemultisigs  " + _("Enable rpc multisig support (default: 0)") + "\n" ;
 
     return strUsage;
 }

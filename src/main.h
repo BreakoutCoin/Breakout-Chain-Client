@@ -622,39 +622,28 @@ public:
 
 
     // coinbase is vtx[0] and is the reward tx for PoW *and* PoS
+    //    1. one and only one input
+    //    2. the sole input is null
+    //    3. one or more outputs
     bool IsCoinBase() const
     {
-        // coinbase is just like coinmint except coinmint vout[0] is empty
-        return (vin.size() == 1) && vin[0].prevout.IsNull() && vout.size() >= 1;
-    }
-
-    // coinbase (vtx[0]) tx for PoW block
-    // the first TxOut is not empty
-    bool IsCoinMine() const   // not used, here for reference only
-    {
-        return (vin.size() == 1 && vin[0].prevout.IsNull() &&
-                vout.size() >= 1 && !vout[0].IsEmpty());
-    }
-
-    // coinbase (vtx[0]) tx for PoS block
-    // no obvious reason why PoS coin mint should be marked differently from coinbase
-    // because they are not broadcast independently of blocks
-    bool IsCoinMint() const
-    {
-        // breakout: the coin mint transaction is marked with
-        //    first input null
-        //    first output is not empty
-        // can have nonzero inputs (except vin[0]) so mint may
-        // combine with existing coins according to preferences
-        return (vin.size() == 1 && vin[0].prevout.IsNull() &&
-                vout.size() >= 1 && !vout[0].IsEmpty());
+        return ((vin.size() == 1) &&
+                vin[0].prevout.IsNull() &&
+                (vout.size() >= 1));
     }
 
     // coinstake is vtx[1] (if ProofOfStake) and has inputs equal to outputs
+    //    1. one or more inputs
+    //    2. first input is not null
+    //    3. size of vout is at least 2
+    //    4. first vout is empty
     bool IsCoinStake() const
     {
         // ppcoin: the coin stake transaction is marked with the first output empty
-        return (vin.size() > 0 && (!vin[0].prevout.IsNull()) && vout.size() >= 2 && vout[0].IsEmpty());
+        return ((vin.size() > 0) &&
+                (!vin[0].prevout.IsNull()) &&
+                (vout.size() >= 2) &&
+                vout[0].IsEmpty());
     }
 
 

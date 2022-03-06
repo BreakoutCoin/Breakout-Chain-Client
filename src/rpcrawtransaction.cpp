@@ -18,31 +18,46 @@ using namespace boost;
 using namespace boost::assign;
 using namespace json_spirit;
 
-void ScriptPubKeyToJSON(const CScript& scriptPubKey, int nColor,
-                                            Object& out, bool fIncludeHex)
+txnouttype ScriptPubKeyToJSON(const CScript& scriptPubKey,
+                              int nColor,
+                              bool fIncludeHex,
+                              Object& obj)
 {
-    txnouttype type;
+    txnouttype txtype;
     vector<CTxDestination> addresses;
     int nRequired;
 
-    out.push_back(Pair("asm", scriptPubKey.ToString()));
+    obj.push_back(Pair("asm", scriptPubKey.ToString()));
 
     if (fIncludeHex)
-        out.push_back(Pair("hex", HexStr(scriptPubKey.begin(), scriptPubKey.end())));
-
-    if (!ExtractDestinations(scriptPubKey, type, addresses, nRequired))
     {
-        out.push_back(Pair("type", GetTxnOutputType(TX_NONSTANDARD)));
-        return;
+        obj.push_back(Pair("hex", HexStr(scriptPubKey.begin(),
+                                         scriptPubKey.end())));
     }
 
-    out.push_back(Pair("reqSigs", nRequired));
-    out.push_back(Pair("type", GetTxnOutputType(type)));
+    if (!ExtractDestinations(scriptPubKey, txtype, addresses, nRequired))
+    {
+        if (txtype == TX_NULL_DATA)
+        {
+            obj.push_back(Pair("type", GetTxnOutputType(TX_NULL_DATA)));
+        }
+        else
+        {
+            obj.push_back(Pair("type", GetTxnOutputType(TX_NONSTANDARD)));
+        }
+        return txtype;
+    }
+
+    obj.push_back(Pair("reqSigs", nRequired));
+    obj.push_back(Pair("type", GetTxnOutputType(txtype)));
 
     Array a;
     BOOST_FOREACH(const CTxDestination& addr, addresses)
+    {
         a.push_back(CBitcoinAddress(addr, nColor).ToString());
-    out.push_back(Pair("addresses", a));
+    }
+    obj.push_back(Pair("addresses", a));
+    return txtype;
 }
 
 void TxToJSON(const CTransaction& tx, const uint256 hashBlock, Object& entry)
@@ -55,13 +70,26 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, Object& entry)
     entry.push_back(Pair("locktime", (boost::int64_t)tx.nLockTime));
     entry.push_back(Pair("tx-comment", tx.strTxComment));
     entry.push_back(Pair("product-id", (boost::int64_t)tx.nServiceTypeID));
+    if (tx.IsCoinBase())
+    {
+        entry.push_back(Pair("flags", "coinbase"));
+    }
+    else if (tx.IsCoinStake())
+    {
+       entry.push_back(Pair("flags", "coinstake"));
+    }
 
     Array vin;
     BOOST_FOREACH(const CTxIn& txin, tx.vin)
     {
         Object in;
         if (tx.IsCoinBase())
+        {
             in.push_back(Pair("coinbase", HexStr(txin.scriptSig.begin(), txin.scriptSig.end())));
+            in.push_back(Pair("sequence", (boost::int64_t)txin.nSequence));
+            vin.push_back(in);
+            continue;
+        }
         else
         {
             in.push_back(Pair("txid", txin.prevout.hash.GetHex()));
@@ -70,8 +98,8 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, Object& entry)
             o.push_back(Pair("asm", txin.scriptSig.ToString()));
             o.push_back(Pair("hex", HexStr(txin.scriptSig.begin(), txin.scriptSig.end())));
             in.push_back(Pair("scriptSig", o));
+            in.push_back(Pair("sequence", (boost::int64_t)txin.nSequence));
         }
-        in.push_back(Pair("sequence", (boost::int64_t)txin.nSequence));
 
         CTransaction txPrev;
         CTxIndex txindex;
@@ -91,12 +119,21 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, Object& entry)
         if (ExtractDestinations(prevtxout.scriptPubKey, type, addresses, nRequired))
         {
             in.push_back(Pair("value", ValueFromAmount(prevtxout.nValue,
-                                                          prevtxout.nColor)));
+                                                       prevtxout.nColor)));
+            in.push_back(Pair("currency",  std::string(COLOR_TICKER[prevtxout.nColor])));
         }
         else
         {
-            in.push_back(Pair("type", GetTxnOutputType(TX_NONSTANDARD)));
+            if (type == TX_NULL_DATA)
+            {
+                in.push_back(Pair("type", GetTxnOutputType(TX_NULL_DATA)));
+            }
+            else
+            {
+                in.push_back(Pair("type", GetTxnOutputType(TX_NONSTANDARD)));
+            }
         }
+
 
         Array a;
         BOOST_FOREACH(const CTxDestination& addr, addresses)
@@ -118,8 +155,13 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, Object& entry)
         out.push_back(Pair("currency", std::string(COLOR_TICKER[txout.nColor])));
         out.push_back(Pair("n", (boost::int64_t)i));
         Object o;
-        ScriptPubKeyToJSON(txout.scriptPubKey, txout.nColor, o, false);
+        txnouttype txtype = ScriptPubKeyToJSON(txout.scriptPubKey,
+                                               txout.nColor, false, o);
         out.push_back(Pair("scriptPubKey", o));
+        if ((txtype == TX_NULL_DATA) && (txout.nValue > 0))
+        {
+            out->push_back(Pair("flags", "burn"));
+        }
         vout.push_back(out);
     }
     entry.push_back(Pair("vout", vout));
@@ -436,7 +478,7 @@ Value decodescript(const Array& params, bool fHelp)
     } else {
         // Empty scripts are valid
     }
-    ScriptPubKeyToJSON(script, nColor, r, false);
+    ScriptPubKeyToJSON(script, nColor, false, r);
 
     r.push_back(Pair("p2sh", CBitcoinAddress(script.GetID(), nColor).ToString()));
     return r;
