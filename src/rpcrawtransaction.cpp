@@ -160,7 +160,7 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, Object& entry)
         out.push_back(Pair("scriptPubKey", o));
         if ((txtype == TX_NULL_DATA) && (txout.nValue > 0))
         {
-            out->push_back(Pair("flags", "burn"));
+            out.push_back(Pair("flags", "burn"));
         }
         vout.push_back(out);
     }
