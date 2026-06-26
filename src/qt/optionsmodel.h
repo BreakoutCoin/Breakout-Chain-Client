@@ -51,6 +51,7 @@ public:
     /* Explicit getters */
     qint64 getTransactionFeeBrostake();
     qint64 getTransactionFeeBrocoin();
+    qint64 getTransactionFeeSistercoin();
     qint64 getReserveBalance();
     bool getMinimizeToTray();
     bool getMinimizeOnClose();

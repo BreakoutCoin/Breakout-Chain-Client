@@ -19,10 +19,10 @@ class TransactionDesc: public QObject
     Q_OBJECT
 public:
     static QString FormatValue(int64_t nValue, int nColor, int unit=BitcoinUnits::BTC);
-    static QString ValueMapToHTML(const std::map<int, int64_t> &valueMap);
+    static QString ColorsMapToHTML(const ColorsMap& colorsMap);
     static QString TxInToHTML(const CTxIn &txin, const CWallet* wallet);
     static QString TxOutToHTML(const CTxOut &txout, const CWallet* wallet);
-    static QString toHTML(CWallet *wallet, CWalletTx &wtx);
+    static QString toHTML(CWallet* wallet, CWalletTx& wtx);
 
 private:
     TransactionDesc() {}

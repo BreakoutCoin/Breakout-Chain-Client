@@ -12,37 +12,6 @@ using namespace std;
 
 extern void TxToJSON(const CTransaction& tx, const uint256 hashBlock, json_spirit::Object& entry);
 
-double GetDifficulty(const CBlockIndex* blockindex)
-{
-    // Floating point number that is a multiple of the minimum difficulty,
-    // minimum difficulty = 1.0.
-    if (blockindex == NULL)
-    {
-        if (pindexBest == NULL)
-            return 1.0;
-        else
-            blockindex = GetLastBlockIndex(pindexBest, false);
-    }
-
-    int nShift = (blockindex->nBits >> 24) & 0xff;
-
-    double dDiff =
-        (double)0x0000ffff / (double)(blockindex->nBits & 0x00ffffff);
-
-    while (nShift < 29)
-    {
-        dDiff *= 256.0;
-        nShift++;
-    }
-    while (nShift > 29)
-    {
-        dDiff /= 256.0;
-        nShift--;
-    }
-
-    return dDiff;
-}
-
 double GetPoWMHashPS()
 {
 #if PROOF_MODEL == PURE_POS
@@ -70,7 +39,7 @@ double GetPoWMHashPS()
         pindex = pindex->pnext;
     }
 
-    return GetDifficulty() * 4294.967296 / nTargetSpacingWork;
+    return GetDifficulty(pindexBest) * 4294.967296 / nTargetSpacingWork;
 }
 
 double GetPoSKernelPS()
@@ -205,7 +174,7 @@ Value getdifficulty(const Array& params, bool fHelp)
             "Returns the difficulty as a multiple of the minimum difficulty.");
 
     Object obj;
-    obj.push_back(Pair("proof-of-work",        GetDifficulty()));
+    obj.push_back(Pair("proof-of-work",        GetDifficulty(pindexBest)));
     obj.push_back(Pair("proof-of-stake",       GetDifficulty(GetLastBlockIndex(pindexBest, true))));
     obj.push_back(Pair("search-interval",      (int)nLastCoinStakeSearchInterval));
     return obj;
@@ -222,9 +191,7 @@ Value settxfee(const Array& params, bool fHelp)
             "If the <ticker> is not supplied, then the default currency is used."
         );
 
-    checkDefaultCurrency();
-
-    int nColor = nDefaultCurrency;
+    int nColor = CheckDefaultCurrency();
 
     if (params.size() > 1)
     {

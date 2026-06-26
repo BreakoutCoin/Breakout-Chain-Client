@@ -7,10 +7,15 @@
 
 #include <cstdlib>
 
+#if QT_VERSION >= QT_VERSION_CHECK(5, 8, 0)
 // Earliest date that can be represented (far in the past)
-const QDateTime TransactionFilterProxy::MIN_DATE = QDateTime::fromTime_t(0);
+const QDateTime TransactionFilterProxy::MIN_DATE = QDateTime::fromSecsSinceEpoch(0);
 // Last date that can be represented (far in the future)
+const QDateTime TransactionFilterProxy::MAX_DATE = QDateTime::fromSecsSinceEpoch(0xFFFFFFFF);
+#else
+const QDateTime TransactionFilterProxy::MIN_DATE = QDateTime::fromTime_t(0);
 const QDateTime TransactionFilterProxy::MAX_DATE = QDateTime::fromTime_t(0xFFFFFFFF);
+#endif
 
 TransactionFilterProxy::TransactionFilterProxy(QObject *parent) :
     QSortFilterProxyModel(parent),
@@ -53,25 +58,29 @@ void TransactionFilterProxy::setDateRange(const QDateTime &from, const QDateTime
 {
     this->dateFrom = from;
     this->dateTo = to;
-    invalidateFilter();
+    beginFilterChange();
+    endFilterChange();
 }
 
 void TransactionFilterProxy::setAddressPrefix(const QString &addrPrefix)
 {
     this->addrPrefix = addrPrefix;
-    invalidateFilter();
+    beginFilterChange();
+    endFilterChange();
 }
 
 void TransactionFilterProxy::setTypeFilter(quint32 modes)
 {
     this->typeFilter = modes;
-    invalidateFilter();
+    beginFilterChange();
+    endFilterChange();
 }
 
 void TransactionFilterProxy::setMinAmount(qint64 minimum)
 {
     this->minAmount = minimum;
-    invalidateFilter();
+    beginFilterChange();
+    endFilterChange();
 }
 
 void TransactionFilterProxy::setLimit(int limit)
@@ -82,7 +91,8 @@ void TransactionFilterProxy::setLimit(int limit)
 void TransactionFilterProxy::setShowInactive(bool showInactive)
 {
     this->showInactive = showInactive;
-    invalidateFilter();
+    beginFilterChange();
+    endFilterChange();
 }
 
 int TransactionFilterProxy::rowCount(const QModelIndex &parent) const

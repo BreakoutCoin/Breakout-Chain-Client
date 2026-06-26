@@ -1,4 +1,4 @@
-#include "ge.h"
+#include "ext/ed25519/ref10/ge.h"
 
 /*
 r = p

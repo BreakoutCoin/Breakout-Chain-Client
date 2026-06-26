@@ -1,4 +1,4 @@
-#include "ge.h"
+#include "ext/ed25519/ref10/ge.h"
 
 static void slide(signed char *r,const unsigned char *a)
 {
@@ -33,7 +33,7 @@ static void slide(signed char *r,const unsigned char *a)
 }
 
 static ge_precomp Bi[8] = {
-#include "base2.h"
+#include "ext/ed25519/ref10/base2.h"
 } ;
 
 /*

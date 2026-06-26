@@ -16,12 +16,17 @@
 using namespace boost::placeholders;
 #endif
 
-WalletModel::WalletModel(CWallet *wallet, OptionsModel *optionsModel, QObject *parent) :
-    QObject(parent), wallet(wallet), optionsModel(optionsModel), addressTableModel(0),
-    transactionTableModel(0),
-    cachedNumTransactions(0),
-    cachedEncryptionStatus(Unencrypted),
-    cachedNumBlocks(0)
+WalletModel::WalletModel(CWallet* wallet,
+                         OptionsModel* optionsModel,
+                         QObject* parent) :
+                                    QObject(parent),
+                                    wallet(wallet),
+                                    optionsModel(optionsModel),
+                                    addressTableModel(0),
+                                    transactionTableModel(0),
+                                    cachedNumTransactions(0),
+                                    cachedEncryptionStatus(Unencrypted),
+                                    cachedNumBlocks(0)
 {
     addressTableModel = new AddressTableModel(wallet, this);
     transactionTableModel = new TransactionTableModel(wallet, this);
@@ -41,35 +46,6 @@ WalletModel::~WalletModel()
     unsubscribeFromCoreSignals();
 }
 
-// TODO: refactor next 4 methods
-bool WalletModel::getBalance(const std::vector<int> &vColors,
-                             std::map<int, qint64> &mapBalance) const
-{
-    mapBalance.clear();
-    bool result = false;
-    std::vector<int>::const_iterator it;
-    for (it = vColors.begin(); it != vColors.end(); ++it)
-    {
-         int nColor = (int) *it;
-         if (CheckColor(nColor))
-         {
-             mapBalance[nColor] = wallet->GetBalance(nColor);
-             if (!result)
-             {
-                result = true;
-             }
-         }
-    }
-    return result;
-}
-
-bool WalletModel::getHand(std::vector<int> &vCards) const
-{
-    vCards.clear();
-    wallet->GetHand(0, vCards);
-    return (vCards.size() > 0);
-}
-
 bool WalletModel::getPrivateKeys(mapSecretByAddressByColor_t &mapAddrs) const
 {
     std::set<int> setColors;
@@ -82,10 +58,30 @@ bool WalletModel::getPrivateKeys(mapSecretByAddressByColor_t &mapAddrs) const
     return mapAddrs.size() > 0;
 }
 
-bool WalletModel::getUnconfirmedBalance(const std::vector<int> &vColors,
-                                        std::map<int, qint64> &mapBalance) const
+// TODO: refactor next 4 methods
+bool WalletModel::getConfirmed(const std::vector<int> &vColors,
+                               ColorsMap &mapConfirmed) const
 {
-    mapBalance.clear();
+    mapConfirmed.Clear();
+    bool result = false;
+    for (int nColor : vColors)
+    {
+         if (CheckColor(nColor))
+         {
+             mapConfirmed.Set(nColor, wallet->GetConfirmed(nColor));
+             if (!result)
+             {
+                result = true;
+             }
+         }
+    }
+    return result;
+}
+
+bool WalletModel::getImmatureStake(const std::vector<int> &vColors,
+                                   ColorsMap &mapStake) const
+{
+    mapStake.Clear();
     bool result = false;
     std::vector<int>::const_iterator it;
     for (it = vColors.begin(); it != vColors.end(); ++it)
@@ -93,7 +89,7 @@ bool WalletModel::getUnconfirmedBalance(const std::vector<int> &vColors,
          int nColor = (int) *it;
          if (CheckColor(nColor))
          {
-             mapBalance[nColor] = wallet->GetUnconfirmedBalance(nColor);
+             mapStake.Set(nColor, wallet->GetStake(nColor));
              if (!result)
              {
                   result = true;
@@ -103,10 +99,10 @@ bool WalletModel::getUnconfirmedBalance(const std::vector<int> &vColors,
     return result;
 }
 
-bool WalletModel::getStake(const std::vector<int> &vColors,
-                           std::map<int, qint64> &mapStake) const
+bool WalletModel::getImmatureCoinbase(const std::vector<int> &vColors,
+                                      ColorsMap &mapCoinbase) const
 {
-    mapStake.clear();
+    mapCoinbase.Clear();
     bool result = false;
     std::vector<int>::const_iterator it;
     for (it = vColors.begin(); it != vColors.end(); ++it)
@@ -114,7 +110,7 @@ bool WalletModel::getStake(const std::vector<int> &vColors,
          int nColor = (int) *it;
          if (CheckColor(nColor))
          {
-             mapStake[nColor] = wallet->GetStake(nColor);
+             mapCoinbase.Set(nColor, wallet->GetCoinbase(nColor));
              if (!result)
              {
                   result = true;
@@ -124,10 +120,10 @@ bool WalletModel::getStake(const std::vector<int> &vColors,
     return result;
 }
 
-bool WalletModel::getImmatureBalance(const std::vector<int> &vColors,
-                                     std::map<int, qint64> &mapBalance) const
+bool WalletModel::getUnconfirmedReceived(const std::vector<int> &vColors,
+                                         ColorsMap &mapReceived) const
 {
-    mapBalance.clear();
+    mapReceived.Clear();
     bool result = false;
     std::vector<int>::const_iterator it;
     for (it = vColors.begin(); it != vColors.end(); ++it)
@@ -135,7 +131,7 @@ bool WalletModel::getImmatureBalance(const std::vector<int> &vColors,
          int nColor = (int) *it;
          if (CheckColor(nColor))
          {
-             mapBalance[nColor] = wallet->GetImmatureBalance(nColor);
+             mapReceived.Set(nColor, wallet->GetReceived(nColor));
              if (!result)
              {
                   result = true;
@@ -143,6 +139,67 @@ bool WalletModel::getImmatureBalance(const std::vector<int> &vColors,
          }
     }
     return result;
+}
+
+bool WalletModel::getUnconfirmedSent(const std::vector<int> &vColors,
+                                     ColorsMap &mapSent) const
+{
+    mapSent.Clear();
+    bool result = false;
+    std::vector<int>::const_iterator it;
+    for (it = vColors.begin(); it != vColors.end(); ++it)
+    {
+         int nColor = (int) *it;
+         if (CheckColor(nColor))
+         {
+             mapSent.Set(nColor, wallet->GetSent(nColor));
+             if (!result)
+             {
+                  result = true;
+             }
+         }
+    }
+    return result;
+}
+
+bool WalletModel::getHand(std::vector<int>& vCards,
+                          std::vector<int>& vCardsImmature) const
+{
+    vCards.clear();
+    vCardsImmature.clear();
+    std::vector<int> vCardsUnconfirmedUnused;
+    wallet->GetHand(1, vCards, vCardsImmature, vCardsUnconfirmedUnused);
+    return ((vCards.size() + vCardsImmature.size()) > 0 );
+}
+
+void WalletModel::getSnapshot(const std::vector<int>& vColors,
+                              ColorsMap& mapConfirmed,
+                              ColorsMap& mapStake,
+                              ColorsMap& mapCoinbase,
+                              ColorsMap& mapReceived,
+                              ColorsMap& mapSent,
+                              std::vector<int> &vCards) const
+{
+    getConfirmed(vColors, mapConfirmed);
+    getImmatureStake(vColors, mapStake);
+    getImmatureCoinbase(vColors, mapCoinbase);
+    getUnconfirmedReceived(vColors, mapReceived);
+    getUnconfirmedSent(vColors, mapSent);
+    std::vector<int> vCardsImmature;
+    getHand(vCards, vCardsImmature);
+    for (int card : vCardsImmature)
+    {
+        if (std::find(vCards.begin(), vCards.end(), card) == vCards.end())
+        {
+            vCards.push_back(card);
+        }
+    }
+    std::sort(vCards.begin(), vCards.end(), cardSorter);
+}
+
+int64_t WalletModel::getSpendable(const int nColor) const
+{
+     return wallet->GetSpendable(nColor);
 }
 
 int WalletModel::getNumTransactions() const
@@ -188,50 +245,68 @@ void WalletModel::pollBalanceChanged()
 
 void WalletModel::checkBalanceChanged()
 {
-    std::map<int, qint64> mapNewBalance, mapNewStake,
-                          mapNewUnconfirmedBalance, mapNewImmatureBalance;
+    ColorsMap mapNewConfirmed, mapNewStake, mapNewCoinbase,
+              mapNewReceived, mapNewSent;
     std::vector<int> vNewCards;
 
-    getBalance(GUI_OVERVIEW_COLORS, mapNewBalance);
-    getStake(GUI_OVERVIEW_COLORS, mapNewStake);
-    getUnconfirmedBalance(GUI_OVERVIEW_COLORS, mapNewUnconfirmedBalance);
-    getImmatureBalance(GUI_OVERVIEW_COLORS, mapNewImmatureBalance);
-    getHand(vNewCards);
-
-    if (mapCachedBalance != mapNewBalance)
+    getConfirmed(GUI_OVERVIEW_COLORS, mapNewConfirmed);
+    getImmatureStake(GUI_OVERVIEW_COLORS, mapNewStake);
+    getImmatureCoinbase(GUI_OVERVIEW_COLORS, mapNewCoinbase);
+    getUnconfirmedReceived(GUI_OVERVIEW_COLORS, mapNewReceived);
+    getUnconfirmedSent(GUI_OVERVIEW_COLORS, mapNewSent);
+    std::vector<int> vNewCardsImmature;
+    getHand(vNewCards, vNewCardsImmature);
+    for (int card : vNewCardsImmature)
     {
-        mapCachedBalance = mapNewBalance;
-        emit balanceChanged(mapNewBalance, mapNewStake,
-                            mapNewUnconfirmedBalance, mapNewImmatureBalance,
-                            vNewCards);
+        if (std::find(vNewCards.begin(), vNewCards.end(), card) ==
+            vNewCards.end())
+        {
+            vNewCards.push_back(card);
+        }
+    }
+    std::sort(vNewCards.begin(), vNewCards.end(), cardSorter);
+
+    if (mapCachedConfirmed != mapNewConfirmed)
+    {
+        mapCachedConfirmed = mapNewConfirmed;
+        emit balanceChanged(mapNewConfirmed, mapNewStake,
+                            mapNewCoinbase, mapNewReceived,
+                            mapNewSent, vNewCards);
     }
     if (mapCachedStake != mapNewStake)
     {
         mapCachedStake = mapNewStake;
-        emit balanceChanged(mapNewBalance, mapNewStake,
-                            mapNewUnconfirmedBalance, mapNewImmatureBalance,
-                            vNewCards);
+        emit balanceChanged(mapNewConfirmed, mapNewStake,
+                            mapNewCoinbase, mapNewReceived,
+                            mapNewSent, vNewCards);
     }
-    if (mapCachedUnconfirmedBalance != mapNewUnconfirmedBalance)
+    if (mapCachedCoinbase != mapNewCoinbase)
     {
-        mapCachedUnconfirmedBalance = mapNewUnconfirmedBalance;
-        emit balanceChanged(mapNewBalance, mapNewStake,
-                            mapNewUnconfirmedBalance, mapNewImmatureBalance,
-                            vNewCards);
+        mapCachedCoinbase = mapNewCoinbase;
+        emit balanceChanged(mapNewConfirmed, mapNewStake,
+                            mapNewCoinbase, mapNewReceived,
+                            mapNewSent, vNewCards);
     }
-    if (mapCachedImmatureBalance != mapNewImmatureBalance)
+    if (mapCachedReceived != mapNewReceived)
     {
-        mapCachedImmatureBalance = mapNewImmatureBalance;
-        emit balanceChanged(mapNewBalance, mapNewStake,
-                            mapNewUnconfirmedBalance, mapNewImmatureBalance,
-                            vNewCards);
+        mapCachedReceived = mapNewReceived;
+        emit balanceChanged(mapNewConfirmed, mapNewStake,
+                            mapNewCoinbase, mapNewReceived,
+                            mapNewSent, vNewCards);
+    }
+    if (mapCachedSent != mapNewSent)
+    {
+        mapCachedSent = mapNewSent;
+        emit balanceChanged(mapNewConfirmed, mapNewStake,
+                            mapNewCoinbase, mapNewReceived,
+                            mapNewSent, vNewCards);
     }
     if (vCachedCards != vNewCards)
     {
         vCachedCards = vNewCards;
-        emit balanceChanged(mapNewBalance, mapNewStake,
-                            mapNewUnconfirmedBalance, mapNewImmatureBalance,
-                            vNewCards);
+        emit balanceChanged(mapNewConfirmed, mapNewStake,
+                            mapNewCoinbase, mapNewReceived,
+                            mapNewSent, vNewCards);
     }
 }
 
@@ -292,7 +367,6 @@ int WalletModel::validateAddress(const QString &address)
     return BREAKOUT_COLOR_NONE;
 }
 
-#ifdef IMPORT_WALLET
 WalletModel::AddKeyStatus WalletModel::addPrivKey(
                              const CKey &ckeySecret, const CPubKey &pubkey,
                              const CKeyID &vchAddress, int nColor,
@@ -324,9 +398,12 @@ WalletModel::AddKeyStatus WalletModel::addPrivKey(
 
     return StatusKeyAdded;
 }
-#endif
 
-WalletModel::SendCoinsReturn WalletModel::sendCoins(const QString &txcomment, const QList<SendCoinsRecipient> &recipients, unsigned int nServiceTypeID, const CCoinControl *coinControl)
+WalletModel::SendCoinsReturn WalletModel::sendCoins(
+    const QString& txcomment,
+    const QList<SendCoinsRecipient>& recipients,
+    unsigned int nServiceTypeID,
+    const CCoinControl* coinControl)
 {
     qint64 total = 0;
     QSet<QString> setAddress;
@@ -393,7 +470,7 @@ WalletModel::SendCoinsReturn WalletModel::sendCoins(const QString &txcomment, co
     }
     else
     {
-        if (vTransactionFee[nFeeColor] > wallet->GetBalance(nFeeColor))
+        if (vTransactionFee[nFeeColor] > wallet->GetSpendable(nFeeColor))
         {
             return SendCoinsReturn(FeeExceedsFeeBalance, vTransactionFee[nFeeColor]);
         } 
@@ -475,7 +552,7 @@ WalletModel::SendCoinsReturn WalletModel::sendCoins(const QString &txcomment, co
                             return NarrationTooLong;
                         };
 
-                        std::vector<unsigned char> vchNarr;
+                        valtype vchNarr;
                         
                         SecMsgCrypter crypter;
                         crypter.SetKey(&secretShared.e[0], &ephem_pubkey[0]);
@@ -574,7 +651,7 @@ WalletModel::SendCoinsReturn WalletModel::sendCoins(const QString &txcomment, co
             }
             else
             {
-                if (nFeeRequired > wallet->GetBalance(nFeeColor))
+                if (nFeeRequired > wallet->GetSpendable(nFeeColor))
                 {
                     return SendCoinsReturn(FeeExceedsFeeBalance, nFeeRequired);
                 }
@@ -585,7 +662,7 @@ WalletModel::SendCoinsReturn WalletModel::sendCoins(const QString &txcomment, co
         {
             return Aborted;
         }
-        if(!wallet->CommitTransaction(wtx, keyChange, keyFeeChange))
+        if(!wallet->CommitTransaction(wtx, &keyChange, &keyFeeChange))
         {
             return TransactionCommitFailed;
         }
@@ -733,38 +810,80 @@ static void NotifyTransactionChanged(WalletModel *walletmodel, CWallet *wallet, 
                               Q_ARG(int, status));
 }
 
-static void NotifyBlocksChanged(WalletModel *walletmodel)
+// static void NotifyBlocksChanged(WalletModel *walletmodel)
+// {
+// /*
+//     if (!IsInitialBlockDownload()) {
+//     }
+// */
+// }
+
+static void NotifyReconcileStarted(WalletModel* walletmodel)
 {
-    if (!IsInitialBlockDownload()) {
+    QObject* parent = walletmodel->parent();
+    if (parent)
+    {
+        QMetaObject::invokeMethod(parent,
+                                  "reconcileStarted",
+                                  Qt::QueuedConnection);
+    }
+}
+
+static void NotifyReconcileEnded(WalletModel* walletmodel)
+{
+    QObject* parent = walletmodel->parent();
+    if (parent)
+    {
+        QMetaObject::invokeMethod(parent,
+                                  "reconcileEnded",
+                                  Qt::QueuedConnection);
     }
 }
 
 void WalletModel::subscribeToTransactionSignal()
 {
-    wallet->NotifyTransactionChanged.connect(boost::bind(NotifyTransactionChanged, this, _1, _2, _3));
+    wallet->NotifyTransactionChanged.connect(
+        boost::bind(NotifyTransactionChanged, this, _1, _2, _3));
 }
 
 void WalletModel::unsubscribeFromTransactionSignal()
 {
-    wallet->NotifyTransactionChanged.disconnect(boost::bind(NotifyTransactionChanged, this, _1, _2, _3));
+    wallet->NotifyTransactionChanged.disconnect(
+        boost::bind(NotifyTransactionChanged, this, _1, _2, _3));
 }
 
 void WalletModel::subscribeToCoreSignals()
 {
     // Connect signals to wallet
-    wallet->NotifyStatusChanged.connect(boost::bind(&NotifyKeyStoreStatusChanged, this, _1));
-    wallet->NotifyAddressBookChanged.connect(boost::bind(NotifyAddressBookChanged, this, _1, _2, _3, _4, _5, _6));
-    wallet->NotifyTransactionChanged.connect(boost::bind(NotifyTransactionChanged, this, _1, _2, _3));
-    // uiInterface.NotifyBlocksChanged.connect(boost::bind(NotifyBlocksChanged, this));
+    wallet->NotifyStatusChanged.connect(
+        boost::bind(&NotifyKeyStoreStatusChanged, this, _1));
+    wallet->NotifyAddressBookChanged.connect(
+        boost::bind(NotifyAddressBookChanged, this, _1, _2, _3, _4, _5, _6));
+    wallet->NotifyTransactionChanged.connect(
+        boost::bind(NotifyTransactionChanged, this, _1, _2, _3));
+    // uiInterface.NotifyBlocksChanged.connect(boost::bind(NotifyBlocksChanged,
+    // this));
+    wallet->NotifyReconcileStarted.connect(
+        boost::bind(NotifyReconcileStarted, this));
+    wallet->NotifyReconcileEnded.connect(
+        boost::bind(NotifyReconcileEnded, this));
 }
 
 void WalletModel::unsubscribeFromCoreSignals()
 {
     // Disconnect signals from wallet
-    wallet->NotifyStatusChanged.disconnect(boost::bind(&NotifyKeyStoreStatusChanged, this, _1));
-    wallet->NotifyAddressBookChanged.disconnect(boost::bind(NotifyAddressBookChanged, this, _1, _2, _3, _4, _5, _6));
-    wallet->NotifyTransactionChanged.disconnect(boost::bind(NotifyTransactionChanged, this, _1, _2, _3));
-    uiInterface.NotifyBlocksChanged.disconnect(boost::bind(NotifyBlocksChanged, this));
+    wallet->NotifyStatusChanged.disconnect(
+        boost::bind(&NotifyKeyStoreStatusChanged, this, _1));
+    wallet->NotifyAddressBookChanged.disconnect(
+        boost::bind(NotifyAddressBookChanged, this, _1, _2, _3, _4, _5, _6));
+    wallet->NotifyTransactionChanged.disconnect(
+        boost::bind(NotifyTransactionChanged, this, _1, _2, _3));
+    // uiInterface.NotifyBlocksChanged.disconnect(boost::bind(NotifyBlocksChanged,
+    // this));
+    wallet->NotifyReconcileStarted.disconnect(
+        boost::bind(NotifyReconcileStarted, this));
+    wallet->NotifyReconcileEnded.disconnect(
+        boost::bind(NotifyReconcileEnded, this));
 }
 
 // WalletModel::UnlockContext implementation
@@ -785,15 +904,13 @@ WalletModel::UnlockContext WalletModel::requestUnlock()
     return UnlockContext(this, valid, was_locked, was_mintOnly);
 }
 
-WalletModel::UnlockContext::UnlockContext(WalletModel *wallet, bool valid,
-                                                               bool relock,
-                                                               bool mint ):
-        wallet(wallet),
-        valid(valid),
-        relock(relock),
-        mint(mint)
-{
-}
+WalletModel::UnlockContext::UnlockContext(WalletModel *wallet,
+                                          bool valid,
+                                          bool relock,
+                                          bool mint ): wallet(wallet),
+                                                      valid(valid),
+                                                      relock(relock),
+                                                      mint(mint) { }
 
 WalletModel::UnlockContext::~UnlockContext()
 {
@@ -874,7 +991,7 @@ void WalletModel::listCoins(int nColor, std::map<QString, std::vector<COutput> >
 
         while (wallet->IsChange(cout.tx->vout[cout.i]) &&
                (cout.tx->vin.size() > 0) &&
-               (wallet->IsMine(cout.tx->vin[0], fMultiSig) & ISMINE_SPENDABLE))
+               (wallet->IsMine(cout.tx->vin[0], fMultiSig) & ISMINE_SIGNABLE))
         {
             if (!wallet->mapWallet.count(cout.tx->vin[0].prevout.hash)) break;
             cout = COutput(&wallet->mapWallet[cout.tx->vin[0].prevout.hash], cout.tx->vin[0].prevout.n, 0);
@@ -920,37 +1037,6 @@ void WalletModel::listAddresses(int nColor, std::map<QString, int64_t>& mapAddrs
        }
     }
 }
-
-// effectively mapCredit - mapDebit
-void WalletModel::FillNets(const std::map<int, qint64> &mapDebit,
-                           const std::map<int, qint64> &mapCredit,
-                           std::map<int, qint64> &mapNet)
-{
-    mapNet = mapCredit;
-    std::map<int, qint64>::iterator itnet;
-    std::map<int, qint64>::const_iterator itdeb;
-    for (itnet = mapNet.begin(); itnet != mapNet.end(); ++itnet)
-    {
-        for (itdeb = mapDebit.begin(); itdeb != mapDebit.end(); ++itdeb)
-        {
-            if (itnet->first == itdeb->first)
-            {
-                itnet->second -= itdeb->second;
-                break;
-            }
-        }
-    }
-    for (itdeb = mapDebit.begin(); itdeb != mapDebit.end(); ++itdeb)
-    {
-        itnet = mapNet.find(itdeb->first);
-        if (itnet == mapNet.end())
-        {
-            mapNet[itdeb->first] = -itdeb->second;
-        }
-    }
-}
-
-
 
 bool WalletModel::isLockedCoin(uint256 hash, unsigned int n) const
 {

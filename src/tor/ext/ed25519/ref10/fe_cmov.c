@@ -1,4 +1,4 @@
-#include "fe.h"
+#include "ext/ed25519/ref10/fe.h"
 
 /*
 Replace (f,g) with (g,g) if b == 1;

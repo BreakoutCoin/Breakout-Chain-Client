@@ -9,19 +9,21 @@
 #include "init.h"
 #include "base58.h"
 #include "stealth.h"
-#include "txdb.h"
+#include "txdb-leveldb.h"
 
 #include <boost/lexical_cast.hpp>
+#include <boost/assign/list_of.hpp>
 
 #include <math.h>
 
+using namespace boost::assign;
 using namespace json_spirit;
 using namespace std;
 
 int64_t nWalletUnlockTime;
 static CCriticalSection cs_nWalletUnlockTime;
 
-extern void TxToJSON(const CTransaction& tx, const uint256 hashBlock, json_spirit::Object& entry);
+extern void TxToJSON(const CTransaction& tx, const uint256 hashBlock, Object& entry);
 
 
 static void accountingDeprecationCheck()
@@ -55,7 +57,7 @@ void WalletTxToJSON(const CWalletTx& wtx, Object& entry)
 {
     int confirms = wtx.GetDepthInMainChain();
     entry.push_back(Pair("confirmations", confirms));
-    if (wtx.IsCoinBase() || wtx.IsCoinStake())
+    if (wtx.DoesMature())
         entry.push_back(Pair("generated", true));
     if (confirms > 0)
     {
@@ -84,30 +86,29 @@ string AccountFromValue(const Value& value)
 
 Value getinfo(const Array& params, bool fHelp)
 {
-    if (fHelp || params.size() > 1)
+    if (fHelp || params.size() > 2)
     {
        if (nNumberOfStakingCurrencies > 0)
        {
           throw runtime_error(
-              "getinfo [ticker]\n"
+              "getinfo [ticker] [showbalance=true]\n"
               "If <ticker> is given, report balance, money supply, paytxfee, and mininput for it.\n"
               "If <ticker> is also a staking currency, report newmint and stake for it.\n"
-              "Returns an object containing various state info for default currencies.\n");
+              "If <showbalance> is true (default), then balance is reported.\n"
+              "Returns an object containing various state info for default currencies.");
        }
        else
        {  
           throw runtime_error(
               "getinfo [ticker]\n"
               "If <ticker> is given, report balance, money supply, paytxfee, and mininput for it.\n"
-              "Returns an object containing various state info for default currencies.\n");
+              "If <showbalance> is true (default), then balance is reported.\n"
+              "Returns an object containing various state info for default currencies.");
        }
     }
 
-    checkDefaultCurrency();
-    checkDefaultStake();
-
-    int nColor = nDefaultCurrency;
-    int nStake = nDefaultStake;
+    int nColor = CheckDefaultCurrency();
+    int nStake = CheckDefaultStake();
 
     if (params.size() > 0)
     {
@@ -123,52 +124,99 @@ Value getinfo(const Array& params, bool fHelp)
           }
     }
 
+    bool fShowBalance = true;
+
+    if (params.size() > 1)
+    {
+        fShowBalance = params[1].get_bool();
+    }
+
     proxyType proxy;
     GetProxy(NET_IPV4, proxy);
 
     Object obj, diff;
-    obj.push_back(Pair("version",       FormatFullVersion()));
+    obj.push_back(Pair("version", FormatFullVersion()));
     obj.push_back(Pair("protocolversion",(int)PROTOCOL_VERSION));
     obj.push_back(Pair("walletversion", pwalletMain->GetVersion()));
-    obj.push_back(Pair("balance",       ValueFromAmount(pwalletMain->GetBalance(nColor), nColor)));
-    obj.push_back(Pair("balance currency", std::string(COLOR_TICKER[nColor])));
-
-    if (nNumberOfStakingCurrencies > 0)
+    if (fShowBalance)
     {
-          obj.push_back(Pair("staking balance", ValueFromAmount(pwalletMain->GetBalance(nStake), nStake)));
-          obj.push_back(Pair("staking currency",  std::string(COLOR_TICKER[nStake])));
-          obj.push_back(Pair("newmint",       ValueFromAmount(pwalletMain->GetNewMint(nStake), nStake)));
-          obj.push_back(Pair("stake",         ValueFromAmount(pwalletMain->GetStake(nStake), nStake)));
-          obj.push_back(Pair("staking moneysupply", ValueFromAmount(pindexBest->vMoneySupply[nStake], nStake)));
-          obj.push_back(Pair("staking totalmint", ValueFromAmount(pindexBest->vTotalMint[nStake], nStake)));
+        obj.push_back(Pair("balance",
+                           ValueFromAmount(pwalletMain->GetSpendable(nColor),
+                                           nColor)));
+        obj.push_back(Pair("balance currency",
+                           std::string(COLOR_TICKER[nColor])));
+
+        if (nNumberOfStakingCurrencies > 0)
+        {
+              obj.push_back(Pair("staking balance",
+                                 ValueFromAmount(pwalletMain->GetSpendable(nStake),
+                                                 nStake)));
+              obj.push_back(Pair("staking currency",
+                                 std::string(COLOR_TICKER[nStake])));
+              obj.push_back(Pair("newmint",
+                                 ValueFromAmount(pwalletMain->GetNewMint(nStake),
+                                                 nStake)));
+              obj.push_back(Pair("stake",
+                                 ValueFromAmount(pwalletMain->GetStake(nStake),
+                                                 nStake)));
+              obj.push_back(Pair("staking moneysupply",
+                                 ValueFromAmount(pindexBest->vMoneySupply[nStake],
+                                                 nStake)));
+              obj.push_back(Pair("staking totalmint",
+                                 ValueFromAmount(pindexBest->vTotalMint[nStake],
+                                                 nStake)));
+        }
     }
-    obj.push_back(Pair("blocks",        (int)nBestHeight));
-    obj.push_back(Pair("timeoffset",    (boost::int64_t)GetTimeOffset()));
-    obj.push_back(Pair("moneysupply",   ValueFromAmount(pindexBest->vMoneySupply[nColor], nColor)));
-    obj.push_back(Pair("moneysupply currency", std::string(COLOR_TICKER[nColor])));
-    obj.push_back(Pair("totalmint",   ValueFromAmount(pindexBest->vTotalMint[nColor], nColor)));
-    obj.push_back(Pair("totalmint currency", std::string(COLOR_TICKER[nColor])));
-    obj.push_back(Pair("connections",   (int)vNodes.size()));
-    obj.push_back(Pair("proxy",         (proxy.first.IsValid() ? proxy.first.ToStringIPPort() : string())));
-    obj.push_back(Pair("ip",            addrSeenByPeer.ToStringIP()));
+    obj.push_back(Pair("blocks",
+                       (int)nBestHeight));
+    obj.push_back(Pair("timeoffset",
+                       (boost::int64_t)GetTimeOffset()));
+    obj.push_back(Pair("moneysupply",
+                       ValueFromAmount(pindexBest->vMoneySupply[nColor],
+                                       nColor)));
+    obj.push_back(Pair("moneysupply currency",
+                       std::string(COLOR_TICKER[nColor])));
+    obj.push_back(Pair("totalmint",
+                       ValueFromAmount(pindexBest->vTotalMint[nColor],
+                                       nColor)));
+    obj.push_back(Pair("totalmint currency",
+                       std::string(COLOR_TICKER[nColor])));
+    obj.push_back(Pair("connections",
+                       static_cast<int>(GetConnectionCount())));
+    obj.push_back(Pair("proxy",
+                       (proxy.first.IsValid() ?
+                                proxy.first.ToStringIPPort() :
+                                string())));
+    obj.push_back(Pair("ip", addrSeenByPeer.ToStringIP()));
 
-    diff.push_back(Pair("proof-of-work",  GetDifficulty()));
+    diff.push_back(Pair("proof-of-work", GetDifficulty(pindexBest)));
     if (nNumberOfStakingCurrencies > 0)
     {
-         diff.push_back(Pair("proof-of-stake", GetDifficulty(GetLastBlockIndex(pindexBest, true))));
+         diff.push_back(Pair("proof-of-stake",
+                        GetDifficulty(GetLastBlockIndex(pindexBest, true))));
     }
     obj.push_back(Pair("difficulty",    diff));
 
-    obj.push_back(Pair("testnet",       fTestNet));
-    obj.push_back(Pair("keypoololdest", (boost::int64_t)pwalletMain->GetOldestKeyPoolTime()));
-    obj.push_back(Pair("keypoolsize",   (int)pwalletMain->GetKeyPoolSize()));
-    obj.push_back(Pair("paytxfee",      ValueFromAmount(vTransactionFee[nColor], nColor)));
-    obj.push_back(Pair("paytxfee currency", std::string(COLOR_TICKER[nColor])));
-    obj.push_back(Pair("mininput",      ValueFromAmount(vMinimumInputValue[nColor], nColor)));
-    obj.push_back(Pair("mininput currency", std::string(COLOR_TICKER[nColor])));
+    obj.push_back(Pair("testnet", fTestNet));
+    obj.push_back(Pair("keypoololdest",
+                       (boost::int64_t)pwalletMain->GetOldestKeyPoolTime()));
+    obj.push_back(Pair("keypoolsize",
+                       (int)pwalletMain->GetKeyPoolSize()));
+    obj.push_back(Pair("paytxfee",
+                       ValueFromAmount(vTransactionFee[nColor],
+                                       nColor)));
+    obj.push_back(Pair("paytxfee currency",
+                       std::string(COLOR_TICKER[nColor])));
+    obj.push_back(Pair("mininput",
+                       ValueFromAmount(vMinimumInputValue[nColor],
+                       nColor)));
+    obj.push_back(Pair("mininput currency",
+                       std::string(COLOR_TICKER[nColor])));
     if (pwalletMain->IsCrypted())
-        obj.push_back(Pair("unlocked_until", (boost::int64_t)nWalletUnlockTime / 1000));
-    obj.push_back(Pair("errors",        GetWarnings("statusbar")));
+        obj.push_back(Pair("unlocked_until",
+                           (boost::int64_t)nWalletUnlockTime / 1000));
+    obj.push_back(Pair("errors",
+                       GetWarnings("statusbar")));
     return obj;
 }
 
@@ -181,14 +229,12 @@ Value getnewpubkey(const Array& params, bool fHelp)
             "If [ticker] is not given, default currency is used.\n"
             "Returns new public key for coinbase generation.");
 
-    checkDefaultCurrency();
+    int nColor = CheckDefaultCurrency();
 
     // Parse the account first so we don't generate a key if there's an error
     string strAccount;
     if (params.size() > 0)
         strAccount = AccountFromValue(params[0]);
-
-    int nColor = nDefaultCurrency;
 
     if (params.size() > 1)
     {
@@ -210,7 +256,7 @@ Value getnewpubkey(const Array& params, bool fHelp)
     CKeyID keyID = newKey.GetID();
 
     pwalletMain->SetAddressBookName(keyID, nColor, strAccount);
-    vector<unsigned char> vchPubKey = newKey.Raw();
+    valtype vchPubKey = newKey.Raw();
 
     return HexStr(vchPubKey.begin(), vchPubKey.end());
 }
@@ -226,9 +272,7 @@ Value getnewaddress(const Array& params, bool fHelp)
             "If [ticker] is not given, an address for the default currency is given.\n"
             "Returns a new breakout address for receiving payments.\n");
 
-    checkDefaultCurrency();
-
-    int nColor = nDefaultCurrency;
+    int nColor = CheckDefaultCurrency();
 
     if (params.size() > 1)
     {
@@ -309,12 +353,10 @@ Value getaccountaddress(const Array& params, bool fHelp)
             "If [ticker] is not given, an address for the default currency is provided.\n"
             "Returns the current breakout address for receiving payments to this account.");
 
-    checkDefaultCurrency();
+    int nColor =  CheckDefaultCurrency();
 
     // Parse the account first so we don't generate a key if there's an error
     string strAccount = AccountFromValue(params[0]);
-
-    int nColor = nDefaultCurrency;
 
     if (params.size() > 1)
     {
@@ -394,9 +436,7 @@ Value getaddressesbyaccount(const Array& params, bool fHelp)
             "Returns the list of addresses for the given account."
         );
 
-    checkDefaultCurrency();
-
-    int nColor = nDefaultCurrency;
+    int nColor = CheckDefaultCurrency();
 
     if (params.size() > 1)
     {
@@ -480,14 +520,17 @@ Value sendtoaddress(const Array& params, bool fHelp)
            txcomment = params[4].get_str();
     }	   
     if (txcomment.length() > MAX_TX_COMMENT_LEN) {
-         char sErr[60];
-         sprintf(sErr, "Transaction comment must be %d characters or fewer.", MAX_TX_COMMENT_LEN);
-         throw runtime_error(sErr);
+        throw runtime_error(
+            strprintf("Transaction comment must be %d characters or fewer.",
+                      MAX_TX_COMMENT_LEN));
     }
 
     // product id
-    if (params.size() > 5 && params[5].type() != null_type && !params[5].get_str().empty()) {
-              nServiceTypeID = atoi(params[5].get_str());
+    if ((params.size() > 5) &&
+        (params[5].type() != null_type) &&
+        !params[5].get_str().empty())
+    {
+        nServiceTypeID = atoi(params[5].get_str());
     }
 
     std::string sNarr;
@@ -506,6 +549,120 @@ Value sendtoaddress(const Array& params, bool fHelp)
         throw JSONRPCError(RPC_WALLET_ERROR, strError);
 
     return wtx.GetHash().GetHex();
+}
+
+Value consolidate(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() < 2 || params.size() > 3)
+    {
+        throw runtime_error(
+            "consolidate <[source, ...]> <destination> ([ticker, ...])\n"
+            "Consolidate coins from sources to the <destination>.\n"
+            "Creates a new thread that runs until sources are depleted.\n"
+            "Sources and destination are compressed pubkey addresses.\n"
+            "If optional ([ticker, ...]) is given, then coins of only those\n"
+            "tickers listed will be consolidated (default is consolidate all).\n"
+            "Consolidation transactions are sent 1 per block\n"
+            "Returns error if unsuccessful.");
+    }
+
+    if (pwalletMain->IsLocked())
+    {
+        throw JSONRPCError(RPC_WALLET_UNLOCK_NEEDED,
+                           "Error: Please enter the wallet passphrase with "
+                           "walletpassphrase first.");
+    }
+
+    if (params.size() == 2)
+    {
+        RPCTypeCheck(params, list_of(array_type)(str_type));
+    }
+    else
+    {
+        RPCTypeCheck(params, list_of(array_type)(str_type)(array_type));
+    }
+
+    Array sources = params[0].get_array();
+
+    if (sources.size() == 0)
+    {
+        throw JSONRPCError(RPC_INVALID_PARAMETER,
+                           "Source list is empty.");
+    }
+
+    map<CTxDestination, string> mapSources;
+    for (const Value& source : sources)
+    {
+        string strSource = source.get_str();
+        if (!IsHex(strSource))
+        {
+            throw JSONRPCError(RPC_INVALID_PARAMETER,
+                               "Source \"" + strSource + "\" is not hex.");
+        }
+        valtype vchPubKey = ParseHex(strSource);
+        CPubKey pubkey(vchPubKey);
+        if (!pubkey.IsFullyValid())
+        {
+            throw JSONRPCError(RPC_INVALID_PARAMETER,
+                               "Source \"" + strSource +
+                                   "\" is not a valid pubkey.");
+        }
+        CKeyID keyID = pubkey.GetID();
+        CTxDestination dest(keyID);
+        isminetype isMine = IsMine(*pwalletMain, dest, false);
+        if (!(isMine & ISMINE_SIGNABLE))
+        {
+            throw JSONRPCError(RPC_INVALID_PARAMETER,
+                               "Source \"" + strSource +
+                                   "\" is not owned by wallet.");
+        }
+        mapSources[dest] = strSource;
+    }
+
+    string strDest = params[1].get_str();
+    if (!IsHex(strDest))
+    {
+        throw JSONRPCError(RPC_INVALID_PARAMETER,
+                           "Destination \"" + strDest + "\" is not hex.");
+    }
+    valtype vchPubKeyDest = ParseHex(strDest);
+    CPubKey pubkeyDest(vchPubKeyDest);
+    if (!pubkeyDest.IsFullyValid())
+    {
+        throw JSONRPCError(RPC_INVALID_PARAMETER,
+                           "Destination \"" + strDest +
+                               "\" is not a valid pubkey.");
+    }
+
+    set<int> setColors;
+    if (params.size() >  2)
+    {
+        Array tickers = params[2].get_array();
+        for (const Value& ticker : tickers)
+        {
+            string strTicker = ticker.get_str();
+            int nColor;
+            if (!GetColorFromTicker(strTicker, nColor))
+            {
+                throw JSONRPCError(RPC_INVALID_PARAMETER,
+                         "Ticker \"" + strTicker + "\" is not valid.");
+            }
+            setColors.insert(nColor);
+        }
+    }
+
+    ConsolidationArgs* pargs = new ConsolidationArgs(mapSources,
+                                                     pubkeyDest,
+                                                     setColors);
+
+    // ThreadConsolidate will free ppairArgs if created successfully
+    if (!NewThread(ThreadConsolidate, pargs))
+    {
+        delete pargs;
+        throw runtime_error("Failed to start ThreadConsolidate");
+    }
+
+    return Value::null;
 }
 
 Value burncoins(const Array& params, bool fHelp)
@@ -583,9 +740,8 @@ Value listaddressgroupings(const Array& params, bool fHelp)
             "in past transactions");
 
 
-    // the following 2 lines are just to get it to build
-    checkDefaultCurrency();
-    int nColor = nDefaultCurrency;
+    // the following line is just to get it to build
+    int nColor = CheckDefaultCurrency();
 
     Array jsonGroupings;
     map<CTxDestination, int64_t> balances = pwalletMain->GetAddressBalances();
@@ -638,7 +794,7 @@ Value signmessage(const Array& params, bool fHelp)
     ss << strMessageMagic;
     ss << strMessage;
 
-    vector<unsigned char> vchSig;
+    valtype vchSig;
     if (!key.SignCompact(Hash(ss.begin(), ss.end()), vchSig))
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Sign failed");
 
@@ -665,7 +821,7 @@ Value verifymessage(const Array& params, bool fHelp)
         throw JSONRPCError(RPC_TYPE_ERROR, "Address does not refer to key");
 
     bool fInvalid = false;
-    vector<unsigned char> vchSig = DecodeBase64(strSign.c_str(), &fInvalid);
+    valtype vchSig = DecodeBase64(strSign.c_str(), &fInvalid);
 
     if (fInvalid)
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Malformed base64 encoding");
@@ -686,9 +842,12 @@ Value verifymessage(const Array& params, bool fHelp)
 Value getreceivedbyaddress(const Array& params, bool fHelp)
 {
     if (fHelp || params.size() < 1 || params.size() > 2)
+    {
         throw runtime_error(
             "getreceivedbyaddress <breakoutaddress> [minconf=1]\n"
-            "Returns the total amount received by <breakoutaddress> in transactions with at least [minconf] confirmations.");
+            "Returns the total amount received by <breakoutaddress> "
+               "in transactions with at least [minconf] confirmations.");
+    }
 
     // Bitcoin address
     CBitcoinAddress address = CBitcoinAddress(params[0].get_str());
@@ -707,22 +866,30 @@ Value getreceivedbyaddress(const Array& params, bool fHelp)
     // Minimum confirmations
     int nMinDepth = 1;
     if (params.size() > 1)
+    {
         nMinDepth = params[1].get_int();
+    }
 
     // Tally
     int64_t nAmount = 0;
     for (map<uint256, CWalletTx>::iterator it = pwalletMain->mapWallet.begin(); it != pwalletMain->mapWallet.end(); ++it)
     {
         const CWalletTx& wtx = (*it).second;
-        if (wtx.IsCoinBase() || wtx.IsCoinStake() || !wtx.IsFinal() || (wtx.GetColor() != address.nColor))
+        if (wtx.DoesMature() || !wtx.IsFinal() || (wtx.GetColor() != address.nColor))
         {
             continue;
         }
 
         BOOST_FOREACH(const CTxOut& txout, wtx.vout)
+        {
             if (txout.scriptPubKey == scriptPubKey)
+            {
                 if (wtx.GetDepthInMainChain() >= nMinDepth)
+                {
                     nAmount += txout.nValue;
+                }
+            }
+        }
     }
 
     return  ValueFromAmount(nAmount, address.nColor);
@@ -751,7 +918,7 @@ Value getreceivedbyaccount(const Array& params, bool fHelp)
 
     accountingDeprecationCheck();
 
-    checkDefaultCurrency();
+    CheckDefaultCurrency();
 
     // Minimum confirmations
     int nMinDepth = 1;
@@ -780,7 +947,7 @@ Value getreceivedbyaccount(const Array& params, bool fHelp)
     for (map<uint256, CWalletTx>::iterator it = pwalletMain->mapWallet.begin(); it != pwalletMain->mapWallet.end(); ++it)
     {
         const CWalletTx& wtx = (*it).second;
-        if (wtx.IsCoinBase() || wtx.IsCoinStake() || !wtx.IsFinal())
+        if (wtx.DoesMature() || !wtx.IsFinal())
             continue;
 
         BOOST_FOREACH(const CTxOut& txout, wtx.vout)
@@ -860,14 +1027,50 @@ Value gethand(const Array& params, bool fHelp)
     }
 
     std::vector<int> vCards;
-    pwalletMain->GetHand(nMinDepth, vCards);
+    std::vector<int> vCardsImmature;
+    std::vector<int> vCardsUnconfirmed;
+    pwalletMain->GetHand(nMinDepth, vCards, vCardsImmature, vCardsUnconfirmed);
 
-    Array aryCards;
+    Object objCards;
     for (int i = 0; i < (int) vCards.size(); ++i)
     {
-       aryCards.push_back(vCards[i]);
+       string strTicker;
+       if (!GetTickerFromColor(vCards[i], strTicker))
+       {
+           throw runtime_error(strprintf("TSNH: no ticker for %d", vCards[i]));
+       }
+       objCards.push_back(Pair(strTicker, vCards[i]));
     }
-    return aryCards;
+
+    // TODO: refactor
+    Object objCardsImmature;
+    for (int i = 0; i < (int) vCardsImmature.size(); ++i)
+    {
+       string strTicker;
+       if (!GetTickerFromColor(vCardsImmature[i], strTicker))
+       {
+           throw runtime_error(strprintf("TSNH: no ticker for %d", vCards[i]));
+       }
+       objCardsImmature.push_back(Pair(strTicker, vCards[i]));
+    }
+
+    // TODO: refactor
+    Object objCardsUnconfirmed;
+    for (int i = 0; i < (int) vCardsUnconfirmed.size(); ++i)
+    {
+       string strTicker;
+       if (!GetTickerFromColor(vCardsUnconfirmed[i], strTicker))
+       {
+           throw runtime_error(strprintf("TSNH: no ticker for %d", vCards[i]));
+       }
+       objCardsUnconfirmed.push_back(Pair(strTicker, vCards[i]));
+    }
+
+    Object obj;
+    obj.push_back(Pair("cards", objCards));
+    obj.push_back(Pair("immature", objCardsImmature));
+    obj.push_back(Pair("unconfirmed", objCardsUnconfirmed));
+    return obj;
 }
 
 Value getprivatekeys(const Array& params, bool fHelp)
@@ -910,12 +1113,65 @@ Value getprivatekeys(const Array& params, bool fHelp)
     return objRet;
 }
         
+Value getwalletsnapshot(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() > 1)
+    {
+        throw runtime_error(
+            "getwalletsnapshot [recalculate=false]\n"
+            "For debugging -- returns confirmed, stake, coinbase, received, sent\n"
+            "If [recalculate] is true, the underlying data structures are recalculated");
+    }
+    
+    bool fRecalculate = false;
+    if (params.size() > 0)
+    {
+        fRecalculate = params[0].get_bool();
+    }
+
+    if (fRecalculate)
+    {
+            string strProgressLabelFill("Progress of FillSnapshot");
+            CProgressHelper progressFill(&logProgress,
+                                         &strProgressLabelFill,
+                                         100);
+            pwalletMain->FillSnapshot(&progressFill);
+    }
+
+    Object objConfirmed;
+    ColorsMapToJSON(pwalletMain->mapConfirmed, objConfirmed);
+
+    Object objStake;
+    ColorsMapToJSON(pwalletMain->mapStake, objStake);
+
+    Object objCoinbase;
+    ColorsMapToJSON(pwalletMain->mapCoinbase, objCoinbase);
+
+    Object objReceived;
+    ColorsMapToJSON(pwalletMain->mapReceived, objReceived);
+
+    Object objSent;
+    ColorsMapToJSON(pwalletMain->mapSent, objSent);
+
+    Object obj;
+    obj.push_back(Pair("confirmed", objConfirmed));
+    obj.push_back(Pair("stake", objStake));
+    obj.push_back(Pair("coinbase", objCoinbase));
+    obj.push_back(Pair("received", objReceived));
+    obj.push_back(Pair("sent", objSent));
+    return obj;
+}
+
+
 
 Value getbalances(const Array& params, bool fHelp)
 {
-    if (fHelp || params.size() > 1)
-        throw runtime_error(
-            "getbalances [minconf=1]\n");
+    if (fHelp || params.size() > 2)
+    {
+        throw runtime_error("getbalances [minconf=1] [recalculate=false]\n"
+                            "if [recalculate] is true, the it forces the "
+                            "wallet to recalcualte (for debugging)");
+    }
 
     int nMinDepth = 1;
     if (params.size() > 0)
@@ -923,22 +1179,73 @@ Value getbalances(const Array& params, bool fHelp)
         nMinDepth = params[0].get_int();
     }
 
-    std::vector<int64_t> vBalance(N_COLORS, 0);
-    pwalletMain->GetBalances(nMinDepth, vBalance);
-
-    Object obj;
-    for (int nColor = 1; nColor < N_COLORS; ++nColor)
+    bool fRecalculate = false;
+    if (params.size() > 1)
     {
-        // TODO: should have "show zero balances" option
-        // Only report cards that the user has.
-        if ((vBalance[nColor] == 0) && (IsDeck(nColor)))
-        {
-            continue;
-        }
-        obj.push_back(Pair(std::string(COLOR_TICKER[nColor]),
-                                         ValueFromAmount(vBalance[nColor], nColor)));
+        fRecalculate = params[1].get_bool();
     }
 
+    ColorsMap mapSpendable;
+    ColorsMap mapImmature;
+    ColorsMap mapUnconfirmed;
+
+    if ((nMinDepth == 1) && !fRecalculate)
+    {
+        // Spendable = Confirmed - Stake - Coinbase - Sent
+        mapSpendable = pwalletMain->mapConfirmed;
+        mapSpendable.Subtract(pwalletMain->mapStake);
+        mapSpendable.Subtract(pwalletMain->mapCoinbase);
+        mapSpendable.Subtract(pwalletMain->mapSent);
+        // Immature = Stake + Coinbase
+        mapImmature = pwalletMain->mapStake;
+        mapImmature.Add(pwalletMain->mapCoinbase);
+        // Unconfirmed = Received
+        mapUnconfirmed = pwalletMain->mapReceived;
+    }
+    else
+    {
+        LOCK(pwalletMain->cs_wallet);
+        string strProgressLabel("Progress of GetSnapshot");
+        CProgressHelper progress(&logProgress, &strProgressLabel, 100);
+        ColorsMap confirmed, stake, coinbase, received, sent;
+        if (fRecalculate)
+        {
+            string strProgressLabelFill("Progress of FillSnapshot");
+            CProgressHelper progressFill(&logProgress,
+                                         &strProgressLabelFill,
+                                         100);
+            pwalletMain->FillSnapshot(&progressFill);
+        }
+        pwalletMain->GetSnapshot(nMinDepth,
+                                 confirmed,
+                                 stake,
+                                 coinbase,
+                                 received,
+                                 sent,
+                                 &progress);
+        // Spendable = Confirmed - Stake - Coinbase - Sent
+        mapSpendable = confirmed;
+        mapSpendable.Subtract(stake).Subtract(coinbase).Subtract(sent);
+        // Immature = Stake + Coinbase
+        mapImmature = stake;
+        mapImmature.Add(coinbase);
+        // Unconfirmed = Received
+        mapUnconfirmed = received;
+    }
+
+    Object objSpendable;
+    ColorsMapToJSON(mapSpendable, objSpendable);
+
+    Object objImmature;
+    ColorsMapToJSON(mapImmature, objImmature);
+
+    Object objUnconfirmed;
+    ColorsMapToJSON(mapUnconfirmed, objUnconfirmed);
+
+    Object obj;
+    obj.push_back(Pair("balances", objSpendable));
+    obj.push_back(Pair("immature", objImmature));
+    obj.push_back(Pair("unconfirmed", objUnconfirmed));
     return obj;
 }
 
@@ -954,18 +1261,20 @@ Value getbalance(const Array& params, bool fHelp)
             "If [multisig] is true, then partial-owner multisig transactions count toward balance calculation.\n"
             "Returns balance for a currency.");
 
-    checkDefaultCurrency();
+    int nColor = CheckDefaultCurrency();
 
     if (params.size() == 0)
     {
-        return  ValueFromAmount(pwalletMain->GetBalance(nDefaultCurrency), nDefaultCurrency);
+        return  ValueFromAmount(pwalletMain->GetSpendable(nColor),
+                                nColor);
     }
 
     int nMinDepth = 1;
     if (params.size() > 1)
+    {
         nMinDepth = params[1].get_int();
+    }
 
-    int nColor;
     if (params.size() > 2)
     {
         std::string strTicker = params[2].get_str();
@@ -975,10 +1284,6 @@ Value getbalance(const Array& params, bool fHelp)
                      strprintf("ticker %s is not valid\n", strTicker.c_str()));
         }
     }
-    else
-    {
-        nColor = nDefaultCurrency;
-    }
 
     bool fMultiSig = GetBoolArg("-enablemultisigs", false);
     if (params.size() > 3)
@@ -986,14 +1291,30 @@ Value getbalance(const Array& params, bool fHelp)
        fMultiSig = params[3].get_bool();
     }
 
-    if (params[0].get_str() == "*") {
-        // Calculate total balance a different way from GetBalance()
-        // (GetBalance() sums up all unspent TxOuts)
+    if ((params[0].get_str() == "*") && (fMultiSig == false))
+    {
+        if (nMinDepth == 1)
+        {
+            return  ValueFromAmount(pwalletMain->GetSpendable(nColor),
+                                    nColor);
+        }
+        string strProgressLabel("Progress of getbalance");
+        CProgressHelper progress(&logProgress, &strProgressLabel, 100);
+        // Calculate total balance a different way from GetSpendable()
+        // (GetSpendable() sums up all unspent TxOuts)
         // getbalance and getbalance '*' 0 should return the same number.
         int64_t nBalance = 0;
+        unsigned int nTotal = pwalletMain->mapWallet.size();
+        unsigned int nDone = 0;
         for (map<uint256, CWalletTx>::iterator it = pwalletMain->mapWallet.begin();
                                                          it != pwalletMain->mapWallet.end(); ++it)
         {
+            if (nDone > 0)
+            {
+                progress.update(nDone, nTotal);
+            }
+            ++nDone;
+
             const CWalletTx& wtx = (*it).second;
 
             std::set<int> setColorsOut;
@@ -1004,7 +1325,9 @@ Value getbalance(const Array& params, bool fHelp)
             }
 
             if (!wtx.IsTrusted())
+            {
                 continue;
+            }
 
             int64_t allFee;
             string strSentAccount;
@@ -1017,7 +1340,9 @@ Value getbalance(const Array& params, bool fHelp)
                     nBalance += r.second;
             }
             BOOST_FOREACH(const PAIRTYPE(CTxDestination,int64_t)& r, listSent)
+            {
                 nBalance -= r.second;
+            }
             nBalance -= allFee;
         }
         return  ValueFromAmount(nBalance, nColor);
@@ -1043,7 +1368,7 @@ Value movecmd(const Array& params, bool fHelp)
 
     accountingDeprecationCheck();
 
-    checkDefaultCurrency();
+    int nColor = CheckDefaultCurrency();
 
     string strFrom = AccountFromValue(params[0]);
     string strTo = AccountFromValue(params[1]);
@@ -1055,7 +1380,6 @@ Value movecmd(const Array& params, bool fHelp)
     if (params.size() > 4)
         strComment = params[4].get_str();
 
-    int nColor;
     if (params.size() > 5)
     {
         std::string strTicker = params[5].get_str();
@@ -1064,10 +1388,6 @@ Value movecmd(const Array& params, bool fHelp)
             throw runtime_error(
                      strprintf("ticker %s is not valid\n", strTicker.c_str()));
         }
-    }
-    else
-    {
-        nColor = nDefaultCurrency;
     }
 
     int64_t nAmount = AmountFromValue(params[2], nColor);
@@ -1266,12 +1586,17 @@ Value sendmany(const Array& params, bool fHelp)
                                                    strTxComment, nServiceTypeID);
     if (!fCreated)
     {
-        if (totalAmount + nFeeRequired > pwalletMain->GetBalance(nColor))
-            throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS, "Insufficient funds");
+        if (totalAmount + nFeeRequired > pwalletMain->GetSpendable(nColor))
+        {
+            throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS,
+                               "Insufficient funds");
+        }
         throw JSONRPCError(RPC_WALLET_ERROR, "Transaction creation failed");
     }
-    if (!pwalletMain->CommitTransaction(wtx, keyChange, keyFeeChange))
+    if (!pwalletMain->CommitTransaction(wtx, &keyChange, &keyFeeChange))
+    {
         throw JSONRPCError(RPC_WALLET_ERROR, "Transaction commit failed");
+    }
 
     return wtx.GetHash().GetHex();
 }
@@ -1358,15 +1683,13 @@ Value addmultisigaddress(const Array& params, bool fHelp)
         throw runtime_error(msg);
     }
 
-    checkDefaultCurrency();
+    int nColor = CheckDefaultCurrency();
 
     string strAccount;
     if (params.size() > 2)
     {
         strAccount = AccountFromValue(params[2]);
     }
-
-    int nColor;
 
     if (params.size() > 3)
     {
@@ -1376,10 +1699,6 @@ Value addmultisigaddress(const Array& params, bool fHelp)
             throw runtime_error(
                      strprintf("ticker %s is not valid\n", strTicker.c_str()));
         }
-    }
-    else
-    {
-        nColor = nDefaultCurrency;
     }
 
     CScript inner = _createmultisig_redeemScript(params);
@@ -1404,9 +1723,7 @@ Value createmultisigaddress(const Array& params, bool fHelp)
         throw runtime_error(msg);
     }
 
-    checkDefaultCurrency();
-
-    int nColor;
+    int nColor = CheckDefaultCurrency();
 
     if (params.size() > 2)
     {
@@ -1416,10 +1733,6 @@ Value createmultisigaddress(const Array& params, bool fHelp)
             throw runtime_error(
                      strprintf("ticker %s is not valid\n", strTicker.c_str()));
         }
-    }
-    else
-    {
-        nColor = nDefaultCurrency;
     }
 
     CScript inner = _createmultisig_redeemScript(params);
@@ -1444,14 +1757,13 @@ Value addredeemscript(const Array& params, bool fHelp)
         throw runtime_error(msg);
     }
 
-    checkDefaultCurrency();
+    int nColor = CheckDefaultCurrency();
 
 
     string strAccount;
     if (params.size() > 1)
         strAccount = AccountFromValue(params[1]);
 
-    int nColor;
     if (params.size() > 2)
     {
         std::string strTicker = params[2].get_str();
@@ -1461,13 +1773,9 @@ Value addredeemscript(const Array& params, bool fHelp)
                      strprintf("ticker %s is not valid\n", strTicker.c_str()));
         }
     }
-    else
-    {
-        nColor = nDefaultCurrency;
-    }
 
     // Construct using pay-to-script-hash:
-    std::vector<unsigned char> innerData = ParseHexV(params[0], "redeemScript");
+    valtype innerData = ParseHexV(params[0], "redeemScript");
     CScript inner(innerData.begin(), innerData.end());
     CScriptID innerID = inner.GetID();
     pwalletMain->AddCScript(inner);
@@ -1528,7 +1836,7 @@ Value ListReceived(const Array& params, bool fByAccounts)
     {
         const CWalletTx& wtx = (*it).second;
 
-        if (wtx.IsCoinBase() || wtx.IsCoinStake() || !wtx.IsFinal())
+        if (wtx.DoesMature() || !wtx.IsFinal())
             continue;
 
         int nDepth = wtx.GetDepthInMainChain();
@@ -1681,7 +1989,7 @@ Value listreceivedbyaccount(const Array& params, bool fHelp)
 
     accountingDeprecationCheck();
 
-    checkDefaultCurrency();
+    CheckDefaultCurrency();
 
     return ListReceived(params, true);
 }
@@ -1755,7 +2063,7 @@ void ListTransactions(const CWalletTx& wtx, const string& strAccount, int nMinDe
                     Object entry;
                     entry.push_back(Pair("account", account));
                     MaybePushAddress(entry, r.first, nColor);
-                    if (wtx.IsCoinBase() || wtx.IsCoinStake())
+                    if (wtx.DoesMature())
                     {
                         if (wtx.GetDepthInMainChain() < 1)
                             entry.push_back(Pair("category", "orphan"));
@@ -1879,9 +2187,7 @@ Value listaccounts(const Array& params, bool fHelp)
             "If [multisig] is true, then include partial-owner multisig accounts.\n"
             "Returns Object that has account names as keys, account balances as values.");
 
-    accountingDeprecationCheck();
-
-    checkDefaultCurrency();
+    CheckDefaultCurrency();
 
     int nMinDepth = 1;
     if (params.size() > 0)
@@ -2528,27 +2834,17 @@ public:
 
 Value validateaddress(const Array& params, bool fHelp)
 {
-    if (fHelp || params.size() > 2)
+    if (fHelp || (params.size() < 1) || (params.size() > 2))
+    {
         throw runtime_error(
             "validateaddress <breakoutaddress> [ticker]\n"
             "Return information about <breakoutaddress>.\n"
             "If <ticker> is given, the address must be the correct currency.");
+    }
 
     // not a balance calculation, so multisig is safe
     static const bool fMultiSig = true;
 
-    // int nColor = nDefaultCurrency;
-    int nColor = (int) BREAKOUT_COLOR_NONE;
-
-    if (params.size() > 1)
-    {
-        std::string strTicker = params[1].get_str();
-        if (!GetColorFromTicker(strTicker, nColor))
-        {
-            throw runtime_error(
-                     strprintf("ticker %s is not valid\n", strTicker.c_str()));
-        }
-    }
     // NOTE: Before you change how nColor is decided, remember that
     //       exchanges rely on specific validateaddress behavior.
     //
@@ -2560,6 +2856,17 @@ Value validateaddress(const Array& params, bool fHelp)
     // In the future, it will probably be better to make a flag that
     // indicates whether nDefaultCurrency was set explicitly, either as an
     // init argument or by the RPC command setdefaultcurrency, if ever implemented.
+    int nColor = (int) BREAKOUT_COLOR_NONE;
+
+    if (params.size() > 1)
+    {
+        std::string strTicker = params[1].get_str();
+        if (!GetColorFromTicker(strTicker, nColor))
+        {
+            throw runtime_error(
+                     strprintf("ticker %s is not valid\n", strTicker.c_str()));
+        }
+    }
     else
     {
         int nColorInit;
@@ -2592,15 +2899,21 @@ Value validateaddress(const Array& params, bool fHelp)
         string currentAddress = address.ToString();
         ret.push_back(Pair("address", currentAddress));
         isminetype isMine = IsMine(*pwalletMain, dest, fMultiSig);
-        // don't change the semantics of ismine here
-        bool fMineSpendable = isMine & ISMINE_SPENDABLE;
-        ret.push_back(Pair("ismine", fMineSpendable));
-        if (fMineSpendable) {
+        bool fMineSignable = isMine & ISMINE_SIGNABLE;
+        ret.push_back(Pair("ismine", fMineSignable));
+        if (fMineSignable) {
             Object detail = boost::apply_visitor(DescribeAddressVisitor(), dest);
             ret.insert(ret.end(), detail.begin(), detail.end());
         }
-        bool fWatch = isMine & ISMINE_WATCH_ONLY;
-        ret.push_back(Pair("iswatch", fWatch));
+        if (fMultiSig)
+        {
+            bool fMineSpendable = isMine & ISMINE_SPENDABLE;
+            ret.push_back(Pair("isspendable", fMineSpendable));
+            bool fMineMultiSig = isMine & ISMINE_MULTISIG;
+            ret.push_back(Pair("ismultisig", fMineMultiSig));
+        }
+        bool fWatchOnly = isMine & ISMINE_WATCH_ONLY;
+        ret.push_back(Pair("iswatch", fWatchOnly));
         if (pwalletMain->mapAddressBook.count(dest))
             ret.push_back(Pair("account", pwalletMain->mapAddressBook[dest]));
         ret.push_back(Pair("ticker", COLOR_TICKER[address.nColor]));
@@ -2610,7 +2923,7 @@ Value validateaddress(const Array& params, bool fHelp)
 
 Value validatepubkey(const Array& params, bool fHelp)
 {
-    if (fHelp || !params.size() || params.size() > 2)
+    if (fHelp || (params.size() < 1) || (params.size() > 2))
         throw runtime_error(
             "validatepubkey <breakoutpubkey> [ticker]\n"
             "Return information about <breakoutpubkey>.");
@@ -2630,7 +2943,7 @@ Value validatepubkey(const Array& params, bool fHelp)
         }
     }
 
-    std::vector<unsigned char> vchPubKey = ParseHex(params[0].get_str());
+    valtype vchPubKey = ParseHex(params[0].get_str());
     CPubKey pubKey(vchPubKey, nColor);
 
     bool isValid = pubKey.IsValid();
@@ -2656,16 +2969,22 @@ Value validatepubkey(const Array& params, bool fHelp)
             ret.push_back(Pair("address", currentAddress));
         }
         isminetype isMine = IsMine(*pwalletMain, dest, fMultiSig);
-        // don't change the semantics of ismine here
-        bool fMineSpendable = isMine & ISMINE_SPENDABLE;
-        ret.push_back(Pair("ismine", fMineSpendable));
-        ret.push_back(Pair("iscompressed", isCompressed));
-        if (fMineSpendable) {
+        bool fMineSignable = isMine & ISMINE_SIGNABLE;
+        ret.push_back(Pair("ismine", fMineSignable));
+        if (fMineSignable) {
             Object detail = boost::apply_visitor(DescribeAddressVisitor(), dest);
             ret.insert(ret.end(), detail.begin(), detail.end());
         }
-        bool fWatch = isMine & ISMINE_WATCH_ONLY;
-        ret.push_back(Pair("iswatch", fWatch));
+        if (fMultiSig)
+        {
+            bool fMineSpendable = isMine & ISMINE_SPENDABLE;
+            ret.push_back(Pair("isspendable", fMineSpendable));
+            bool fMineMultiSig = isMine & ISMINE_MULTISIG;
+            ret.push_back(Pair("ismultisig", fMineMultiSig));
+        }
+        bool fWatchOnly = isMine & ISMINE_WATCH_ONLY;
+        ret.push_back(Pair("iswatch", fWatchOnly));
+        ret.push_back(Pair("iscompressed", isCompressed));
         if (pwalletMain->mapAddressBook.count(dest))
             ret.push_back(Pair("account", pwalletMain->mapAddressBook[dest]));
     }
@@ -2691,9 +3010,7 @@ Value reservebalance(const Array& params, bool fHelp)
            throw runtime_error("No staking currencies\n");
     }
 
-    checkDefaultStake();
-
-    int nColor = nDefaultStake;
+    int nColor = CheckDefaultStake();
 
     if (params.size() > 0)
     {
@@ -2889,7 +3206,7 @@ Value getnewstealthaddress(const Array& params, bool fHelp)
             "Returns a new Stealth Address for receiving payments anonymously.\n"
             "If [ticker] is not given, the default currency will be used.");
 
-    checkDefaultCurrency();
+    int nColor = CheckDefaultCurrency();
 
     if (pwalletMain->IsLocked())
         throw runtime_error("Failed: Wallet must be unlocked.");
@@ -2898,7 +3215,6 @@ Value getnewstealthaddress(const Array& params, bool fHelp)
     if (params.size() > 0)
         sLabel = params[0].get_str();
 
-    int nColor = nDefaultCurrency;
     if (params.size() > 1)
     {
         std::string strTicker = params[1].get_str();
@@ -2983,7 +3299,7 @@ Value importstealthaddress(const Array& params, bool fHelp)
             "Import an owned Stealth Addresses.\n"
             "If [ticker] is not given, the default currency will be used.\n");
 
-    checkDefaultCurrency();
+    int nColor = CheckDefaultCurrency();
 
     std::string sScanSecret  = params[0].get_str();
     std::string sSpendSecret = params[1].get_str();
@@ -2994,7 +3310,6 @@ Value importstealthaddress(const Array& params, bool fHelp)
         sLabel = params[2].get_str();
     };
 
-    int nColor = (int) nDefaultCurrency;
     if (params.size() > 3)
     {
         if (!GetColorFromTicker(params[3].get_str(), nColor))
@@ -3153,9 +3468,9 @@ Value clearwallettransactions(const Array& params, bool fHelp)
     string strError;
 
     string strProgressLabel("Progress of clearwallettransactions");
-    CProgressHelper progress(&stdOutProgress, &strProgressLabel, 100);
+    CProgressHelper progress(&logProgress, &strProgressLabel, 100);
 
-    uint32_t nTx = pwalletMain->ClearWalletTransactions(strError, progress);
+    uint32_t nTx = pwalletMain->ClearWalletTransactions(strError, &progress);
 
     if (!strError.empty())
     {
@@ -3204,11 +3519,11 @@ Value scanforalltxns(const Array& params, bool fHelp)
         pwalletMain->MarkDirty();
 
         string strProgressLabel("Progress of ScanForWalletTransactions");
-        CProgressHelper progress(&stdErrProgress, &strProgressLabel, 1000);
-        pwalletMain->ScanForWalletTransactions(pindex, true, progress);
+        CProgressHelper progress(&logProgress, &strProgressLabel, 1000);
+        pwalletMain->ScanForWalletTransactions(pindex, true, &progress);
         strProgressLabel = "Progress of ReacceptWalletTransactions";
         progress.setContext(&strProgressLabel);
-        pwalletMain->ReacceptWalletTransactions(progress);
+        pwalletMain->ReacceptWalletTransactions(&progress);
     }
 
     result.push_back(Pair("result", "Scan complete."));

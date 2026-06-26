@@ -1,108 +1,70 @@
 #include "hash.h"
 
-inline uint32_t ROTL32 ( uint32_t x, int8_t r )
+// Computes HMAC-SHA512 in one shot.
+// out must point to a buffer of at least 64 bytes; out_len receives the actual
+// length.
+void HMAC_SHA512(const void* pkey,
+                 size_t keylen,
+                 const void* pdata,
+                 size_t datalen,
+                 unsigned char* out,
+                 size_t& out_len)
 {
-    return (x << r) | (x >> (32 - r));
-}
+    EvpMac mac("HMAC");
+    EvpMacCtx ctx(mac.mac);
 
-unsigned int MurmurHash3(unsigned int nHashSeed, const std::vector<unsigned char>& vDataToHash)
-{
-    // The following is MurmurHash3 (x86_32), see http://code.google.com/p/smhasher/source/browse/trunk/MurmurHash3.cpp
-    uint32_t h1 = nHashSeed;
-    const uint32_t c1 = 0xcc9e2d51;
-    const uint32_t c2 = 0x1b873593;
+    OSSL_PARAM params[] = { OSSL_PARAM_construct_utf8_string("digest",
+                                                             const_cast<char*>(
+                                                                 "SHA512"),
+                                                             0),
+                            OSSL_PARAM_END };
 
-    const int nblocks = vDataToHash.size() / 4;
-
-    //----------
-    // body
-    const uint32_t * blocks = (const uint32_t *)(&vDataToHash[0] + nblocks*4);
-
-    for(int i = -nblocks; i; i++)
+    if (!EVP_MAC_init(ctx.ctx,
+                      reinterpret_cast<const unsigned char*>(pkey),
+                      keylen,
+                      params))
     {
-        uint32_t k1 = blocks[i];
-
-        k1 *= c1;
-        k1 = ROTL32(k1,15);
-        k1 *= c2;
-
-        h1 ^= k1;
-        h1 = ROTL32(h1,13); 
-        h1 = h1*5+0xe6546b64;
+        throw std::runtime_error("HMAC_SHA512: EVP_MAC_init failed");
     }
 
-    //----------
-    // tail
-    const uint8_t * tail = (const uint8_t*)(&vDataToHash[0] + nblocks*4);
-
-    uint32_t k1 = 0;
-
-    switch(vDataToHash.size() & 3)
+    if (!EVP_MAC_update(ctx.ctx,
+                        reinterpret_cast<const unsigned char*>(pdata),
+                        datalen))
     {
-    case 3:
-        k1 ^= tail[2] << 16;
-#if __cplusplus >= 201103L
-        [[fallthrough]];
-#endif
-    case 2:
-        k1 ^= tail[1] << 8;
-#if __cplusplus >= 201103L            
-        [[fallthrough]];
-#endif
-    case 1:
-        k1 ^= tail[0];
-        k1 *= c1; k1 = ROTL32(k1,15); k1 *= c2; h1 ^= k1;
+        throw std::runtime_error("HMAC_SHA512: EVP_MAC_update failed");
+    }
+
+    if (!EVP_MAC_final(ctx.ctx, out, &out_len, 64))
+    {
+        throw std::runtime_error("HMAC_SHA512: EVP_MAC_final failed");
+    }
+}
+
+CHMAC_SHA512::CHMAC_SHA512(const void* pkey, size_t keylen)
+    : mac("HMAC"), ctx(mac.mac)
+{
+    OSSL_PARAM params[] = {
+        OSSL_PARAM_construct_utf8_string("digest", const_cast<char*>("SHA512"), 0),
+        OSSL_PARAM_END
     };
-
-    //----------
-    // finalization
-    h1 ^= vDataToHash.size();
-    h1 ^= h1 >> 16;
-    h1 *= 0x85ebca6b;
-    h1 ^= h1 >> 13;
-    h1 *= 0xc2b2ae35;
-    h1 ^= h1 >> 16;
-
-    return h1;
+    if (!EVP_MAC_init(ctx.ctx,
+                      reinterpret_cast<const unsigned char*>(pkey), keylen,
+                      params))
+        throw std::runtime_error("CHMAC_SHA512: EVP_MAC_init failed");
 }
 
-int HMAC_SHA512_Init(HMAC_SHA512_CTX *pctx, const void *pkey, size_t len)
+CHMAC_SHA512& CHMAC_SHA512::Write(const void* pdata, size_t datalen)
 {
-    unsigned char key[128];
-    if (len <= 128)
-    {
-        memcpy(key, pkey, len);
-        memset(key + len, 0, 128-len);
-    }
-    else
-    {
-        SHA512_CTX ctxKey;
-        SHA512_Init(&ctxKey);
-        SHA512_Update(&ctxKey, pkey, len);
-        SHA512_Final(key, &ctxKey);
-        memset(key + 64, 0, 64);
-    }
-
-    for (int n=0; n<128; n++)
-        key[n] ^= 0x5c;
-    SHA512_Init(&pctx->ctxOuter);
-    SHA512_Update(&pctx->ctxOuter, key, 128);
-
-    for (int n=0; n<128; n++)
-        key[n] ^= 0x5c ^ 0x36;
-    SHA512_Init(&pctx->ctxInner);
-    return SHA512_Update(&pctx->ctxInner, key, 128);
+    if (!EVP_MAC_update(ctx.ctx,
+                        reinterpret_cast<const unsigned char*>(pdata), datalen))
+        throw std::runtime_error("CHMAC_SHA512: EVP_MAC_update failed");
+    return *this;
 }
 
-int HMAC_SHA512_Update(HMAC_SHA512_CTX *pctx, const void *pdata, size_t len)
+void CHMAC_SHA512::Finalize(unsigned char* out)
 {
-    return SHA512_Update(&pctx->ctxInner, pdata, len);
+    size_t out_len = 64;
+    if (!EVP_MAC_final(ctx.ctx, out, &out_len, 64))
+        throw std::runtime_error("CHMAC_SHA512: EVP_MAC_final failed");
 }
 
-int HMAC_SHA512_Final(unsigned char *pmd, HMAC_SHA512_CTX *pctx)
-{
-    unsigned char buf[64];
-    SHA512_Final(buf, &pctx->ctxInner);
-    SHA512_Update(&pctx->ctxOuter, buf, 64);
-    return SHA512_Final(pmd, &pctx->ctxOuter);
-}

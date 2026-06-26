@@ -2,25 +2,37 @@
 // Copyright (c) 2009-2012 The Bitcoin developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
-#include "txdb.h"
+#include "txdb-leveldb.h"
 #include "walletdb.h"
 #include "bitcoinrpc.h"
 #include "net.h"
 #include "init.h"
 #include "util.h"
 #include "ui_interface.h"
+
+#include "json/json_spirit.h"
+
 #include <boost/filesystem.hpp>
 #include <boost/filesystem/fstream.hpp>
+
+#if BOOST_VERSION < 107900
 #include <boost/filesystem/convenience.hpp>
+#endif
+
 #include <boost/interprocess/sync/file_lock.hpp>
 #include <boost/algorithm/string/predicate.hpp>
+
 #include <openssl/crypto.h>
+#include <openssl/provider.h>
 
 #include "addednode.h"
 
 #ifndef WIN32
 #include <signal.h>
 #endif
+
+#include <algorithm>
+
 
 unsigned short onion_port = TOR_PORT;
 unsigned short p2p_port = GetDefaultPort();
@@ -30,13 +42,45 @@ using namespace boost;
 
 CWallet* pwalletMain;
 CClientUIInterface uiInterface;
-std::string strWalletFileName;
+string strWalletFileName;
 bool fConfChange;
 bool fEnforceCanonical;
 unsigned int nNodeLifespan;
 unsigned int nDerivationMethodIndex;
 unsigned int nMinerSleep;
 bool fUseFastIndex;
+
+//////////////////////////////////////////////////////////////////////////////
+//
+// OpenSSL Providers
+//
+struct OpenSSLProviders
+{
+    OSSL_PROVIDER* legcy;
+    OSSL_PROVIDER* deflt;
+
+    OpenSSLProviders()
+    {
+        legcy = OSSL_PROVIDER_load(nullptr, "legacy");
+        if (!legcy)
+        {
+            throw std::runtime_error("Failed to load OpenSSL legacy provider");
+        }
+        deflt = OSSL_PROVIDER_load(nullptr, "default");
+        if (!deflt)
+        {
+            throw std::runtime_error(
+                "Failed to load OpenSSL default provider");
+        }
+    }
+
+    ~OpenSSLProviders()
+    {
+        OSSL_PROVIDER_unload(legcy);
+        OSSL_PROVIDER_unload(deflt);
+    }
+};
+
 
 //////////////////////////////////////////////////////////////////////////////
 //
@@ -148,7 +192,7 @@ bool AppInit(int argc, char* argv[])
         if (mapArgs.count("-?") || mapArgs.count("--help"))
         {
             // First part of help message is specific to bitcoind / RPC client
-            std::string strUsage = _("breakout version") + " " + FormatFullVersion() + "\n\n" +
+            string strUsage = _("breakout version") + " " + FormatFullVersion() + "\n\n" +
                 _("Usage:") + "\n" +
                   "  breakoutd [options]                     " + "\n" +
                   "  breakoutd [options] <command> [params]  " + _("Send command to -server or breakoutd") + "\n" +
@@ -163,8 +207,13 @@ bool AppInit(int argc, char* argv[])
 
         // Command-line RPC
         for (int i = 1; i < argc; i++)
-            if (!IsSwitchChar(argv[i][0]) && !boost::algorithm::istarts_with(argv[i], "breakout:"))
+        {
+            if (!IsSwitchChar(argv[i][0]) &&
+                !boost::algorithm::istarts_with(argv[i], "breakout:"))
+            {
                 fCommandLine = true;
+            }
+        }
 
         if (fCommandLine)
         {
@@ -185,6 +234,7 @@ bool AppInit(int argc, char* argv[])
 }
 
 extern void noui_connect();
+
 int main(int argc, char* argv[])
 {
     bool fRet = false;
@@ -201,13 +251,13 @@ int main(int argc, char* argv[])
 }
 #endif
 
-bool static InitError(const std::string &str)
+bool static InitError(const string &str)
 {
     uiInterface.ThreadSafeMessageBox(str, _("breakout"), CClientUIInterface::OK | CClientUIInterface::MODAL);
     return false;
 }
 
-bool static InitWarning(const std::string &str)
+bool static InitWarning(const string &str)
 {
     uiInterface.ThreadSafeMessageBox(str, _("breakout"), CClientUIInterface::OK | CClientUIInterface::ICON_EXCLAMATION | CClientUIInterface::MODAL);
     return true;
@@ -217,7 +267,7 @@ bool static InitWarning(const std::string &str)
 bool static Bind(const CService &addr, bool fError = true) {
     if (IsLimited(addr))
         return false;
-    std::string strError;
+    string strError;
     if (!BindListenPort(addr, strError)) {
         if (fError)
             return InitError(strError);
@@ -227,7 +277,7 @@ bool static Bind(const CService &addr, bool fError = true) {
 }
 
 // Core-specific options shared between UI and daemon
-std::string HelpMessage()
+string HelpMessage()
 {
     string strUsage = _("Options:") + "\n" +
         "  -?                     " + _("This help message") + "\n" +
@@ -257,6 +307,7 @@ std::string HelpMessage()
         "  -listen                " + _("Accept connections from outside (default: 1 if no -proxy or -connect)") + "\n" +
         "  -bind=<addr>           " + _("Bind to given address. Use [host]:port notation for IPv6") + "\n" +
         "  -dnsseed               " + _("Find peers using DNS lookup (default: 1)") + "\n" +
+        "  -genproclimit          " + _("Max number of threads to generate with  (default: 1)") + "\n" +
         "  -staking               " + _("Stake your coins to support network and gain reward (default: 1)") + "\n" +
         "  -synctime              " + _("Sync time with other nodes. Disable if time on your system is precise e.g. syncing with NTP (default: 1)") + "\n" +
         "  -cppolicy              " + _("Sync checkpoints policy (default: strict)") + "\n" +
@@ -272,8 +323,8 @@ std::string HelpMessage()
 #endif
 #endif
         "  -detachdb              " + _("Detach block and address databases. Increases shutdown time (default: 0)") + "\n" +
-        "  -defaultcurrency=<ticker>   " + _("Sensible choices are BRX (BroStake) or BRO (BroCoin)") + "\n" +
-        "  -defaultstake=<ticker>   " + _("Sensible choices are BRX (BroStake) or BRO (BroCoin)") + "\n" +
+        "  -defaultcurrency=<ticker>   " + _("Sensible choices are BRX (Breakout Stake) or BRK (Breakout Coin)") + "\n" +
+        "  -defaultstake=<ticker>   " + _("Sensible choice is BRX (Breakout Stake)") + "\n" +
         "  -reservebalance=<amt>    " + _("Amount to reserve that will not stake for default stake") + "\n" +
         "  -reservebalance_<N>=<amt>    " + _("Amount to reserve that will not stake for color <N> where <N> is an int") + "\n" +
         "  -reservebalance_<ticker>=<amt>    " + _("Amount to reserve that will not stake for currency with <ticker>") + "\n" +
@@ -294,6 +345,7 @@ std::string HelpMessage()
         "  -testnet               " + _("Use the test network") + "\n" +
         "  -debug                 " + _("Output extra debugging information. Implies all other -debug* options") + "\n" +
         "  -debugnet              " + _("Output extra network debugging information") + "\n" +
+        "  -debugminer            " + _("Output extra miner debugging information") + "\n" +
         "  -logtimestamps         " + _("Prepend debug output with timestamp") + "\n" +
         "  -shrinkdebugfile       " + _("Shrink debug.log file on client startup (default: 1 when no -debug)") + "\n" +
         "  -printtoconsole        " + _("Send trace/debug info to console instead of debug.log file") + "\n" +
@@ -313,7 +365,7 @@ std::string HelpMessage()
         "  -alertnotify=<cmd>     " + _("Execute command when a relevant alert is received (%s in cmd is replaced by message)") + "\n" +
         "  -upgradewallet         " + _("Upgrade wallet to latest format") + "\n" +
         "  -keypool=<n>           " + _("Set key pool size to <n> (default: 100)") + "\n" +
-        "  -rescan                " + _("Rescan the block chain for missing wallet transactions") + "\n" +
+        "  -rescan=<n>            " + _("Rescan block chain for txs from block <n> (-1 = scan only what's needed, 0 = no scan, default: 0)") + "\n" +
         "  -salvagewallet         " + _("Attempt to recover private keys from a corrupt wallet.dat") + "\n" +
         "  -checkblocks=<n>       " + _("How many blocks to check at startup (default: 2500, 0 = all)") + "\n" +
         "  -checklevel=<n>        " + _("How thorough the block verification is (0-6, default: 1)") + "\n" +
@@ -331,10 +383,17 @@ std::string HelpMessage()
         "  -rpcsslciphers=<ciphers>                 " + _("Acceptable ciphers (default: TLSv1+HIGH:!SSLv2:!aNULL:!eNULL:!AH:!3DES:@STRENGTH)") + "\n" +
 
         "  -permitdirtybootstrap  " + _("Allow duplicate stake for bootstrap from block***.dat file") + "\n" +
+        "  -maxheight             " + _("For testing, don't allow more blocks than height (default -1 => no max") + "\n" +
 
-        "  -burnkey=<key>    " + _("Random string") + "\n" +
+        "  -burnkey=<key>         " + _("Random string") + "\n" +
 
-        "  -enablemultisigs  " + _("Enable rpc multisig support by default") + "\n" ;
+        "  -staketo=<{\"address\":\"pubkey\",...}>  " + _("JSON mapping from source kernel to destination for new stake") + "\n" +
+
+        "  -minstakesplit=<amt>        " + _("If default stake splits to less than this amount, don't split it  (default: min input)") + "\n" +
+        "  -minstakesplit_<N>=<amt>        " + _("If stake of currency <N> splits to less than this amount, don't split it (default: min input)") + "\n" +
+        "  -minminstakesplit_<ticker>=<amt>        " + _("If stake with <ticker> splits to less than this amount, don't split it (default: min input)") + "\n" +
+
+        "  -enablemultisigs  " + _("Enable rpc multisig support (default: 0)") + "\n" ;
 
     return strUsage;
 }
@@ -391,6 +450,9 @@ bool AppInit2()
     assert ((GetFirstPoSBlock() - 1) <= GetLastPoWBlock());
 #endif
 
+    // OpenSSL providers
+    static OpenSSLProviders providers;
+
     // basic multicurrency checks and setup
     {
         int nColorBytes = 1;
@@ -410,14 +472,14 @@ bool AppInit2()
     {
          for (int ver = 0; ver < N_VERSIONS; ++ver)
          {
-              std::map<std::vector <unsigned char>, int> mapVer;
+              map<valtype, int> mapVer;
               for (int nColor = 0; nColor < N_COLORS; ++nColor)
               {
                 for (int i = 0; i < N_COLOR_BYTES; ++i)
                 {
                    COLOR_ID[ver][nColor][i] = aColorID[ver][nColor][i];
                 }
-                std::vector<unsigned char>* pkey = &COLOR_ID[ver][nColor];
+                valtype* pkey = &COLOR_ID[ver][nColor];
                 // Make sure that keys are unique within each version at least.
                 // WHY is this assert here? Keys must be be unique
                 //    within each version. See aColorID in colors.cpp.
@@ -441,7 +503,7 @@ bool AppInit2()
 
     // set the number of staking currencies
     {
-        std::set<int> setCurr;
+        set<int> setCurr;
         for (int nColor = 1; nColor < N_COLORS; ++nColor)
         {
              int nMintColor = (int) MINT_COLOR[nColor];
@@ -473,55 +535,59 @@ bool AppInit2()
     nDerivationMethodIndex = 0;
 
 #if TESTNET_BUILD
-    fTestNet = GetBoolArg("-testnet", true);
+    fTestNet = true;
 #else
-    fTestNet = GetBoolArg("-testnet");
+    fTestNet = GetBoolArg("-testnet", false);
 #endif
 
-    if (fTestNet) {
-       nTestNet = 1;
-    } else {
-       nTestNet = 0;
-    }
-    
     if (fTestNet)
     {
         SoftSetBoolArg("-irc", true);
     }
 
-    if (mapArgs.count("-bind")) {
-        // when specifying an explicit binding address, you want to listen on it
-        // even when -connect or -proxy is specified
+    if (mapArgs.count("-bind"))
+    {
+        // when specifying an explicit binding address, you want to listen on
+        //    it even when -connect or -proxy is specified
         SoftSetBoolArg("-listen", true);
     }
 
-    if (mapArgs.count("-connect") && mapMultiArgs["-connect"].size() > 0) {
-        // when only connecting to trusted nodes, do not seed via .onion, or listen by default
+    if (mapArgs.count("-connect") && mapMultiArgs["-connect"].size() > 0)
+    {
+        // when only connecting to trusted nodes, do not seed via .onion, or
+        //    listen by default
         SoftSetBoolArg("-onionseed", false);
-        // when only connecting to trusted nodes, do not seed via DNS, or listen by default
+        // when only connecting to trusted nodes, do not seed via DNS, or
+        //    listen by default
         SoftSetBoolArg("-dnsseed", false);
         SoftSetBoolArg("-listen", false);
     }
 
-    if (mapArgs.count("-proxy")) {
-        // to protect privacy, do not listen by default if a proxy server is specified
+    if (mapArgs.count("-proxy"))
+    {
+        // to protect privacy, do not listen by default if a proxy server is
+        //    specified
         SoftSetBoolArg("-listen", false);
     }
 
-    if (!GetBoolArg("-listen", true)) {
-        // do not map ports or try to retrieve public IP when not listening (pointless)
+    if (!GetBoolArg("-listen", true))
+    {
+        // do not map ports or try to retrieve public IP when not listening
+        //    (pointless)
         SoftSetBoolArg("-upnp", false);
         SoftSetBoolArg("-discover", false);
     }
 
-    if (mapArgs.count("-externalip")) {
+    if (mapArgs.count("-externalip"))
+    {
         // if an explicit public IP is specified, do not try to find others
         SoftSetBoolArg("-discover", false);
     }
 
-    if (GetBoolArg("-salvagewallet")) {
+    if (GetBoolArg("-salvagewallet"))
+    {
         // Rewrite just private keys: rescan to find transactions
-        SoftSetBoolArg("-rescan", true);
+        SoftSetArg("-rescan", "1");
     }
 
     // ********************************************************* Step 3: parameter-to-internal-flags
@@ -531,16 +597,20 @@ bool AppInit2()
     // -debug implies fDebug*
     if (fDebug)
     {
-        fDebugNet  = true;
+        fDebugNet = true;
+        fDebugMiner = true;
         // maybe secure messaging some day
         // fDebugSmsg = true;
-    } else
-    {
-        fDebugNet  = GetBoolArg("-debugnet");
-        fDebugSmsg = GetBoolArg("-debugsmsg");
     }
+    else
+    {
+        fDebugNet = GetBoolArg("-debugnet");
+        fDebugSmsg = GetBoolArg("-debugsmsg");
+        fDebugMiner = GetBoolArg("-debugminer");
+    }
+
     fNoSmsg = GetBoolArg("-nosmsg");
-    
+
     bitdb.SetDetach(GetBoolArg("-detachdb", false));
 
 #if !defined(WIN32) && !defined(QT_GUI)
@@ -550,9 +620,13 @@ bool AppInit2()
 #endif
 
     if (fDaemon)
+    {
         fServer = true;
+    }
     else
+    {
         fServer = GetBoolArg("-server");
+    }
 
     /* force fServer when running without GUI */
 #if !defined(QT_GUI)
@@ -566,25 +640,31 @@ bool AppInit2()
     {
         int nNewTimeout = GetArg("-timeout", 5000);
         if (nNewTimeout > 0 && nNewTimeout < 600000)
+        {
             nConnectTimeout = nNewTimeout;
+        }
     }
 
     // default currency
     if (nDefaultCurrency == BREAKOUT_COLOR_NONE)
     {
-        // std::string strDefaultCurrency = GetArg("-defaultcurrency", COLOR_TICKER[DEFAULT_COLOR]);
-        std::string strDefaultCurrency = GetArg("-defaultcurrency", COLOR_TICKER[BREAKOUT_COLOR_NONE]);
+        // string strDefaultCurrency = GetArg("-defaultcurrency",
+        // COLOR_TICKER[DEFAULT_COLOR]);
+        string strDefaultCurrency = GetArg("-defaultcurrency",
+                                           COLOR_TICKER[BREAKOUT_COLOR_NONE]);
         if (!GetColorFromTicker(strDefaultCurrency, nDefaultCurrency))
         {
-               if (mapArgs["-defaultcurrency"].size() == 0)
-               {
-                   return InitError(_("Please assign ticker for -defaultcurrency=<ticker>"));
-               }
-               else
-               {
-                   return InitError(strprintf(_("Invalid ticker for -defaultcurrency=<ticker>: '%s'"),
-                                                                    mapArgs["-defaultcurrency"].c_str()));
-               }
+            if (mapArgs["-defaultcurrency"].size() == 0)
+            {
+                return InitError(
+                    _("Please assign ticker for -defaultcurrency=<ticker>"));
+            }
+            else
+            {
+                return InitError(strprintf(
+                    _("Invalid ticker for -defaultcurrency=<ticker>: '%s'"),
+                    mapArgs["-defaultcurrency"].c_str()));
+            }
         }
     }
 
@@ -594,32 +674,47 @@ bool AppInit2()
     {
         nDefaultStake = DEFAULT_STAKE_COLOR;
     }
-    else if ((nDefaultStake == BREAKOUT_COLOR_NONE) && (nNumberOfStakingCurrencies > 1))
+    else if ((nDefaultStake == BREAKOUT_COLOR_NONE) &&
+             (nNumberOfStakingCurrencies > 1))
     {
-        std::string strDefaultStake = GetArg("-defaultstake", COLOR_TICKER[BREAKOUT_COLOR_NONE]);
+        string strDefaultStake = GetArg("-defaultstake",
+                                        COLOR_TICKER[BREAKOUT_COLOR_NONE]);
         if (!GetColorFromTicker(strDefaultStake, nDefaultStake))
         {
             if (mapArgs["-defaultstake"].size() == 0)
             {
-               return InitError(_("Please assign ticker for -defaultstake=<ticker>"));
+                return InitError(
+                    _("Please assign ticker for -defaultstake=<ticker>"));
             }
             else
             {
-               return InitError(strprintf(_("Invalid ticker for (%s) -defaultstake=<ticker>: '%s'"),
-                                     strDefaultStake.c_str(), mapArgs["-defaultstake"].c_str()));
+                return InitError(strprintf(
+                    _("Invalid ticker for (%s) -defaultstake=<ticker>: '%s'"),
+                    strDefaultStake.c_str(),
+                    mapArgs["-defaultstake"].c_str()));
             }
         }
         if (!CanStake(nDefaultStake))
         {
-            return InitError(strprintf(_("Currency never stakes for (%s) -defaultstake=<ticker>: '%s'"),
-                                              strDefaultStake.c_str(), mapArgs["-defaultstake"].c_str()));
+            return InitError(strprintf(_("Currency never stakes for (%s) "
+                                         "-defaultstake=<ticker>: '%s'"),
+                                       strDefaultStake.c_str(),
+                                       mapArgs["-defaultstake"].c_str()));
         }
     }
 
+    ///////////////////////////////////////////////////////////////////
+    // Tx Fees
+    ///////////////////////////////////////////////////////////////////
+
+    for (int nColor = 0; nColor < N_COLORS; ++nColor)
+    {
+        vTransactionFee[nColor] = MIN_TX_FEE[nColor];
+    }
 
     // meaning of paytxfee: this is the fee for sending the specified currency
-
-    // default tx fee for default currency, either unset or using -defaultcurrency
+    // default tx fee for default currency, either unset or
+    // using -defaultcurrency
     if (mapArgs.count("-paytxfee"))
     {
         int nFeeColor = FEE_COLOR[nDefaultCurrency];
@@ -633,63 +728,14 @@ bool AppInit2()
         vTransactionFee[nFeeColor] = nTxFee;
         if (nTxFee > VERY_HIGH_FEE * MIN_TX_FEE[nFeeColor])
         {
-            InitWarning(_("Warning: -paytxfee is set very high! This is the transaction fee you will pay if you   send a transaction."));
+            InitWarning(_(
+                "Warning: -paytxfee is set very high! This is the transaction "
+                "fee you will pay if you send a transaction."));
         }
     }
-
-    // =========== these should be a loop ======== //
-    if (mapArgs.count("-paytxfee_brostake"))
-    {
-        int nFeeColor = FEE_COLOR[BREAKOUT_COLOR_BROSTAKE];
-        int64_t nTxFee = 0;
-        if (!ParseMoney(mapArgs["-paytxfee_brostake"], nFeeColor, nTxFee))
-        {
-            InitError(_("Invalid amount for -paytxfee_brostake=<amount>"));
-            return false;
-        }
-        vTransactionFee[nFeeColor] = nTxFee;
-        if (nTxFee > VERY_HIGH_FEE * MIN_TX_FEE[nFeeColor])
-        {
-            InitWarning(_("Warning: -paytxfee_brostake is set very high! This is the transaction fee you will pay if you send a transaction."));
-        }
-    }
-
-    if (mapArgs.count("-paytxfee_brocoin"))
-    {
-        int nFeeColor = FEE_COLOR[BREAKOUT_COLOR_BROCOIN];
-        int64_t nTxFee = 0;
-        if (!ParseMoney(mapArgs["-paytxfee_brocoin"], nFeeColor, nTxFee))
-        {
-            InitError(_("Invalid amount for -paytxfee_brocoin=<amount>"));
-            return false;
-        }
-        vTransactionFee[nFeeColor] = nTxFee;
-        if (nTxFee > VERY_HIGH_FEE * MIN_TX_FEE[nFeeColor])
-        {
-            InitWarning(_("Warning: -paytxfee_brocoin is set very high! This is the transaction fee you will pay if you send a transaction."));
-        }
-    }
-
-    if (mapArgs.count("-paytxfee_sistercoin"))
-    {
-        int nFeeColor = FEE_COLOR[BREAKOUT_COLOR_SISCOIN];
-        int64_t nTxFee = 0;
-        if (!ParseMoney(mapArgs["-paytxfee_sistercoin"], nFeeColor, nTxFee))
-        {
-            InitError(_("Invalid amount for -paytxfee_sistercoin=<amount>"));
-            return false;
-        }
-        vTransactionFee[nFeeColor] = nTxFee;
-        if (nTxFee > VERY_HIGH_FEE * MIN_TX_FEE[nFeeColor])
-        {
-            InitWarning(_("Warning: -paytxfee_brocoin is set very high! This is the transaction fee you will pay if you send a transaction."));
-        }
-    }
-
-    // =========================================== //
 
     // by color number
-    for (int nColor=1; nColor < N_COLORS; ++nColor)
+    for (int nColor = 1; nColor < N_COLORS; ++nColor)
     {
         int nFeeColor = FEE_COLOR[nColor];
         char cArg[30];
@@ -699,7 +745,8 @@ bool AppInit2()
         {
             if (!ParseMoney(mapArgs[cArg], nFeeColor, nTxFee))
             {
-                InitError(strprintf(_("Invalid amount for %s=<amount>"), cArg));
+                InitError(
+                    strprintf(_("Invalid amount for %s=<amount>"), cArg));
                 return false;
             }
             vTransactionFee[nFeeColor] = nTxFee;
@@ -707,15 +754,18 @@ bool AppInit2()
         if (nTxFee > VERY_HIGH_FEE * MIN_TX_FEE[nFeeColor])
         {
             char msg[120];
-            snprintf(msg, sizeof(msg),
-                     "Warning: -paytxfee_%d is set very high! "
-                     "This is the transaction fee you will pay if you send a transaction.", nColor);
+            snprintf(msg,
+                     sizeof(msg),
+                     ("Warning: -paytxfee_%d is set very high! "
+                      "This is the transaction fee you will pay if you send "
+                      "a transaction."),
+                     nColor);
             InitWarning(_(msg));
         }
     }
 
     // by ticker
-    for (int nColor=1; nColor < N_COLORS; ++nColor)
+    for (int nColor = 1; nColor < N_COLORS; ++nColor)
     {
         int nFeeColor = FEE_COLOR[nColor];
         char cArg[30];
@@ -725,7 +775,8 @@ bool AppInit2()
         {
             if (!ParseMoney(mapArgs[cArg], nFeeColor, nTxFee))
             {
-                InitError(strprintf(_("Invalid amount for %s=<amount>"), cArg));
+                InitError(
+                    strprintf(_("Invalid amount for %s=<amount>"), cArg));
                 return false;
             }
             vTransactionFee[nFeeColor] = nTxFee;
@@ -733,19 +784,24 @@ bool AppInit2()
         if (nTxFee > VERY_HIGH_FEE * MIN_TX_FEE[nFeeColor])
         {
             char msg[120];
-            snprintf(msg, sizeof(msg), "Warning: -paytxfee_%s is set very high! This is the transaction fee you will pay if you send a transaction.", COLOR_TICKER[nColor]);
+            snprintf(msg,
+                     sizeof(msg),
+                     ("Warning: -paytxfee_%s is set very high! This is the "
+                      "transaction fee you will pay if you send a transaction."),
+                     COLOR_TICKER[nColor]);
             InitWarning(_(msg));
         }
     }
 
-
-
     fConfChange = GetBoolArg("-confchange", false);
     fEnforceCanonical = GetBoolArg("-enforcecanonical", true);
 
+    ///////////////////////////////////////////////////////////////////
+    // Minimum Input Values
+    ///////////////////////////////////////////////////////////////////
 
-
-    // default minimum input for default currency either unset or using -defaultcurrency
+    // default minimum input for default currency either unset or
+    //    using -defaultcurrency
     if (mapArgs.count("-mininput"))
     {
         int64_t nMinInput;
@@ -757,42 +813,6 @@ bool AppInit2()
         }
         vMinimumInputValue[nDefaultCurrency] = nMinInput;
     }
-
-    // =========== these should be a loop ======== //
-    if (mapArgs.count("-mininput_brostake"))
-    {
-        int64_t nMinInput;
-        if (!ParseMoney(mapArgs["-mininput_brostake"], BREAKOUT_COLOR_BROSTAKE, nMinInput))
-        {
-            InitError(_("Invalid amount for -mininput_brostake=<amount>"));
-            return false;
-        }
-        vMinimumInputValue[BREAKOUT_COLOR_BROSTAKE] = nMinInput;
-    }
-
-    if (mapArgs.count("-mininput_brocoin"))
-    {
-        int64_t nMinInput;
-        if (!ParseMoney(mapArgs["-mininput_brocoin"], BREAKOUT_COLOR_BROCOIN, nMinInput))
-        {
-            InitError(_("Invalid amount for -mininput_brocoin=<amount>"));
-            return false;
-        }
-        vMinimumInputValue[BREAKOUT_COLOR_BROCOIN] = nMinInput;
-    }
-
-    if (mapArgs.count("-mininput_sistercoin"))
-    {
-        int64_t nMinInput;
-        if (!ParseMoney(mapArgs["-mininput_sistercoin"], BREAKOUT_COLOR_SISCOIN, nMinInput))
-        {
-            InitError(_("Invalid amount for -mininput_sistercoin=<amount>"));
-            return false;
-        }
-        vMinimumInputValue[BREAKOUT_COLOR_SISCOIN] = nMinInput;
-    }
-
-    // =========================================== //
 
     // by color number
     for (int nColor=1; nColor < N_COLORS; ++nColor)
@@ -828,15 +848,78 @@ bool AppInit2()
         }
     }
 
+    ///////////////////////////////////////////////////////////////////
+    // Minimum Stake
+    ///////////////////////////////////////////////////////////////////
+
+    // default minimum stake split for default stake either unset or
+    //    using -defaultstake
+    if (mapArgs.count("-minstakesplit"))
+    {
+        int64_t nMinStakeSplit;
+        if (!ParseMoney(mapArgs["-minstakesplit"],
+                        nDefaultStake,
+                        nMinStakeSplit))
+        {
+            InitError(_("Invalid amount for -minstakesplit=<amount>"));
+            return false;
+        }
+        vMinimumStakeSplit[nDefaultStake] = nMinStakeSplit;
+    }
+
+    // by color number
+    for (int nColor=1; nColor < N_COLORS; ++nColor)
+    {
+        char cArg[30];
+        snprintf(cArg, sizeof(cArg), "-minstakesplit_%d", nColor);
+        if (mapArgs.count(cArg))
+        {
+            int64_t nMinStakeSplit;
+            if (!ParseMoney(mapArgs[cArg], nColor, nMinStakeSplit))
+            {
+                InitError(strprintf(_("Invalid amount for %s=<amount>"), cArg));
+                return false;
+            }
+            vMinimumStakeSplit[nColor] = nMinStakeSplit;
+        }
+    }
+
+    // by ticker
+    for (int nColor=1; nColor < N_COLORS; ++nColor)
+    {
+        char cArg[30];
+        snprintf(cArg, sizeof(cArg), "-minstakesplit_%s", COLOR_TICKER[nColor]);
+        if (mapArgs.count(cArg))
+        {
+            int64_t nMinStakeSplit;
+            if (!ParseMoney(mapArgs[cArg], nColor, nMinStakeSplit))
+            {
+                InitError(strprintf(_("Invalid amount for %s=<amount>"), cArg));
+                return false;
+            }
+            vMinimumStakeSplit[nColor] = nMinStakeSplit;
+        }
+    }
+
 
     // ********************************************************* Step 4: application initialization: dir lock, daemonize, pidfile, debug log
 
-    std::string strDataDir = GetDataDir().string();
-    std::string strWalletFileName = GetArg("-wallet", "wallet.dat");
-
+    string strDataDir = GetDataDir().string();
     // strWalletFileName must be a plain filename without a directory
-    if (strWalletFileName != boost::filesystem::basename(strWalletFileName) + boost::filesystem::extension(strWalletFileName))
-        return InitError(strprintf(_("Wallet %s resides outside data directory %s."), strWalletFileName.c_str(), strDataDir.c_str()));
+    string strWalletFileName = GetArg("-wallet", "wallet.dat");
+
+#if BOOST_VERSION >= 107900
+    boost::filesystem::path p(strWalletFileName);
+    if (strWalletFileName != p.stem().string() + p.extension().string())
+#else
+    if (strWalletFileName != boost::filesystem::basename(strWalletFileName) +
+                             boost::filesystem::extension(strWalletFileName))
+#endif
+    {
+        return InitError(strprintf(_("Wallet %s resides outside data directory %s."),
+                                   strWalletFileName.c_str(),
+                                   strDataDir.c_str()));
+    }
 
     // Make sure only a single Bitcoin process is using the data directory.
     boost::filesystem::path pathLockFile = GetDataDir() / ".lock";
@@ -877,7 +960,7 @@ bool AppInit2()
         printf("Startup time: %s\n", DateTimeStrFormat("%x %H:%M:%S", GetTime()).c_str());
     printf("Default data directory %s\n", GetDefaultDataDir().string().c_str());
     printf("Used data directory %s\n", strDataDir.c_str());
-    std::ostringstream strErrors;
+    ostringstream strErrors;
 
     if (fDaemon)
         fprintf(stdout, "breakout server starting\n");
@@ -903,7 +986,7 @@ bool AppInit2()
             return false;
     }
 
-    if (filesystem::exists(GetDataDir() / strWalletFileName))
+    if (boost::filesystem::exists(GetDataDir() / strWalletFileName))
     {
         CDBEnv::VerifyResult r = bitdb.Verify(strWalletFileName, CWalletDB::Recover);
         if (r == CDBEnv::RECOVER_OK)
@@ -932,10 +1015,10 @@ bool AppInit2()
     bool fExternalTor = false;
 
     // -onlynet indicates a specific network selection and not to use built in TOR
-    std::set<enum Network> setNets;
+    set<enum Network> setNets;
     if (mapArgs.count("-onlynet"))
     {
-        BOOST_FOREACH(std::string snet, mapMultiArgs["-onlynet"]) {
+        BOOST_FOREACH(string snet, mapMultiArgs["-onlynet"]) {
             // torext doesn't map to unique network, so do this manually
             if (snet == "torext")
             {
@@ -989,7 +1072,7 @@ bool AppInit2()
 
 #if defined(USE_IPV6)
 #if ! USE_IPV6
-    for (std::set<enum Network>::iterator it = setNets.begin(); it != setNets.end(); ++it)
+    for (set<enum Network>::iterator it = setNets.begin(); it != setNets.end(); ++it)
     {
         if (*it == NET_IPV6)
         {
@@ -1046,7 +1129,7 @@ bool AppInit2()
             {
                 if (fExternalTor)
                 {
-                    return InitError(std::string("Specify -torext address (e.g. '127.0.0.1:9150')"));
+                    return InitError(string("Specify -torext address (e.g. '127.0.0.1:9150')"));
                 }
                 else
                 {
@@ -1077,10 +1160,10 @@ bool AppInit2()
     if (!fNoListen)
     {
         // TODO: use of -bind is not fully tested
-        std::string strError;
+        string strError;
         if (mapArgs.count("-bind"))
         {
-            BOOST_FOREACH(std::string strBind, mapMultiArgs["-bind"])
+            BOOST_FOREACH(string strBind, mapMultiArgs["-bind"])
             {
                 CService addrBind;
                 if (!Lookup(strBind.c_str(), addrBind, GetListenPort(), false))
@@ -1119,6 +1202,7 @@ bool AppInit2()
 
     if (fBuiltinTor)
     {
+        printf("Starting Tor...\n");
         uiInterface.InitMessage(_("Starting Tor..."));
 
         // start up tor
@@ -1127,8 +1211,11 @@ bool AppInit2()
             InitError(_("Error: could not start tor"));
         }
 
+
+        printf("Waiting for Tor initialization...\n");
         uiInterface.InitMessage(_("Waiting for Tor initialization..."));
         wait_initialized();
+        printf("Tor Initialized.\n");
         uiInterface.InitMessage(_("Tor Initialized."));
     }
 
@@ -1145,10 +1232,10 @@ bool AppInit2()
     else if (fBuiltinTor)
     {
         string automatic_onion;
-        filesystem::path const hostname_path = GetDataDir(
+        boost::filesystem::path const hostname_path = GetDataDir(
         ) / "onion" / "hostname";
         if (
-            !filesystem::exists(
+            !boost::filesystem::exists(
                 hostname_path
             )
         ) {
@@ -1167,7 +1254,7 @@ bool AppInit2()
         AddOneShot(strDest);
 
 
-/* Reserve Balances */
+    /* Reserve Balances */
 
     // default reserve balance for coins with a primary staking currency
     // and/or -defaultstake set
@@ -1183,19 +1270,6 @@ bool AppInit2()
         vReserveBalance[nDefaultStake] = nReserveBalance;
     }
 
-    // =========== these should be a loop (only 1 here) ======== //
-
-    if (mapArgs.count("-reservebalance_brostake"))
-    {
-        int64_t nReserveBalance;
-        if (!ParseMoney(mapArgs["-reservebalance_brostake"], BREAKOUT_COLOR_BROSTAKE, nReserveBalance))
-        {
-            InitError(_("Invalid amount for -reservebalance_brostake=<amount>"));
-            return false;
-        }
-        vReserveBalance[BREAKOUT_COLOR_BROSTAKE] = nReserveBalance;
-    }
-    // =========================================== //
 
     // by color number
     for (int nColor=1; nColor < N_COLORS; ++nColor)
@@ -1235,6 +1309,8 @@ bool AppInit2()
     // AddOneShot(string(""));
 
     // ********************************************************* Step 7: load blockchain
+
+    nMaxHeight = GetArg("-maxheight", (int64_t) -1);
 
     if (!bitdb.Open(GetDataDir()))
     {
@@ -1369,26 +1445,151 @@ bool AppInit2()
 
     RegisterWallet(pwalletMain);
 
-    CBlockIndex *pindexRescan = pindexBest;
-    if (GetBoolArg("-rescan"))
-        pindexRescan = pindexGenesisBlock;
-    else
+
+    ///////////////////////////////////////////////////////////////////
+    // Stake To CBitcoinAddress:CPubKey Mappings
+    //    source = CBitcoinAddress ; destinatiion = CPubKey
+    ///////////////////////////////////////////////////////////////////
+
+    string strStakeTo = GetArg("-staketo", "");
+
+    if (!strStakeTo.empty())
     {
-        CWalletDB walletdb(strWalletFileName);
-        CBlockLocator locator;
-        if (walletdb.ReadBestBlock(locator))
-            pindexRescan = locator.GetBlockIndex();
+        json_spirit::Value value;
+        json_spirit::read(strStakeTo, value);
+        if (value.type() == json_spirit::obj_type)
+        {
+            pwalletMain->mapStakeTo.clear();
+            json_spirit::Object obj = value.get_obj();
+            json_spirit::Object::const_iterator it;
+            for (it = obj.begin(); it != obj.end(); ++it)
+            {
+                string strSource = it->name_;
+                string strDest = it->value_.get_str();
+                if (!IsHex(strDest))
+                {
+                    InitError(strprintf(_("dest of -staketo isn't hex: %s"),
+                                        strDest.c_str()));
+                    return false;
+                }
+                // Source "*" results in null ckidSource, which is the default
+                //    constructor for CKeyID
+                CBitcoinAddress addrSource;
+                CKeyID ckidSource;
+                if (strSource != "*")
+                {
+                    addrSource = CBitcoinAddress(strSource);
+                    if (!addrSource.IsValid())
+                    {
+                        InitError(strprintf(_("Invalid -staketo source: %s"),
+                                            strSource.c_str()));
+                        return false;
+                    }
+                    if (!addrSource.GetKeyID(ckidSource))
+                    {
+                        InitError(strprintf(_("Invalid -staketo source type: %s"),
+                                            strSource.c_str()));
+                        return false;
+                    }
+                }
+                valtype vchPubKey = ParseHex(strDest);
+                CPubKey pubkeyDest(vchPubKey, addrSource.nColor);
+                if (!pubkeyDest.IsValid())
+                {
+                    InitError(strprintf(_("dest of -staketo isn't pubkey: %s"),
+                                        strDest.c_str()));
+                    return false;
+                }
+                pwalletMain->mapStakeTo[ckidSource] = pubkeyDest;
+            }
+        }
+        else
+        {
+            InitError(_("Invalid JSON object for -staketo"));
+            return false;
+        }
     }
-    if (pindexBest != pindexRescan && pindexBest && pindexRescan && pindexBest->nHeight > pindexRescan->nHeight)
+
+    // Although 0 is a valid block height (genesis), allow
+    //   "0" (bool false) to mean no rescan is wanted.
+    // Allowing "0" makes sense because the genesis
+    //   block doesn't have any spendable transactions.
+    // Negative number means default behavior, which is to
+    //   scan only what's needed.
+    // All is backwards-compatible.
+    int nRescan = GetArg("-rescan", -1);
+    printf("Value of -rescan argument: %d\n", nRescan);
+
+    CBlockIndex *pindexRescan = pindexBest;
+    printf("Best block: %d\n  %s\n",
+           pindexBest->nHeight,
+           pindexBest->phashBlock->GetHex().c_str());
+
+    CWalletDB walletdb(strWalletFileName);
+    CBlockLocator locator;
+    bool fReadOK = walletdb.ReadBestBlock(locator);
+    printf("Read wallet best block OK: %s\n", fReadOK ? "yes" : "no");
+    if (fReadOK)
+    {
+        CBlockIndex *pindexWalletBest = locator.GetBlockIndex();
+        printf("Wallet best block: %d\n  %s\n",
+               pindexWalletBest->nHeight,
+               pindexWalletBest->phashBlock->GetHex().c_str());
+
+        if (nRescan < 0)
+        {
+            // Negative number means to rescan only what's needed
+            pindexRescan = pindexWalletBest;
+        }
+        else if (nRescan == 0)
+        {
+            // 0 means no rescan
+            pindexRescan = pindexBest;
+        }
+        else
+        {
+            // Positive means start scanning from that height
+            //    or what's needed, whichever is more.
+            if (nRescan < pindexWalletBest->nHeight)
+            {
+                pindexRescan = FindBlockByHeight(nRescan);
+            }
+            else
+            {
+                pindexRescan = pindexWalletBest;
+            }
+        }
+    }
+
+    printf("Rescan block at height %d\n  %s\n",
+           pindexRescan->nHeight,
+           pindexRescan->phashBlock->GetHex().c_str());
+
+    if (pindexBest &&
+        pindexRescan &&
+        (pindexBest != pindexRescan) &&
+        (pindexBest->nHeight > pindexRescan->nHeight))
     {
         uiInterface.InitMessage(_("Rescanning..."));
-        printf("Rescanning last %d blocks (from block %d)...\n", pindexBest->nHeight - pindexRescan->nHeight, pindexRescan->nHeight);
+        printf("Rescanning last %d blocks (from block %d)...\n",
+               pindexBest->nHeight - pindexRescan->nHeight,
+               pindexRescan->nHeight);
         nStart = GetTimeMillis();
         string strProgressLabel("Progress of ScanForWalletTransactions");
-        CProgressHelper progress(&stdOutProgress, &strProgressLabel, 1000);
-        pwalletMain->ScanForWalletTransactions(pindexRescan, true, progress);
+        CProgressHelper progress(&logProgress, &strProgressLabel, 1000);
+        pwalletMain->ScanForWalletTransactions(pindexRescan, true, &progress);
         printf(" rescan      %15" PRId64 "ms\n", GetTimeMillis() - nStart);
     }
+    else
+    {
+        printf("Not rescanning.\n");
+    }
+
+    string strProgressLabel = "Progress of GetSnapshot";
+    CProgressHelper progress(&logProgress, &strProgressLabel, 10000);
+    printf("Calculating balances.\n");
+    pwalletMain->FillSnapshot(&progress);
+
 
     // ********************************************************* Step 9: import blocks
 
@@ -1405,13 +1606,13 @@ bool AppInit2()
         exit(0);
     }
 
-    filesystem::path pathBootstrap = GetDataDir() / "bootstrap.dat";
-    if (filesystem::exists(pathBootstrap)) {
+    boost::filesystem::path pathBootstrap = GetDataDir() / "bootstrap.dat";
+    if (boost::filesystem::exists(pathBootstrap)) {
         uiInterface.InitMessage(_("Importing bootstrap blockchain data file."));
 
         FILE *file = fopen(pathBootstrap.string().c_str(), "rb");
         if (file) {
-            filesystem::path pathBootstrapOld = GetDataDir() / "bootstrap.dat.old";
+            boost::filesystem::path pathBootstrapOld = GetDataDir() / "bootstrap.dat.old";
             LoadExternalBlockFile(file);
             RenameOver(pathBootstrap, pathBootstrapOld);
         }

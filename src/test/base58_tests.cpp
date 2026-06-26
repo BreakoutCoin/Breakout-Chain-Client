@@ -25,7 +25,7 @@ BOOST_AUTO_TEST_CASE(base58_EncodeBase58)
             BOOST_ERROR("Bad test: " << strTest);
             continue;
         }
-        std::vector<unsigned char> sourcedata = ParseHex(test[0].get_str());
+        valtype sourcedata = ParseHex(test[0].get_str());
         std::string base58string = test[1].get_str();
         BOOST_CHECK_MESSAGE(
                     EncodeBase58(&sourcedata[0], &sourcedata[sourcedata.size()]) == base58string,
@@ -37,7 +37,7 @@ BOOST_AUTO_TEST_CASE(base58_EncodeBase58)
 BOOST_AUTO_TEST_CASE(base58_DecodeBase58)
 {
     Array tests = read_json("base58_encode_decode.json");
-    std::vector<unsigned char> result;
+    valtype result;
 
     BOOST_FOREACH(Value& tv, tests)
     {
@@ -48,7 +48,7 @@ BOOST_AUTO_TEST_CASE(base58_DecodeBase58)
             BOOST_ERROR("Bad test: " << strTest);
             continue;
         }
-        std::vector<unsigned char> expected = ParseHex(test[0].get_str());
+        valtype expected = ParseHex(test[0].get_str());
         std::string base58string = test[1].get_str();
         BOOST_CHECK_MESSAGE(DecodeBase58(base58string, result), strTest);
         BOOST_CHECK_MESSAGE(result.size() == expected.size() && std::equal(result.begin(), result.end(), expected.begin()), strTest);
@@ -82,9 +82,9 @@ public:
 class TestPayloadVisitor : public boost::static_visitor<bool>
 {
 private:
-    std::vector<unsigned char> exp_payload;
+    valtype exp_payload;
 public:
-    TestPayloadVisitor(std::vector<unsigned char> &exp_payload) : exp_payload(exp_payload) { }
+    TestPayloadVisitor(valtype &exp_payload) : exp_payload(exp_payload) { }
     bool operator()(const CKeyID &id) const
     {
         uint160 exp_key(exp_payload);
@@ -105,7 +105,7 @@ public:
 BOOST_AUTO_TEST_CASE(base58_keys_valid_parse)
 {
     Array tests = read_json("base58_keys_valid.json");
-    std::vector<unsigned char> result;
+    valtype result;
     CBitcoinSecret secret;
     CBitcoinAddress addr;
     // Save global state
@@ -121,7 +121,7 @@ BOOST_AUTO_TEST_CASE(base58_keys_valid_parse)
             continue;
         }
         std::string exp_base58string = test[0].get_str();
-        std::vector<unsigned char> exp_payload = ParseHex(test[1].get_str());
+        valtype exp_payload = ParseHex(test[1].get_str());
         const Object &metadata = test[2].get_obj();
         bool isPrivkey = find_value(metadata, "isPrivkey").get_bool();
         bool isTestnet = find_value(metadata, "isTestnet").get_bool();
@@ -165,7 +165,7 @@ BOOST_AUTO_TEST_CASE(base58_keys_valid_parse)
 BOOST_AUTO_TEST_CASE(base58_keys_valid_gen)
 {
     Array tests = read_json("base58_keys_valid.json");
-    std::vector<unsigned char> result;
+    valtype result;
     // Save global state
     bool fTestNet_stored = fTestNet;
 
@@ -179,7 +179,7 @@ BOOST_AUTO_TEST_CASE(base58_keys_valid_gen)
             continue;
         }
         std::string exp_base58string = test[0].get_str();
-        std::vector<unsigned char> exp_payload = ParseHex(test[1].get_str());
+        valtype exp_payload = ParseHex(test[1].get_str());
         const Object &metadata = test[2].get_obj();
         bool isPrivkey = find_value(metadata, "isPrivkey").get_bool();
         bool isTestnet = find_value(metadata, "isTestnet").get_bool();
@@ -231,7 +231,7 @@ BOOST_AUTO_TEST_CASE(base58_keys_valid_gen)
 BOOST_AUTO_TEST_CASE(base58_keys_invalid)
 {
     Array tests = read_json("base58_keys_invalid.json"); // Negative testcases
-    std::vector<unsigned char> result;
+    valtype result;
     CBitcoinSecret secret;
     CBitcoinAddress addr;
 

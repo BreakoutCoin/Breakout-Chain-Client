@@ -7,7 +7,7 @@
 
 #include "checkpoints.h"
 
-#include "txdb.h"
+#include "txdb-leveldb.h"
 #include "main.h"
 #include "uint256.h"
 
@@ -28,6 +28,7 @@ namespace Checkpoints
     static MapCheckpoints mapCheckpoints =
         boost::assign::map_list_of
         (           0, hashGenesisBlock )
+/*
         (       13300, uint256("0x62d199c756a0f19a0fc1f9e895190b29cb7b7683d284bfcabacbe906df530ff9"))
         (       37500, uint256("0x0000000000312775281468709d39faf0eb1c099ea35f1a39fe4ba0847658bfe0"))
         (       87000, uint256("0x56fe7fe10f4e8a17d752ce743f5cca1c10e4c6a8eeeabfacd235962148441fb5"))
@@ -118,6 +119,7 @@ namespace Checkpoints
         (      940000, uint256("0xc440fb38dfb7b84ef05f747f9cceb27c14d9cdd72ec6cf613204ef0104a10869"))
         (      950000, uint256("0x338ae2fdf7d4c5d946960406b6f79e434ca5a4189432a6097447f40f0c03d44a"))
         (      960000, uint256("0xb97a873fb2334cd87428a7ca64959f55f2cf5bb0438101500ef4a397a51a84b8"))
+*/
     ;
 
     // TestNet has no checkpoints

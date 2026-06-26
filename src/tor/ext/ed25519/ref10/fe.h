@@ -1,7 +1,7 @@
 #ifndef FE_H
 #define FE_H
 
-#include "crypto_int32.h"
+#include "ext/ed25519/ref10/crypto_int32.h"
 
 typedef crypto_int32 fe[10];
 

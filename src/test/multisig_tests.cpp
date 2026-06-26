@@ -17,7 +17,7 @@
 using namespace std;
 using namespace boost::assign;
 
-typedef vector<unsigned char> valtype;
+typedef valtype valtype;
 
 extern uint256 SignatureHash(CScript scriptCode, const CTransaction& txTo, unsigned int nIn, int nHashType);
 extern bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const CTransaction& txTo, unsigned int nIn,
@@ -34,7 +34,7 @@ sign_multisig(CScript scriptPubKey, vector<CKey> keys, CTransaction transaction,
     result << OP_0; // CHECKMULTISIG bug workaround
     BOOST_FOREACH(CKey key, keys)
     {
-        vector<unsigned char> vchSig;
+        valtype vchSig;
         BOOST_CHECK(key.Sign(hash, vchSig));
         vchSig.push_back((unsigned char)SIGHASH_ALL);
         result << vchSig;

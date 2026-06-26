@@ -1,7 +1,6 @@
 #include "coincontroldialog.h"
 #include "ui_coincontroldialog.h"
 
-#include "init.h"
 #include "bitcoinunits.h"
 #include "walletmodel.h"
 #include "addresstablemodel.h"
@@ -442,7 +441,7 @@ void CoinControlDialog::updateLabels(WalletModel *model, QDialog* dialog, int nC
             if (amount < MIN_TXOUT_AMOUNT[nColor])
                 fLowOutput = true;
 
-            CTxOut txout(amount, nColor, (CScript)vector<unsigned char>(24, 0));
+            CTxOut txout(amount, nColor, (CScript)valtype(24, 0));
             txDummy.vout.push_back(txout);
         }
     }
@@ -612,7 +611,13 @@ void CoinControlDialog::updateView()
     ui->treeWidget->setEnabled(false); // performance, otherwise updateLabels would be called for every checked checkbox
     ui->treeWidget->setAlternatingRowColors(!treeMode);
     QFlags<Qt::ItemFlag> flgCheckbox=Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsUserCheckable;
-    QFlags<Qt::ItemFlag> flgTristate=Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsUserCheckable | Qt::ItemIsTristate;    
+
+    QFlags<Qt::ItemFlag> flgTristate = Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsUserCheckable |
+#if QT_VERSION >= QT_VERSION_CHECK(5, 6, 0)
+                                       Qt::ItemIsAutoTristate;
+#else
+                                       Qt::ItemIsTristate;
+#endif
     
     int nDisplayUnit = BitcoinUnits::BTC;
     if (model && model->getOptionsModel())
@@ -708,8 +713,14 @@ void CoinControlDialog::updateView()
             itemOutput->setText(COLUMN_AMOUNT_INT64, strPad(QString::number(out.tx->vout[out.i].nValue), 15, " ")); // padding so that sorting works correctly
 
             // date
-            itemOutput->setText(COLUMN_DATE, QDateTime::fromTime_t(out.tx->GetTxTime()).toUTC().toString("yy-MM-dd hh:mm"));
-            
+            itemOutput->setText(COLUMN_DATE,
+#if QT_VERSION >= QT_VERSION_CHECK(5, 8, 0)
+                                QDateTime::fromSecsSinceEpoch(out.tx->GetTxTime())
+#else
+                                QDateTime::fromTime_t(out.tx->GetTxTime())
+#endif
+                                    .toUTC().toString("yy-MM-dd hh:mm"));
+
             // immature PoS reward
             if (out.tx->IsCoinStake() && out.tx->GetBlocksToMaturity() > 0 && out.tx->GetDepthInMainChain() > 0) {
               itemOutput->setBackground(COLUMN_CONFIRMATIONS, Qt::red);

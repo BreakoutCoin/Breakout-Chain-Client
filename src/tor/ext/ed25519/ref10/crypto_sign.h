@@ -6,4 +6,4 @@
 #define crypto_sign_pubkey ed25519_ref10_pubkey
 #define crypto_sign_open ed25519_ref10_open
 
-#include "ed25519_ref10.h"
+#include "ext/ed25519/ref10/ed25519_ref10.h"

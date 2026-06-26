@@ -58,7 +58,7 @@ public:
     IMPLEMENT_SERIALIZE
     (
         READWRITE(this->nVersion);
-        nVersion = this->nVersion;
+        nSerVersion = this->nVersion;
         READWRITE(nRelayUntil);
         READWRITE(nExpiration);
         READWRITE(nID);
@@ -73,7 +73,7 @@ public:
         READWRITE(strStatusBar);
         READWRITE(strReserved);
 
-        if (nVersion == CUnsignedAlert::CURRENT_VERSION)
+        if (nSerVersion == CUnsignedAlert::CURRENT_VERSION)
         {
               READWRITE(nAlertType);
         }
@@ -89,8 +89,8 @@ public:
 class CAlert : public CUnsignedAlert
 {
 public:
-    std::vector<unsigned char> vchMsg;
-    std::vector<unsigned char> vchSig;
+    valtype vchMsg;
+    valtype vchSig;
 
     CAlert()
     {

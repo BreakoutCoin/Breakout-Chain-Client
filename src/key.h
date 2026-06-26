@@ -14,8 +14,6 @@
 #include "util.h"
 
 
-#include <openssl/ec.h>
-
 
 // secp160k1
 // const unsigned int PRIVATE_KEY_SIZE = 192;
@@ -168,7 +166,7 @@ public:
     }
 
     // Construct a public key from a byte vector.
-    CPubKey(const std::vector<unsigned char> &vch, int nColorIn = BREAKOUT_COLOR_NONE) {
+    CPubKey(const valtype &vch, int nColorIn = BREAKOUT_COLOR_NONE) {
         Set(vch.begin(), vch.end(), nColorIn);
     }
 
@@ -238,21 +236,21 @@ public:
         return size() == 33;
     }
     
-    std::vector<unsigned char> Raw() const {
-        return std::vector<unsigned char>(vch, vch+size());
+    valtype Raw() const {
+        return valtype(vch, vch+size());
     }
 
 
     // Verify a DER signature (~72 bytes).
     // If this public key is not fully valid, the return value will be false.
-    bool Verify(const uint256 &hash, const std::vector<unsigned char>& vchSig) const;
+    bool Verify(const uint256 &hash, const valtype& vchSig) const;
 
     // Verify a compact signature (~65 bytes).
     // See CKey::SignCompact.
-    bool VerifyCompact(const uint256 &hash, const std::vector<unsigned char>& vchSig) const;
+    bool VerifyCompact(const uint256 &hash, const valtype& vchSig) const;
 
     // Recover a public key from a compact signature.
-    bool RecoverCompact(const uint256 &hash, const std::vector<unsigned char>& vchSig);
+    bool RecoverCompact(const uint256 &hash, const valtype& vchSig);
 
     // Turn this public key into an uncompressed public key.
     bool Decompress();
@@ -293,9 +291,24 @@ public:
     }
 
     // Copy constructor. This is necessary because of memlocking.
-    CKey(const CKey &secret) : fValid(secret.fValid), fCompressed(secret.fCompressed) {
+    CKey(const CKey& secret) : fValid(secret.fValid),
+                               fCompressed(secret.fCompressed)
+    {
         LockObject(vch);
         memcpy(vch, secret.vch, sizeof(vch));
+    }
+
+    // Copy assignment operator. Necessary because of memlocking.
+    CKey& operator=(const CKey& other)
+    {
+        if (this != &other)
+        {
+            fValid = other.fValid;
+            fCompressed = other.fCompressed;
+            memcpy(vch, other.vch, sizeof(vch));
+            // vch is already locked from construction; no need to re-lock.
+        }
+        return *this;
     }
 
     // Destructor (again necessary because of memlocking).
@@ -338,9 +351,9 @@ public:
     // Initialize from a CPrivKey (serialized OpenSSL private key data).
     bool SetPrivKey(const CPrivKey &vchPrivKey, bool fCompressed);
 
-    void SetCompressedPubKey(EC_KEY *pkey);
+    void SetCompressedPubKey();
 
-    bool SetSecret(const CSecret& vchSecret, EC_KEY *pkey, bool fCompressed = false);
+    bool SetSecret(const CSecret& vchSecret, bool fCompressed = false);
     // CSecret GetSecret(bool &fCompressed) const;
 
     // Generate a new private key using a cryptographic PRNG.
@@ -355,14 +368,14 @@ public:
     CPubKey GetPubKey() const;
 
     // Create a DER-serialized signature.
-    bool Sign(const uint256 &hash, std::vector<unsigned char>& vchSig) const;
+    bool Sign(const uint256 &hash, valtype& vchSig) const;
 
     // Create a compact signature (65 bytes), which allows reconstructing the used public key.
     // The format is one header byte, followed by two times 32 bytes for the serialized r and s values.
     // The header byte: 0x1B = first key with even y, 0x1C = first key with odd y,
     //                  0x1D = second key with even y, 0x1E = second key with odd y,
     //                  add 0x04 for compressed keys.
-    bool SignCompact(const uint256 &hash, std::vector<unsigned char>& vchSig) const;
+    bool SignCompact(const uint256 &hash, valtype& vchSig) const;
 
 
     // Derive BIP32 child key.
@@ -375,7 +388,7 @@ public:
     static bool CheckSignatureElement(const unsigned char *vch, int len, bool half);
 
     // Ensure that signature is DER-encoded
-    static bool ReserealizeSignature(std::vector<unsigned char>& vchSig);
+    static bool ReserealizeSignature(valtype& vchSig);
 };
 
 struct CExtPubKey {

@@ -1,4 +1,4 @@
-#include "ge.h"
+#include "ext/ed25519/ref10/ge.h"
 
 void ge_p2_0(ge_p2 *h)
 {

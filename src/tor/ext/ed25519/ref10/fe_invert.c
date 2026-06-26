@@ -1,4 +1,4 @@
-#include "fe.h"
+#include "ext/ed25519/ref10/fe.h"
 
 void fe_invert(fe out,const fe z)
 {
@@ -8,7 +8,7 @@ void fe_invert(fe out,const fe z)
   fe t3;
   int i;
 
-#include "pow225521.h"
+#include "ext/ed25519/ref10/pow225521.h"
 
   return;
 }

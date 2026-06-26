@@ -35,12 +35,16 @@
 #define ED25519_FN(fn)         ED25519_FN2(fn,ED25519_SUFFIX)
 
 #include "orconfig.h"
-#include "ed25519-donna.h"
-#include "ed25519_donna_tor.h"
-#include "ed25519-randombytes.h"
-#include "ed25519-hash.h"
 
-#include "crypto.h"
+#include "lib/compat_compiler.h"
+
+#include "ext/ed25519/donna/ed25519-donna.h"
+#include "ext/ed25519/donna/ed25519_donna_tor.h"
+#include "ext/ed25519/donna/ed25519-randombytes.h"
+#include "ext/ed25519/donna/ed25519-hash.h"
+
+#include "lib/crypto_rand.h"
+#include "lib/crypto_util.h"
 
 typedef unsigned char ed25519_signature[64];
 typedef unsigned char ed25519_public_key[32];
@@ -100,7 +104,7 @@ ED25519_FN(ed25519_sign_open) (const unsigned char *m, size_t mlen, const ed2551
   return ed25519_verify(RS, checkR, 32) ? 0 : -1;
 }
 
-#include "ed25519-donna-batchverify.h"
+#include "ext/ed25519/donna/ed25519-donna-batchverify.h"
 
 /*
   Fast Curve25519 basepoint scalar multiplication
@@ -134,7 +138,7 @@ ED25519_FN(curved25519_scalarmult_basepoint) (curved25519_key pk, const curved25
 }
 
 /*
-   Tor has a specific idea of how an Ed25519 implementaion should behave.
+   Tor has a specific idea of how an Ed25519 implementation should behave.
    Implement such a beast using the ed25519-donna primitives/internals.
 
     * Private key generation using Tor's CSPRNG.
@@ -247,13 +251,7 @@ ed25519_donna_sign(unsigned char *sig, const unsigned char *m, size_t mlen,
 static void
 ed25519_donna_gettweak(unsigned char *out, const unsigned char *param)
 {
-  static const char str[] = "Derive temporary signing key";
-  ed25519_hash_context ctx;
-
-  ed25519_hash_init(&ctx);
-  ed25519_hash_update(&ctx, (const unsigned char*)str, strlen(str));
-  ed25519_hash_update(&ctx, param, 32);
-  ed25519_hash_final(&ctx, out);
+  memcpy(out, param, 32);
 
   out[0] &= 248;  /* Is this necessary ? */
   out[31] &= 63;
@@ -306,7 +304,9 @@ ed25519_donna_blind_public_key(unsigned char *out, const unsigned char *inp,
   /* No "ge25519_unpack", negate the public key. */
   memcpy(pkcopy, inp, 32);
   pkcopy[31] ^= (1<<7);
-  ge25519_unpack_negative_vartime(&A, pkcopy);
+  if (!ge25519_unpack_negative_vartime(&A, pkcopy)) {
+    return -1;
+  }
 
   /* A' = [tweak] * A + [0] * basepoint. */
   ge25519_double_scalarmult_vartime(&Aprime, &A, t, zero);
@@ -342,5 +342,31 @@ ed25519_donna_pubkey_from_curve25519_pubkey(unsigned char *out,
   return 0;
 }
 
-#include "test-internals.c"
+/* Do the scalar multiplication of <b>pubkey</b> with the group order
+ * <b>modm_m</b>.  Place the result in <b>out</b> which must be at least 32
+ * bytes long. */
+int
+ed25519_donna_scalarmult_with_group_order(unsigned char *out,
+                                          const unsigned char *pubkey)
+{
+  static const bignum256modm ALIGN(16) zero = { 0 };
+  unsigned char pkcopy[32];
+  ge25519 ALIGN(16) Point, Result;
 
+  /* No "ge25519_unpack", negate the public key and unpack it back.
+   * See ed25519_donna_blind_public_key() */
+  memcpy(pkcopy, pubkey, 32);
+  pkcopy[31] ^= (1<<7);
+  if (!ge25519_unpack_negative_vartime(&Point, pkcopy)) {
+    return -1; /* error: bail out */
+  }
+
+  /* There is no regular scalarmult function so we have to do:
+   * Result = l*P + 0*B */
+  ge25519_double_scalarmult_vartime(&Result, &Point, modm_m, zero);
+  ge25519_pack(out, &Result);
+
+  return 0;
+}
+
+#include "ext/ed25519/donna/test-internals.i"

@@ -99,10 +99,10 @@ class MessageData
 {
 // -- Decrypted SecureMessage data
 public:
-    int64_t                     timestamp;
-    std::string                 sToAddress;
-    std::string                 sFromAddress;
-    std::vector<unsigned char>  vchMessage;         // null terminated plaintext
+    int64_t      timestamp;
+    std::string  sToAddress;
+    std::string  sFromAddress;
+    valtype      vchMessage;         // null terminated plaintext
 };
 
 
@@ -249,22 +249,22 @@ public:
         LockedPageManager::instance.UnlockRange(&chIV[0], sizeof chIV);
     }
     
-    bool SetKey(const std::vector<unsigned char>& vchNewKey, unsigned char* chNewIV);
+    bool SetKey(const valtype& vchNewKey, unsigned char* chNewIV);
     bool SetKey(const unsigned char* chNewKey, unsigned char* chNewIV);
-    bool Encrypt(unsigned char* chPlaintext, uint32_t nPlain, std::vector<unsigned char> &vchCiphertext);
-    bool Decrypt(unsigned char* chCiphertext, uint32_t nCipher, std::vector<unsigned char>& vchPlaintext);
+    bool Encrypt(unsigned char* chPlaintext, uint32_t nPlain, valtype &vchCiphertext);
+    bool Decrypt(unsigned char* chCiphertext, uint32_t nCipher, valtype& vchPlaintext);
 };
 
 
 class SecMsgStored
 {
 public:
-    int64_t                         timeReceived;
-    char                            status;         // read etc
-    uint16_t                        folderId;
-    std::string                     sAddrTo;        // when in owned addr, when sent remote addr
-    std::string                     sAddrOutbox;    // owned address this copy was encrypted with
-    std::vector<unsigned char>      vchMessage;     // message header + encryped payload
+    int64_t      timeReceived;
+    char         status;         // read etc
+    uint16_t     folderId;
+    std::string  sAddrTo;        // when in owned addr, when sent remote addr
+    std::string  sAddrOutbox;    // owned address this copy was encrypted with
+    valtype      vchMessage;     // message header + encryped payload
     
     IMPLEMENT_SERIALIZE
     (
@@ -354,9 +354,9 @@ int SecureMsgGetLocalPublicKey(std::string& strAddress, std::string& strPublicKe
 
 int SecureMsgAddAddress(std::string& address, std::string& publicKey);
 
-int SecureMsgRetrieve(SecMsgToken &token, std::vector<unsigned char>& vchData);
+int SecureMsgRetrieve(SecMsgToken &token, valtype& vchData);
 
-int SecureMsgReceive(CNode* pfrom, std::vector<unsigned char>& vchData);
+int SecureMsgReceive(CNode* pfrom, valtype& vchData);
 
 int SecureMsgStoreUnscanned(unsigned char *pHeader, unsigned char *pPayload, uint32_t nPayload);
 int SecureMsgStore(unsigned char *pHeader, unsigned char *pPayload, uint32_t nPayload, bool fUpdateBucket);

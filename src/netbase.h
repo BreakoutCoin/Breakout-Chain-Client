@@ -35,7 +35,7 @@ extern bool fNameLookup;
 class CNetAddr
 {
     protected:
-        unsigned char ip[16]; // in network byte order
+        unsigned char ip[64]; // in network byte order
 
     public:
         CNetAddr();
@@ -69,7 +69,7 @@ class CNetAddr
         unsigned int GetByte(int n) const;
         uint64_t GetHash() const;
         bool GetInAddr(struct in_addr* pipv4Addr) const;
-        std::vector<unsigned char> GetGroup() const;
+        valtype GetGroup() const;
         int GetReachabilityFrom(const CNetAddr *paddrPartner = NULL) const;
         void print() const;
 
@@ -111,7 +111,7 @@ class CService : public CNetAddr
         friend bool operator==(const CService& a, const CService& b);
         friend bool operator!=(const CService& a, const CService& b);
         friend bool operator<(const CService& a, const CService& b);
-        std::vector<unsigned char> GetKey() const;
+        valtype GetKey() const;
         std::string ToString() const;
         std::string ToStringPort() const;
         std::string ToStringIPPort() const;
@@ -129,7 +129,9 @@ class CService : public CNetAddr
              unsigned short portN = htons(port);
              READWRITE(portN);
              if (fRead)
+             {
                  pthis->port = ntohs(portN);
+             }
             )
 };
 

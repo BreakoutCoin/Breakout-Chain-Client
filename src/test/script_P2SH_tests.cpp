@@ -17,10 +17,10 @@ extern bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, 
                          bool fValidatePayToScriptHash, int nHashType);
 
 // Helpers:
-static std::vector<unsigned char>
+static valtype
 Serialize(const CScript& s)
 {
-    std::vector<unsigned char> sSerialized(s);
+    valtype sSerialized(s);
     return sSerialized;
 }
 

@@ -18,6 +18,7 @@
 
 class CWallet;
 class CBlock;
+class CKAWPOWInput;
 class CBlockIndex;
 class CKeyItem;
 class CReserveKey;
@@ -40,6 +41,10 @@ static const unsigned int BURN_PROTOCOL_START_TIME = 1468004400;
 static const unsigned int MAX_BLOCK_SIZE = 1000000;
 /** The maximum size for mined blocks */
 static const unsigned int MAX_BLOCK_SIZE_GEN = MAX_BLOCK_SIZE/2;
+/** The maximum size for newly created blocsk blocks */
+static const unsigned int DEFAULT_NEW_BLOCK_SIZE = MAX_BLOCK_SIZE_GEN/2;
+/** How much of the block should be dedicated to high-priority transactions */
+static const unsigned int DEFAULT_BLOCK_PRIORITY_SIZE = 27000;
 /** The maximum size for transactions we're willing to relay/mine **/
 static const unsigned int MAX_STANDARD_TX_SIZE = MAX_BLOCK_SIZE_GEN/5;
 /** The maximum allowed number of signature check operations in a block (network rule) */
@@ -72,10 +77,10 @@ static const int fHaveUPnP = true;
 static const int fHaveUPnP = false;
 #endif
 
-static const uint256 
+static const uint256
      hashGenesisBlock("0x00000009575edbbfbacc1d6c3668d40d85f90600673f2f2137e07a50d08a80df");
-static const uint256 
-     hashGenesisBlockTestNet("0x0000007746ebdefa50fcdc5c4dec278e4438ba4c402c36103a977ad4e62b8a3c");
+static const uint256
+     hashGenesisBlockTestNet("0x000000f41e47dfe9c01de4bed9008e08f5620e446b1ac0ba2a80f79593608826");
 
 
 // blackcoin pos 2.0 drift recommendations
@@ -85,7 +90,10 @@ inline int64_t FutureDrift(int64_t nTime) {
 
 extern CScript COINBASE_FLAGS;
 extern CCriticalSection cs_main;
+
 extern std::map<uint256, CBlockIndex*> mapBlockIndex;
+extern std::map<int, CBlockIndex*> mapBlockLookup;
+
 extern std::set<std::pair<COutPoint, unsigned int> > setStakeSeen;
 extern CBlockIndex* pindexGenesisBlock;
 extern unsigned int nNodeLifespan;
@@ -112,6 +120,7 @@ extern unsigned char pchMessageStart[4];
 extern std::vector<int64_t> vTransactionFee;
 extern std::vector<int64_t> vReserveBalance;
 extern std::vector<int64_t> vMinimumInputValue;
+extern std::vector<int64_t> vMinimumStakeSplit;
 extern int nDefaultCurrency;
 extern int nDefaultStake;
 extern int nNumberOfStakingCurrencies;
@@ -142,13 +151,22 @@ bool ProcessMessages(CNode* pfrom);
 bool SendMessages(CNode* pto, bool fSendTrickle);
 bool LoadExternalBlockFile(FILE* fileIn);
 
-bool CheckProofOfWork(uint256 hash, unsigned int nBits);
-unsigned int GetNextTargetRequired(const CBlockIndex* pindexLast, bool fProofOfStake);
+bool CheckSHA256ProofOfWork(uint256 hash, unsigned int nBits);
+bool CheckKawpowProofOfWork(const CBlock* pblock);
+bool CheckProofOfWork(uint256 hash, unsigned int nBits, 
+                      const CBlock* pblock = nullptr);
+
+double GetDifficulty(unsigned int nBits);
+double GetDifficulty(const CBlockIndex* blockindex);
+
+unsigned int GetNextTargetRequired(unsigned int nTime,
+                                   const CBlockIndex* pindexLast,
+                                   bool fProofOfStake);
 struct AMOUNT GetPoWSubsidy(CBlockIndex* pindexPrev);
 struct AMOUNT GetProofOfWorkReward(CBlockIndex* pindexPrev);
 struct AMOUNT GetProofOfStakeReward(CBlockIndex* pindexPrev, int nStakeColor);
 unsigned int ComputeMinWork(unsigned int nBase, int64_t nTime);
-unsigned int ComputeMinStake(unsigned int nBase, int64_t nTime, unsigned int nBlockTime);
+unsigned int ComputeMinStake(unsigned int nBase, int64_t nTime);
 int GetNumBlocksOfPeers();
 bool IsInitialBlockDownload();
 std::string GetWarnings(std::string strFor, int nAlertType=(int)ALERT_CLASSIC);
@@ -159,7 +177,16 @@ const CBlockIndex* GetLastBlockIndex(const CBlockIndex* pindex, bool fProofOfSta
 void StakeMiner(CWallet *pwallet);
 void ResendWalletTransactions(bool fForce = false);
 
-bool GetWalletFile(CWallet* pwallet, std::string &strWalletFileOut);
+bool DecodeHexTx(CTransaction& tx,
+                 const std::string& strHexTx);
+bool DecodeHexBlk(CBlock&, const std::string& strHexBlk);
+
+uint256 KAWPOWHash(const CBlock& blockHeader, uint256& mix_hash);
+uint256 KAWPOWHash_OnlyMix(const CBlock& blockHeader);
+
+bool KawpowIsActive(const int64_t nTime);
+bool KawpowIsActive();
+
 
 /** Position on disk for a particular transaction. */
 class CDiskTxPos
@@ -203,7 +230,10 @@ public:
         if (IsNull())
             return "null";
         else
-            return strprintf("(nFile=%u, nBlockPos=%u, nTxPos=%u)", nFile, nBlockPos, nTxPos);
+            return strprintf("(nFile=%u, nBlockPos=%u, nTxPos=%u)",
+                             nFile,
+                             nBlockPos,
+                             nTxPos);
     }
 
     void print() const
@@ -451,7 +481,9 @@ public:
 
     std::string ToStringShort() const
     {
-        return strprintf(" out %s %s", FormatMoney(nValue, nColor).c_str(), scriptPubKey.ToString(true).c_str());
+        return strprintf(" out %s %s",
+                         FormatMoney(nValue, nColor).c_str(),
+                         scriptPubKey.ToString(true).c_str());
     }
 
     std::string ToString() const
@@ -459,9 +491,9 @@ public:
         if (IsEmpty()) return "CTxOut(empty)";
         if (scriptPubKey.size() < 6)
             return "CTxOut(error)";
-        return strprintf("CTxOut(nValue=%s, ticker=%s scriptPubKey=%s)",
-                   FormatMoney(nValue, nColor).c_str(), COLOR_TICKER[nColor],
-                                                  scriptPubKey.ToString().c_str());
+        return strprintf("CTxOut(value=%s, scriptPubKey=%s)",
+                         FormatMoney(nValue, nColor).c_str(),
+                         scriptPubKey.ToString().c_str());
     }
 
     void print() const
@@ -477,6 +509,44 @@ struct AMOUNT {
 };
 
 
+enum class BlockSigStatus : int
+{
+    SIG_OK = 0,
+    POW_SIG_NOT_EMPTY,
+    POS_SIG_IS_EMPTY,
+    TX_UNREADABLE,
+    TX_PREV_VOUT_TOO_SMALL,
+    SOLVER_FAILED,
+    PREVOUT_NOT_TX_PUBKEY,
+    VERIFY_FAILED,
+    PUBKEY_EXTRACT_FAILED,
+    SCRIPT_GETOP_FAILED,
+    NOT_OP_RETURN,
+    NOT_COMPRESSED_PUBKEY,
+};
+
+class ReturnCode
+{
+public:
+    int code;
+    std::string message;
+
+    explicit ReturnCode(int code = 0,
+                        std::string message = "",
+                        bool fPrint = true) : code(code),
+                                              message(std::move(message))
+    {
+        if ((code != 0) && fPrint)
+        {
+            printf("%s\n    code: %d\n", message.c_str(), code);
+        }
+    }
+
+    explicit operator bool() const
+    {
+        return code == 0;
+    }
+};
 
 
 enum GetMinFee_mode
@@ -518,7 +588,7 @@ public:
     IMPLEMENT_SERIALIZE
     (
         READWRITE(this->nVersion);
-        nVersion = this->nVersion;
+        nSerVersion = this->nVersion;
         READWRITE(nTime);
         READWRITE(vin);
         READWRITE(vout);
@@ -552,7 +622,8 @@ public:
     uint256 GetHash() const
     {
         // miners expect filled coinbase script sigs
-        if (this->IsCoinBase() && (GetFork(this->nTime) >= BRK_FORK003))
+        int nFork = GetFork(this->nTime);
+        if (this->IsCoinBase() && (nFork >= BRK_FORK003))
         {
             return SerializeHash(*this);
         }
@@ -578,7 +649,7 @@ public:
             nBlockHeight = nBestHeight;
         if (nBlockTime == 0)
             nBlockTime = GetAdjustedTime();
-        if ((int64_t)nLockTime < ((int64_t)nLockTime < LOCKTIME_THRESHOLD ? 
+        if ((int64_t)nLockTime < ((int64_t)nLockTime < LOCKTIME_THRESHOLD ?
                                              (int64_t)nBlockHeight : nBlockTime))
         {
             return true;
@@ -620,43 +691,35 @@ public:
         return fNewer;
     }
 
-
-    // coinbase is vtx[0] and is the reward tx for PoW *and* PoS
-    bool IsCoinBase() const
-    {
-        // coinbase is just like coinmint except coinmint vout[0] is empty
-        return (vin.size() == 1) && vin[0].prevout.IsNull() && vout.size() >= 1;
-    }
-
-    // coinbase (vtx[0]) tx for PoW block
-    // the first TxOut is not empty
-    bool IsCoinMine() const   // not used, here for reference only
-    {
-        return (vin.size() == 1 && vin[0].prevout.IsNull() &&
-                vout.size() >= 1 && !vout[0].IsEmpty());
-    }
-
-    // coinbase (vtx[0]) tx for PoS block
-    // no obvious reason why PoS coin mint should be marked differently from coinbase
-    // because they are not broadcast independently of blocks
-    bool IsCoinMint() const
-    {
-        // breakout: the coin mint transaction is marked with
-        //    first input null
-        //    first output is not empty
-        // can have nonzero inputs (except vin[0]) so mint may
-        // combine with existing coins according to preferences
-        return (vin.size() == 1 && vin[0].prevout.IsNull() &&
-                vout.size() >= 1 && !vout[0].IsEmpty());
-    }
-
     // coinstake is vtx[1] (if ProofOfStake) and has inputs equal to outputs
+    //    1. one or more inputs
+    //    2. first input is not null
+    //    3. size of vout is at least 2
+    //    4. first vout is empty
     bool IsCoinStake() const
     {
         // ppcoin: the coin stake transaction is marked with the first output empty
-        return (vin.size() > 0 && (!vin[0].prevout.IsNull()) && vout.size() >= 2 && vout[0].IsEmpty());
+        return ((vin.size() > 0) &&
+                (!vin[0].prevout.IsNull()) &&
+                (vout.size() >= 2) &&
+                vout[0].IsEmpty());
     }
 
+    // coinbase is vtx[0] and is the reward tx for PoW *and* PoS
+    //    1. one and only one input
+    //    2. the sole input is null
+    //    3. one or more outputs
+    bool IsCoinBase() const
+    {
+        return ((vin.size() == 1) &&
+                 vin[0].prevout.IsNull() &&
+                 (vout.size() >= 1));
+    }
+
+    bool DoesMature() const
+    {
+        return (IsCoinBase() || IsCoinStake());
+    }
 
     /** Check for standard transaction types
         @return True if all outputs (scriptPubKeys) use only standard transaction forms
@@ -685,30 +748,18 @@ public:
     unsigned int GetP2SHSigOpCount(const MapPrevTx& mapInputs) const;
 
     // fFeesOnly==true means IsProofOfWork()==True and looking at fee-only outputs
-    void FillValuesOut(std::map<int, int64_t> &mapValuesOut, bool fFeesOnly=false) const
+    void FillValuesOut(ColorsMap& mapValuesOut, bool fFeesOnly=false) const
     {
-        mapValuesOut.clear();
+        mapValuesOut.Clear();
         std::vector<CTxOut>::const_iterator it;
-        int nOffset = 0;
-        // vout[0] was already checked for fees
-        if (fFeesOnly)
+        // fFeesOnly true means vout[0] was already checked for fees
+        int nSkip = fFeesOnly ? 1 : 0;
+        for (it = (vout.begin() + nSkip); it != vout.end(); ++it)
         {
-            nOffset = 1;
-        }
-        for (it = (vout.begin() + nOffset); it != vout.end(); ++it)
-        {
-              if (it->nValue != 0)
-              {
-                   std::map<int, int64_t>::iterator oit = mapValuesOut.find(it->nColor);
-                   if (oit == mapValuesOut.end())
-                   {
-                          mapValuesOut.insert(std::pair<int, int64_t>(it->nColor, it->nValue));
-                   }
-                   else
-                   {
-                         oit->second += it->nValue;
-                   }
-              }
+            if (it->nValue != 0)
+            {
+                 mapValuesOut.Add(it->nColor, it->nValue);
+            }
         }
     }
 
@@ -812,7 +863,7 @@ public:
      */
     int64_t GetValueIn(const MapPrevTx& mapInputs, int nColor) const;
 
-    void FillValuesIn(const MapPrevTx& inputs, std::map<int, int64_t> &mapValuesIn) const;
+    void FillValuesIn(const MapPrevTx& inputs, ColorsMap& mapValuesIn) const;
 
     int64_t GetMinFee(unsigned int nBlockSize=1,
                       enum GetMinFee_mode mode=GMF_BLOCK, unsigned int nBytes = 0) const;
@@ -821,11 +872,16 @@ public:
     {
         CAutoFile filein = CAutoFile(OpenBlockFile(pos.nFile, 0, pfileRet ? "rb+" : "rb"), SER_DISK, CLIENT_VERSION);
         if (!filein)
-            return error("CTransaction::ReadFromDisk() : OpenBlockFile failed");
+        {
+            return error(
+                "CTransaction::ReadFromDisk() : OpenBlockFile failed");
+        }
 
         // Read transaction
         if (fseek(filein, pos.nTxPos, SEEK_SET) != 0)
+        {
             return error("CTransaction::ReadFromDisk() : fseek failed");
+        }
 
         try {
             filein >> *this;
@@ -984,8 +1040,8 @@ public:
 
     IMPLEMENT_SERIALIZE
     (
-        nSerSize += SerReadWrite(s, *(CTransaction*)this, nType, nVersion, ser_action);
-        nVersion = this->nVersion;
+        nSerSize += SerReadWrite(s, *(CTransaction*)this, nType, nSerVersion, ser_action);
+        nSerVersion = this->nVersion;
         READWRITE(hashBlock);
         READWRITE(vMerkleBranch);
         READWRITE(nIndex);
@@ -1041,7 +1097,9 @@ public:
     IMPLEMENT_SERIALIZE
     (
         if (!(nType & SER_GETHASH))
-            READWRITE(nVersion);
+        {
+            READWRITE(nSerVersion);
+        }
         READWRITE(pos);
         READWRITE(vSpent);
     )
@@ -1072,6 +1130,7 @@ public:
 };
 
 
+
 /** Nodes collect new transactions into a block, hash them into a hash tree,
  * and scan through nonce values to make the block's hash satisfy proof-of-work
  * requirements.  When they solve the proof-of-work, they broadcast the block
@@ -1086,7 +1145,11 @@ class CBlock
 {
 public:
     // header
-    static const int CURRENT_VERSION=6;
+    static const int GENESIS_VERSION=6;
+    static const int KAWPOW_VERSION=7;
+    static const int CURRENT_POS_VERSION = GENESIS_VERSION;
+    static const int CURRENT_POW_VERSION = KAWPOW_VERSION;
+    static const int CURRENT_VERSION = KAWPOW_VERSION;
     int nVersion;
     uint256 hashPrevBlock;
     uint256 hashMerkleRoot;
@@ -1094,11 +1157,16 @@ public:
     unsigned int nBits;
     unsigned int nNonce;
 
+    //KAWPOW data
+    uint32_t nHeight;
+    uint64_t nNonce64;
+    uint256 mix_hash;
+
     // network and disk
     std::vector<CTransaction> vtx;
 
     // ppcoin: block signature - signed by one of the coin base txout[N]'s owner
-    std::vector<unsigned char> vchBlockSig;
+    valtype vchBlockSig;
 
     // memory only
     mutable std::vector<uint256> vMerkleTree;
@@ -1107,20 +1175,30 @@ public:
     mutable int nDoS;
     bool DoS(int nDoSIn, bool fIn) const { nDoS += nDoSIn; return fIn; }
 
-    CBlock()
+    CBlock(int nVersionIn = 0)
     {
-        SetNull();
+        SetNull(nVersionIn);
     }
 
     IMPLEMENT_SERIALIZE
     (
         READWRITE(this->nVersion);
-        nVersion = this->nVersion;
+        nSerVersion = this->nVersion;
         READWRITE(hashPrevBlock);
         READWRITE(hashMerkleRoot);
         READWRITE(nTime);
         READWRITE(nBits);
-        READWRITE(nNonce);
+
+        if (this->nVersion < CBlock::KAWPOW_VERSION)
+        {
+            READWRITE(nNonce);
+        }
+        else
+        {
+            READWRITE(nHeight);
+            READWRITE(nNonce64);
+            READWRITE(mix_hash);
+        }
 
         // ConnectBlock depends on vtx following header to generate CDiskTxPos
         if (!(nType & (SER_GETHASH|SER_BLOCKHEADERONLY)))
@@ -1135,9 +1213,21 @@ public:
         }
     )
 
-    void SetNull()
+    void SetNull(int nVersionIn = 0)
     {
-        nVersion = CBlock::CURRENT_VERSION;
+        int nFork = GetFork(GetAdjustedTime());
+        if (nVersionIn > 0)
+        {
+            nVersion = nVersionIn;
+        }
+        else if (nFork < BRK_FORK007)
+        {
+            nVersion = CBlock::GENESIS_VERSION;
+        }
+        else
+        {
+            nVersion = CBlock::CURRENT_VERSION;
+        }
         hashPrevBlock = 0;
         hashMerkleRoot = 0;
         nTime = 0;
@@ -1147,6 +1237,10 @@ public:
         vchBlockSig.clear();
         vMerkleTree.clear();
         nDoS = 0;
+
+        nNonce64 = 0;
+        nHeight = 0;
+        mix_hash = 0;
     }
 
     bool IsNull() const
@@ -1156,14 +1250,51 @@ public:
 
     uint256 GetHash() const
     {
-        if (GetFork(this->nTime) < BRK_FORK003)
+        int nFork = GetFork(nTime);
+        if (nFork < BRK_FORK003)
         {
             return SerializeHash(*this);
         }
+        else if (!IsKawpowBlock())
+        {
+            return scrypt_blockhash(BEGIN(nVersion));
+        }
         else
         {
+            if (mix_hash == 0)
+            {
+                // this should never happen:
+                //    unverified kawpow with null mix_hash
+                throw std::runtime_error(
+                             "CBlock::GetHash(): TSNH mix_hash is null");
+            }
+            return KAWPOWHash_OnlyMix(*this);
+        }
+    }
+
+    bool IsKawpowBlock() const
+    {
+        return (nVersion == KAWPOW_VERSION);
+    }
+
+    uint256 GetKAWPOWHeaderHash() const;
+
+    uint256 GetHashFull(uint256& mix_hash) const
+    {
+        if (GetFork(nTime) < BRK_FORK003)
+        {
+            mix_hash = 0;
+            return SerializeHash(*this);
+        }
+        else if (!IsKawpowBlock())
+        {
+            mix_hash = 0;
             // scrypt runs cooler, asic hardware lasts longer
             return scrypt_blockhash(BEGIN(nVersion));
+        }
+        else
+        {
+            return KAWPOWHash(*this, mix_hash);
         }
     }
 
@@ -1180,7 +1311,11 @@ public:
         // Take last bit of block hash as entropy bit
         unsigned int nEntropyBit = ((GetHash().Get64()) & 1llu);
         if (fDebug && GetBoolArg("-printstakemodifier"))
-            printf("GetStakeEntropyBit: hashBlock=%s nEntropyBit=%u\n", GetHash().ToString().c_str(), nEntropyBit);
+        {
+            printf("GetStakeEntropyBit: hashBlock=%s nEntropyBit=%u\n",
+                   GetHash().ToString().c_str(),
+                   nEntropyBit);
+        }
         return nEntropyBit;
     }
 
@@ -1326,22 +1461,29 @@ public:
         }
 
         // Check the header
-        if (fReadTransactions && IsProofOfWork() && !CheckProofOfWork(GetHash(), nBits))
+        if (fReadTransactions && IsProofOfWork() &&
+            !CheckProofOfWork(GetHash(), nBits, this))
+        {
             return error("CBlock::ReadFromDisk() : errors in block header");
+        }
 
         return true;
     }
 
     void print() const
     {
-        printf("CBlock(hash=%s, ver=%d, hashPrevBlock=%s, hashMerkleRoot=%s, nTime=%u, nBits=%08x, nNonce=%u, vtx=%" PRIszu ", vchBlockSig=%s)\n",
-            GetHash().ToString().c_str(),
-            nVersion,
-            hashPrevBlock.ToString().c_str(),
-            hashMerkleRoot.ToString().c_str(),
-            nTime, nBits, nNonce,
-            vtx.size(),
-            HexStr(vchBlockSig.begin(), vchBlockSig.end()).c_str());
+        printf("CBlock(hash=%s, ver=%d, hashPrevBlock=%s, hashMerkleRoot=%s, "
+               "nTime=%u, nBits=%08x, nNonce=%u, vtx=%" PRIszu
+               ", vchBlockSig=%s)\n",
+               GetHash().ToString().c_str(),
+               nVersion,
+               hashPrevBlock.ToString().c_str(),
+               hashMerkleRoot.ToString().c_str(),
+               nTime,
+               nBits,
+               nNonce,
+               vtx.size(),
+               HexStr(vchBlockSig.begin(), vchBlockSig.end()).c_str());
         for (unsigned int i = 0; i < vtx.size(); i++)
         {
             printf("  ");
@@ -1349,7 +1491,9 @@ public:
         }
         printf("  vMerkleTree: ");
         for (unsigned int i = 0; i < vMerkleTree.size(); i++)
-            printf("%s ", vMerkleTree[i].ToString().substr(0,10).c_str());
+        {
+            printf("%s ", vMerkleTree[i].ToString().substr(0, 10).c_str());
+        }
         printf("\n");
     }
 
@@ -1364,15 +1508,37 @@ public:
     bool AcceptBlock();
     bool GetCoinAge(uint64_t& nCoinAge) const; // ppcoin: calculate total coin age spent in block
     bool SignBlock(CWallet& keystore, int64_t *nFees);
-    bool CheckBlockSignature() const;
+    ReturnCode CheckBlockSignature() const;
 
 private:
     bool SetBestChainInner(CTxDB& txdb, CBlockIndex *pindexNew);
 };
 
 
+/**
+ * Custom serializer for CBlockHeader that omits the nNonce and mixHash, for use
+ * as input to ProgPow.
+ */
+class CKAWPOWInput : private CBlock
+{
+public:
+    CKAWPOWInput(const CBlock &block)
+    {
+        CBlock::SetNull();
+        *((CBlock*)this) = block;
+    }
 
-
+    IMPLEMENT_SERIALIZE
+    (
+        READWRITE(this->nVersion);
+        nSerVersion = this->nVersion;
+        READWRITE(hashPrevBlock);
+        READWRITE(hashMerkleRoot);
+        READWRITE(nTime);
+        READWRITE(nBits);
+        READWRITE(nHeight);
+    )
+};
 
 
 /** The block chain is a tree shaped structure starting with the
@@ -1399,11 +1565,11 @@ public:
     // Money supply has colors
     std::vector<int64_t> vMoneySupply;
 
-    // Total BRO money is tracked for fee scavenging PoW
+    // Total mints for all currencies are tracked for fee scavenging PoW
     std::vector<int64_t> vTotalMint;
 
     unsigned int nFlags;  // ppcoin: block index flags
-    enum  
+    enum
     {
         BLOCK_PROOF_OF_STAKE = (1 << 0), // is proof-of-stake block
         BLOCK_STAKE_ENTROPY  = (1 << 1), // entropy bit for stake modifier
@@ -1425,6 +1591,10 @@ public:
     unsigned int nTime;
     unsigned int nBits;
     unsigned int nNonce;
+
+    // KAWPOW
+    uint64_t nNonce64;
+    uint256 mix_hash;
 
     CBlockIndex()
     {
@@ -1449,6 +1619,10 @@ public:
         nTime          = 0;
         nBits          = 0;
         nNonce         = 0;
+
+        //KAWPOW
+        nNonce64       = 0;
+        mix_hash       = 0;
 
         nStakeColor    = BREAKOUT_COLOR_NONE;
         vMoneySupply.assign(N_COLORS, 0);
@@ -1491,6 +1665,11 @@ public:
         nTime          = block.nTime;
         nBits          = block.nBits;
         nNonce         = block.nNonce;
+
+        //KAWPOW
+        nHeight        = block.nHeight;
+        nNonce64       = block.nNonce64;
+        mix_hash       = block.mix_hash;
     }
 
     CBlock GetBlockHeader() const
@@ -1498,11 +1677,16 @@ public:
         CBlock block;
         block.nVersion       = nVersion;
         if (pprev)
+        {
             block.hashPrevBlock = pprev->GetBlockHash();
+        }
         block.hashMerkleRoot = hashMerkleRoot;
         block.nTime          = nTime;
         block.nBits          = nBits;
         block.nNonce         = nNonce;
+        block.nHeight        = nHeight;
+        block.nNonce64       = nNonce64;
+        block.mix_hash       = mix_hash;
         return block;
     }
 
@@ -1574,6 +1758,12 @@ public:
         return !(nFlags & BLOCK_PROOF_OF_STAKE);
     }
 
+    bool IsKawpow() const
+    {
+        return (GetFork(nTime) >= BRK_FORK007) &&
+               (nVersion >= CBlock::KAWPOW_VERSION);
+    }
+
     bool IsProofOfStake() const
     {
         return (nFlags & BLOCK_PROOF_OF_STAKE);
@@ -1611,19 +1801,33 @@ public:
 
     std::string ToString() const
     {
-        return strprintf("CBlockIndex(nprev=%p, pnext=%p, nFile=%u, nBlockPos=%-6d nHeight=%d, nCoinbase=%s, nCoinbaseColor=%s, vMoneySupply[nCoinbaseColor]=%s, nBroTotalMint=%s, nFlags=(%s)(%d)(%s), bnStakeModifier=%s, nStakeModifierChecksum=%08x, hashProof=%s, prevoutStake=(%s), nStakeTime=%d merkle=%s, hashBlock=%s)",
-            pprev, pnext, nFile, nBlockPos, nHeight,
+        return strprintf(
+            "CBlockIndex(nprev=%p, pnext=%p, nFile=%u, nBlockPos=%-6d, "
+            "nHeight=%d, nTime=%d, coinbase=%s,"
+            "money supply=%s, total mint=%s, "
+            "nFlags=(%s)(%d)(%s)%s, bnStakeModifier=%s, "
+            "nStakeModifierChecksum=%08x, hashProof=%s, prevoutStake=(%s), "
+            "nStakeTime=%d merkle=%s, hashBlock=%s)",
+            pprev,
+            pnext,
+            nFile,
+            nBlockPos,
+            nHeight,
+            nTime,
             FormatMoney(vCoinbase[nCoinbaseColor], nCoinbaseColor).c_str(),
-            COLOR_TICKER[nCoinbaseColor],
             FormatMoney(vMoneySupply[nCoinbaseColor], nCoinbaseColor).c_str(),
             FormatMoney(vTotalMint[nCoinbaseColor], nCoinbaseColor).c_str(),
-            GeneratedStakeModifier() ? "MOD" : "-", GetStakeEntropyBit(),
-            IsProofOfStake()? "PoS" : "PoW",
-            bnStakeModifier.ToString().c_str(), nStakeModifierChecksum, 
+            GeneratedStakeModifier() ? "MOD" : "-",
+            GetStakeEntropyBit(),
+            IsProofOfStake() ? "PoS" : "PoW",
+            IsKawpow() ? "(Kawpow)" : "",
+            bnStakeModifier.ToString().c_str(),
+            nStakeModifierChecksum,
             hashProof.ToString().c_str(),
-            prevoutStake.ToString().c_str(), nStakeTime,
+            prevoutStake.ToString().c_str(),
+            nStakeTime,
             hashMerkleRoot.ToString().c_str(),
-            GetBlockHash().ToString().c_str());
+            phashBlock ? GetBlockHash().ToString().c_str() : "NULL");
     }
 
     void print() const
@@ -1660,7 +1864,9 @@ public:
     IMPLEMENT_SERIALIZE
     (
         if (!(nType & SER_GETHASH))
-            READWRITE(nVersion);
+        {
+            READWRITE(nSerVersion);
+        }
 
         READWRITE(hashNext);
         READWRITE(nFile);
@@ -1691,14 +1897,28 @@ public:
         READWRITE(hashMerkleRoot);
         READWRITE(nTime);
         READWRITE(nBits);
-        READWRITE(nNonce);
+
+        if (this->nVersion < CBlock::KAWPOW_VERSION)
+        {
+            READWRITE(nNonce);
+        }
+        else
+        {
+            READWRITE(nNonce64);
+            READWRITE(mix_hash);
+        }
+
         READWRITE(blockHash);
     )
 
     uint256 GetBlockHash() const
     {
-        if (fUseFastIndex && (nTime < GetAdjustedTime() - 24 * 60 * 60) && blockHash != 0)
+        if (fUseFastIndex &&
+            (nTime < GetAdjustedTime() - 24 * 60 * 60) &&
+            (blockHash != 0))
+        {
             return blockHash;
+        }
 
         CBlock block;
         block.nVersion        = nVersion;
@@ -1707,6 +1927,10 @@ public:
         block.nTime           = nTime;
         block.nBits           = nBits;
         block.nNonce          = nNonce;
+
+        block.nHeight         = nHeight;
+        block.nNonce64        = nNonce64;
+        block.mix_hash        = mix_hash;
 
         const_cast<CDiskBlockIndex*>(this)->blockHash = block.GetHash();
 
@@ -1717,10 +1941,11 @@ public:
     {
         std::string str = "CDiskBlockIndex(";
         str += CBlockIndex::ToString();
-        str += strprintf("\n                hashBlock=%s, hashPrev=%s, hashNext=%s)",
-            GetBlockHash().ToString().c_str(),
-            hashPrev.ToString().c_str(),
-            hashNext.ToString().c_str());
+        str += strprintf("\n                "
+                            "hashBlock=%s, hashPrev=%s, hashNext=%s)",
+                         GetBlockHash().ToString().c_str(),
+                         hashPrev.ToString().c_str(),
+                         hashNext.ToString().c_str());
         return str;
     }
 
@@ -1729,11 +1954,6 @@ public:
         printf("%s\n", ToString().c_str());
     }
 };
-
-
-
-
-
 
 
 
@@ -1771,7 +1991,9 @@ public:
     IMPLEMENT_SERIALIZE
     (
         if (!(nType & SER_GETHASH))
-            READWRITE(nVersion);
+        {
+            READWRITE(nSerVersion);
+        }
         READWRITE(vHave);
     )
 
@@ -1787,19 +2009,75 @@ public:
 
     void Set(const CBlockIndex* pindex)
     {
+        static const uint256 HASH_GENESIS = fTestNet ?
+                                     hashGenesisBlockTestNet :
+                                     hashGenesisBlock;
+
         vHave.clear();
+
+        if (!pindex->pprev)
+        {
+            if (pindex)
+            {
+                vHave.push_back(HASH_GENESIS);
+            }
+            return;
+        }
+
+        int nHeight = pindex->nHeight;
+
         int nStep = 1;
         while (pindex)
         {
             vHave.push_back(pindex->GetBlockHash());
 
+            nHeight -= nStep;
+            if (nHeight < 1)
+            {
+                break;
+            }
+
+            if (nStep < 21)
+            {
+                // given >2M blocks, it is cheaper to step through pprev
+                //    than search a map until step is around 20
+                //    i.e. `\log_{2} 2,097,152 = 21`
+                for (int i = 0; pindex && i < nStep; i++)
+                {
+                    pindex = pindex->pprev;
+                }
+            }
+            else if (mapBlockLookup.count(nHeight))
+            {
+                pindex = mapBlockLookup[nHeight];
+            }
+            else
+            {
+                // this should never happen: no block at the given height
+                printf("CBlockLocator::Set(): TSNH no block found at %d\n",
+                       nHeight);
+                // no choice but to step backwards to the block
+                //   because it's not in the lookup
+                while (pindex)
+                {
+                    if (pindex->nHeight == nHeight)
+                    {
+                        mapBlockLookup[nHeight] = mapBlockIndex[pindex->GetBlockHash()];
+                        printf("CBlockLocator::Set(): Added block\n  %s\n",
+                               pindex->phashBlock->ToString().c_str());
+                        break;
+                    }
+                    pindex = pindex->pprev;
+                }
+            }
+
             // Exponentially larger steps back
-            for (int i = 0; pindex && i < nStep; i++)
-                pindex = pindex->pprev;
             if (vHave.size() > 10)
+            {
                 nStep *= 2;
+            }
         }
-        vHave.push_back((!fTestNet ? hashGenesisBlock : hashGenesisBlockTestNet));
+        vHave.push_back(HASH_GENESIS);
     }
 
     int GetDistanceBack()

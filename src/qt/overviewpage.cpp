@@ -160,75 +160,81 @@ OverviewPage::~OverviewPage()
 // Stake: applies to stake
 // maps are color:amount
 // Deck balances are 0 or 1, so vCards is a sorted vector of cards held.
-void OverviewPage::setBalances(const std::map<int, qint64> &mapBalance,
-                               const std::map<int, qint64> &mapStake,
-                               const std::map<int, qint64> &mapUnconfirmedBalance,
-                               const std::map<int, qint64> &mapImmatureBalance,
-                               const std::vector<int> &vCards)
+void OverviewPage::setBalances(const ColorsMap& mapConfirmed,
+                               const ColorsMap& mapStake,
+                               const ColorsMap& mapCoinbase,
+                               const ColorsMap& mapReceived,
+                               const ColorsMap& mapSent,
+                               const std::vector<int>& vCards)
 {
     int unitBrostake = model->getOptionsModel()->getDisplayUnitBrostake();
     int unitBrocoin = model->getOptionsModel()->getDisplayUnitBrocoin();
     int unitSistercoin = BitcoinUnits::BTC;
-    std::map<int, qint64> mapSpendable;
-    model->FillNets(mapUnconfirmedBalance, mapBalance, mapSpendable);
-    mapCurrentBalance = mapBalance;
+    // Spendable = Confirmed - Stake - Coinbase - Sent
+    ColorsMap mapSpendable = mapConfirmed;
+    mapSpendable.Subtract(mapStake);
+    mapSpendable.Subtract(mapCoinbase);
+    mapSpendable.Subtract(mapSent);
+    // Balance = Confirmed - Sent
+    mapCurrentBalance = mapConfirmed;
+    mapCurrentBalance.Subtract(mapSent);
     mapCurrentStake = mapStake;
-    mapCurrentUnconfirmedBalance = mapUnconfirmedBalance;
-    mapCurrentImmatureBalance = mapImmatureBalance;
+    mapCurrentUnconfirmedBalance = mapReceived;
+    mapCurrentImmatureBalance = mapCoinbase;
     vCurrentCards = vCards;
 
     // TODO: refactor this mess
 
     // Brostake is only premined, so don't bother with maturity.
     ui->labelBalanceBrostake->setText(BitcoinUnits::formatWithUnitLocalized(
-             unitBrostake, mapSpendable[BREAKOUT_COLOR_BROSTAKE], BREAKOUT_COLOR_BROSTAKE));
+             unitBrostake, mapSpendable.Get(BREAKOUT_COLOR_BRX), BREAKOUT_COLOR_BRX));
     ui->labelStakeBrostake->setText(BitcoinUnits::formatWithUnitLocalized(
-             unitBrostake, mapCurrentStake[BREAKOUT_COLOR_BROSTAKE], BREAKOUT_COLOR_BROSTAKE));
+             unitBrostake, mapCurrentStake.Get(BREAKOUT_COLOR_BRX), BREAKOUT_COLOR_BRX));
     ui->labelUnconfirmedBrostake->setText(BitcoinUnits::formatWithUnitLocalized(
-             unitBrostake, mapCurrentUnconfirmedBalance[BREAKOUT_COLOR_BROSTAKE], BREAKOUT_COLOR_BROSTAKE));
+             unitBrostake, mapCurrentUnconfirmedBalance.Get(BREAKOUT_COLOR_BRX), BREAKOUT_COLOR_BRX));
     ui->labelTotalBrostake->setText(BitcoinUnits::formatWithUnitLocalized(
-             unitBrostake, mapSpendable[BREAKOUT_COLOR_BROSTAKE] +
-                           mapCurrentStake[BREAKOUT_COLOR_BROSTAKE] +
-                           mapCurrentUnconfirmedBalance[BREAKOUT_COLOR_BROSTAKE], BREAKOUT_COLOR_BROSTAKE));
+             unitBrostake, mapSpendable.Get(BREAKOUT_COLOR_BRX) +
+                           mapCurrentStake.Get(BREAKOUT_COLOR_BRX) +
+                           mapCurrentUnconfirmedBalance.Get(BREAKOUT_COLOR_BRX), BREAKOUT_COLOR_BRX));
 
     // Brocoin is never stake.
     ui->labelBalanceBrocoin->setText(BitcoinUnits::formatWithUnitLocalized(
-             unitBrocoin, mapSpendable[BREAKOUT_COLOR_BROCOIN], BREAKOUT_COLOR_BROCOIN));
+             unitBrocoin, mapSpendable.Get(BREAKOUT_COLOR_BRK), BREAKOUT_COLOR_BRK));
     ui->labelUnconfirmedBrocoin->setText(BitcoinUnits::formatWithUnitLocalized(
-             unitBrocoin, mapCurrentUnconfirmedBalance[BREAKOUT_COLOR_BROCOIN], BREAKOUT_COLOR_BROCOIN));
+             unitBrocoin, mapCurrentUnconfirmedBalance.Get(BREAKOUT_COLOR_BRK), BREAKOUT_COLOR_BRK));
     ui->labelImmatureBrocoin->setText(BitcoinUnits::formatWithUnitLocalized(
-             unitBrocoin, mapCurrentImmatureBalance[BREAKOUT_COLOR_BROCOIN], BREAKOUT_COLOR_BROCOIN));
+             unitBrocoin, mapCurrentImmatureBalance.Get(BREAKOUT_COLOR_BRK), BREAKOUT_COLOR_BRK));
     ui->labelTotalBrocoin->setText(BitcoinUnits::formatWithUnitLocalized(
-             unitBrocoin, mapSpendable[BREAKOUT_COLOR_BROCOIN] +
-                          mapCurrentUnconfirmedBalance[BREAKOUT_COLOR_BROCOIN] +
-                          mapCurrentImmatureBalance[BREAKOUT_COLOR_BROCOIN], BREAKOUT_COLOR_BROCOIN));
+             unitBrocoin, mapSpendable.Get(BREAKOUT_COLOR_BRK) +
+                          mapCurrentUnconfirmedBalance.Get(BREAKOUT_COLOR_BRK) +
+                          mapCurrentImmatureBalance.Get(BREAKOUT_COLOR_BRK), BREAKOUT_COLOR_BRK));
 
     // Sistercoin is only mined, never stake.
     ui->labelBalanceSistercoin->setText(BitcoinUnits::formatWithUnitLocalized(
-             unitSistercoin, mapSpendable[BREAKOUT_COLOR_SISCOIN], BREAKOUT_COLOR_SISCOIN));
+             unitSistercoin, mapSpendable.Get(BREAKOUT_COLOR_SIS), BREAKOUT_COLOR_SIS));
     ui->labelUnconfirmedSistercoin->setText(BitcoinUnits::formatWithUnitLocalized(
-             unitSistercoin, mapCurrentUnconfirmedBalance[BREAKOUT_COLOR_SISCOIN], BREAKOUT_COLOR_SISCOIN));
+             unitSistercoin, mapCurrentUnconfirmedBalance.Get(BREAKOUT_COLOR_SIS), BREAKOUT_COLOR_SIS));
     ui->labelImmatureSistercoin->setText(BitcoinUnits::formatWithUnitLocalized(
-             unitSistercoin, mapCurrentImmatureBalance[BREAKOUT_COLOR_SISCOIN], BREAKOUT_COLOR_SISCOIN));
+             unitSistercoin, mapCurrentImmatureBalance.Get(BREAKOUT_COLOR_SIS), BREAKOUT_COLOR_SIS));
     ui->labelTotalSistercoin->setText(BitcoinUnits::formatWithUnitLocalized(
-             unitSistercoin, mapSpendable[BREAKOUT_COLOR_SISCOIN] +
-                         mapCurrentUnconfirmedBalance[BREAKOUT_COLOR_SISCOIN], BREAKOUT_COLOR_SISCOIN));
+             unitSistercoin, mapSpendable.Get(BREAKOUT_COLOR_SIS) +
+                         mapCurrentUnconfirmedBalance.Get(BREAKOUT_COLOR_SIS), BREAKOUT_COLOR_SIS));
 
     // only show immature (newly mined) balance if it's non-zero, so as not to complicate things
     // for the non-mining users
-    bool showImmatureBrocoin = mapCurrentImmatureBalance[BREAKOUT_COLOR_BROCOIN] != 0;
+    bool showImmatureBrocoin = mapCurrentImmatureBalance.Get(BREAKOUT_COLOR_BRK) != 0;
     ui->labelImmatureBrocoin->setVisible(showImmatureBrocoin);
     ui->lblBroImm->setVisible(showImmatureBrocoin);
 
     // only show stake balance if it's non-zero, so as not to complicate things
     // for the non-staking users
-    bool showStakeBrostake = mapCurrentStake[BREAKOUT_COLOR_BROSTAKE] != 0;
+    bool showStakeBrostake = mapCurrentStake.Get(BREAKOUT_COLOR_BRX) != 0;
     ui->labelStakeBrostake->setVisible(showStakeBrostake);
     ui->lblBrxStake->setVisible(showStakeBrostake);
 
     // only show immature (newly mined) balance if it's non-zero, so as not to complicate things
     // for the non-mining users
-    bool showImmatureSistercoin = mapCurrentImmatureBalance[BREAKOUT_COLOR_SISCOIN] != 0;
+    bool showImmatureSistercoin = mapCurrentImmatureBalance.Get(BREAKOUT_COLOR_SIS) != 0;
     ui->labelImmatureSistercoin->setVisible(showImmatureSistercoin);
     ui->lblSisImm->setVisible(showImmatureSistercoin);
 
@@ -262,27 +268,54 @@ void OverviewPage::setModel(WalletModel *model)
         ui->listTransactions->setModelColumn(TransactionTableModel::ToAddress);
 
         // Keep up to date with wallet
-        std::map<int, qint64> mapBalance, mapStake,
-                              mapUnconfirmedBalance, mapImmatureBalance;
+        ColorsMap mapConfirmed, mapStake, mapCoinbase,
+                  mapReceived, mapSent;
         std::vector<int> vCards;
+        std::vector<int> vCardsImmature;
         std::vector<int64_t> vBalance(0, N_COLORS);
-        model->getBalance(GUI_OVERVIEW_COLORS, mapBalance);
-        model->getStake(GUI_OVERVIEW_COLORS, mapStake);
-        model->getUnconfirmedBalance(GUI_OVERVIEW_COLORS, mapUnconfirmedBalance);
-        model->getImmatureBalance(GUI_OVERVIEW_COLORS, mapImmatureBalance);
-        model->getHand(vCards);
-        setBalances(mapBalance, mapStake, mapUnconfirmedBalance, mapImmatureBalance, vCards);
-        connect(model, SIGNAL(balanceChanged(const std::map<int, qint64>&, const std::map<int, qint64>&,
-                                             const std::map<int, qint64>&, const std::map<int, qint64>&,
-                                             const std::vector<int>)),
-                this, SLOT(setBalances(const std::map<int, qint64>&, const std::map<int, qint64>&,
-                                       const std::map<int, qint64>&, const std::map<int, qint64>&,
-                                       const std::vector<int>&)));
+        model->getConfirmed(GUI_OVERVIEW_COLORS, mapConfirmed);
+        model->getImmatureStake(GUI_OVERVIEW_COLORS, mapStake);
+        model->getImmatureCoinbase(GUI_OVERVIEW_COLORS, mapCoinbase);
+        model->getUnconfirmedReceived(GUI_OVERVIEW_COLORS, mapReceived);
+        model->getUnconfirmedSent(GUI_OVERVIEW_COLORS, mapSent);
+        model->getHand(vCards, vCardsImmature);
+        for (int card : vCardsImmature)
+        {
+            if (std::find(vCards.begin(), vCards.end(), card) == vCards.end())
+            {
+                vCards.push_back(card);
+            }
+        }
+        std::sort(vCards.begin(), vCards.end(), cardSorter);
+        setBalances(mapConfirmed,
+                    mapStake,
+                    mapCoinbase,
+                    mapReceived,
+                    mapSent,
+                    vCards);
+        connect(model,
+                SIGNAL(balanceChanged(ColorsMap,
+                                      ColorsMap,
+                                      ColorsMap,
+                                      ColorsMap,
+                                      ColorsMap,
+                                      std::vector<int>)),
+                this,
+                SLOT(setBalances(ColorsMap,
+                                 ColorsMap,
+                                 ColorsMap,
+                                 ColorsMap,
+                                 ColorsMap,
+                                 std::vector<int>)));
 
-        connect(model->getOptionsModel(), SIGNAL(displayUnitChangedBrostake(int)),
-                                                      this, SLOT(updateDisplayUnit()));
-        connect(model->getOptionsModel(), SIGNAL(displayUnitChangedBrocoin(int)),
-                                                      this, SLOT(updateDisplayUnit()));
+        connect(model->getOptionsModel(),
+                SIGNAL(displayUnitChangedBrostake(int)),
+                this,
+                SLOT(updateDisplayUnit()));
+        connect(model->getOptionsModel(),
+                SIGNAL(displayUnitChangedBrocoin(int)),
+                this,
+                SLOT(updateDisplayUnit()));
     }
 
     // update the display unit, to not use the default ("BTC")
@@ -293,13 +326,18 @@ void OverviewPage::updateDisplayUnit()
 {
     if(model && model->getOptionsModel())
     {
-        if(!mapCurrentBalance.empty())
+        if(!mapCurrentBalance.Empty())
         {
-            std::map<int, qint64> mapStake;
-            model->getStake(GUI_OVERVIEW_COLORS, mapStake);
-            setBalances(mapCurrentBalance, mapStake,
-                        mapCurrentUnconfirmedBalance, mapCurrentImmatureBalance,
-                        vCurrentCards);
+            ColorsMap confirmed, stake, coinbase, received, sent;
+            std::vector<int> cards;
+            model->getSnapshot(GUI_OVERVIEW_COLORS,
+                               confirmed,
+                               stake,
+                               coinbase,
+                               received,
+                               sent,
+                               cards);
+            setBalances(confirmed, stake, coinbase, received, sent, cards);
         }
 
         // Update txdelegate->units with the current units

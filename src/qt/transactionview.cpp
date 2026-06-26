@@ -216,30 +216,31 @@ void TransactionView::chooseDate(int idx)
         break;
     case Today:
         transactionProxyModel->setDateRange(
-                QDateTime(current),
+                current.startOfDay(),
                 TransactionFilterProxy::MAX_DATE);
         break;
     case ThisWeek: {
         // Find last Monday
-        QDate startOfWeek = current.addDays(-(current.dayOfWeek()-1));
+        QDate startOfWeek = current.addDays(-(current.dayOfWeek() - 1));
         transactionProxyModel->setDateRange(
-                QDateTime(startOfWeek),
+                startOfWeek.startOfDay(),
                 TransactionFilterProxy::MAX_DATE);
 
         } break;
-    case ThisMonth:
+    case ThisMonth: {
+        QDate startOfMonth(current.year(), current.month(), 1);
         transactionProxyModel->setDateRange(
-                QDateTime(QDate(current.year(), current.month(), 1)),
+                startOfMonth.startOfDay(),
                 TransactionFilterProxy::MAX_DATE);
-        break;
+        } break;
     case LastMonth:
         transactionProxyModel->setDateRange(
-                QDateTime(QDate(current.year(), current.month()-1, 1)),
-                QDateTime(QDate(current.year(), current.month(), 1)));
+                QDate(current.year(), current.month() - 1, 1).startOfDay(),
+                QDate(current.year(), current.month(), 1).startOfDay());
         break;
     case ThisYear:
         transactionProxyModel->setDateRange(
-                QDateTime(QDate(current.year(), 1, 1)),
+                QDate(current.year(), 1, 1).startOfDay(),
                 TransactionFilterProxy::MAX_DATE);
         break;
     case Range:
@@ -437,8 +438,8 @@ void TransactionView::dateRangeChanged()
     if(!transactionProxyModel)
         return;
     transactionProxyModel->setDateRange(
-            QDateTime(dateFrom->date()),
-            QDateTime(dateTo->date()).addDays(1));
+            dateFrom->date().startOfDay(),
+            dateTo->date().addDays(1).startOfDay());
 }
 
 void TransactionView::focusTransaction(const QModelIndex &idx)

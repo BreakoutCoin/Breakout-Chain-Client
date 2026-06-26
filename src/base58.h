@@ -31,7 +31,7 @@ const int PUBKEY_ADDRESS_TEST = 6;  // Br, Bx
 const int SCRIPT_ADDRESS_TEST = 4;  // 8B, 8X
 
 
-inline bool GetVecColorID(int nVersion, int nColor, std::vector<unsigned char>* (&pVecColorID))
+inline bool GetVecColorID(int nVersion, int nColor, valtype* (&pVecColorID))
 {
     if (!CheckColor(nColor))
     {
@@ -66,32 +66,31 @@ inline bool GetVecColorID(int nVersion, int nColor, std::vector<unsigned char>* 
 }
 
 
- 
-inline bool GetMapColorID(int nVersion, std::map<std::vector <unsigned char>, int >* &pMapVer) 
-{ 
-    switch (nVersion) 
-    { 
-        case PUBKEY_ADDRESS : 
-                pMapVer = &MAPS_COLOR_ID[MAIN_PUBKEY_IDX]; 
-                break;
-        case SCRIPT_ADDRESS : 
-                pMapVer = &MAPS_COLOR_ID[MAIN_SCRIPT_IDX]; 
-                break;
-        case PUBKEY_ADDRESS_TEST : 
-                pMapVer = &MAPS_COLOR_ID[TEST_PUBKEY_IDX]; 
-                break;
-        case SCRIPT_ADDRESS_TEST : 
-                pMapVer = &MAPS_COLOR_ID[TEST_SCRIPT_IDX]; 
-                break;
-        default : 
-                if (fDebug) 
-                { 
-                        printf("GetMapVersion(): Did not recognize version byte %d\n", nVersion); 
-                } 
-                return false; 
-    } 
-    return true; 
-} 
+inline bool GetMapColorID(int nVersion, std::map<valtype, int>* &pMapVer)
+{
+    switch (nVersion)
+    {
+        case PUBKEY_ADDRESS :
+            pMapVer = &MAPS_COLOR_ID[MAIN_PUBKEY_IDX];
+            break;
+        case SCRIPT_ADDRESS :
+            pMapVer = &MAPS_COLOR_ID[MAIN_SCRIPT_IDX];
+            break;
+        case PUBKEY_ADDRESS_TEST :
+            pMapVer = &MAPS_COLOR_ID[TEST_PUBKEY_IDX];
+            break;
+        case SCRIPT_ADDRESS_TEST :
+            pMapVer = &MAPS_COLOR_ID[TEST_SCRIPT_IDX];
+            break;
+        default :
+            if (fDebug)
+            {
+                printf("GetMapVersion(): Did not recognize version byte %d\n", nVersion);
+            }
+            return false;
+    }
+    return true;
+}
 
 
 
@@ -104,7 +103,7 @@ inline std::string EncodeBase58(const unsigned char* pbegin, const unsigned char
 
     // Convert big endian data to little endian
     // Extra zero at the end make sure bignum will interpret as a positive number
-    std::vector<unsigned char> vchTmp(pend-pbegin+1, 0);
+    valtype vchTmp(pend - pbegin + 1, 0);
     reverse_copy(pbegin, pend, vchTmp.begin());
 
     // Convert little endian data to bignum
@@ -137,14 +136,14 @@ inline std::string EncodeBase58(const unsigned char* pbegin, const unsigned char
 }
 
 // Encode a byte vector as a base58-encoded string
-inline std::string EncodeBase58(const std::vector<unsigned char>& vch)
+inline std::string EncodeBase58(const valtype& vch)
 {
     return EncodeBase58(&vch[0], &vch[0] + vch.size());
 }
 
 // Decode a base58-encoded string psz into byte vector vchRet
 // returns true if decoding is successful
-inline bool DecodeBase58(const char* psz, std::vector<unsigned char>& vchRet)
+inline bool DecodeBase58(const char* psz, valtype& vchRet)
 {
     CAutoBN_CTX pctx;
     vchRet.clear();
@@ -173,7 +172,7 @@ inline bool DecodeBase58(const char* psz, std::vector<unsigned char>& vchRet)
     }
 
     // Get bignum as little endian data
-    std::vector<unsigned char> vchTmp = bn.getvch();
+    valtype vchTmp = bn.getvch();
 
     // Trim off sign byte if present
     if (vchTmp.size() >= 2 && vchTmp.end()[-1] == 0 && vchTmp.end()[-2] >= 0x80)
@@ -192,7 +191,7 @@ inline bool DecodeBase58(const char* psz, std::vector<unsigned char>& vchRet)
 
 // Decode a base58-encoded string str into byte vector vchRet
 // returns true if decoding is successful
-inline bool DecodeBase58(const std::string& str, std::vector<unsigned char>& vchRet)
+inline bool DecodeBase58(const std::string& str, valtype& vchRet)
 {
     return DecodeBase58(str.c_str(), vchRet);
 }
@@ -201,10 +200,10 @@ inline bool DecodeBase58(const std::string& str, std::vector<unsigned char>& vch
 
 
 // Encode a byte vector to a base58-encoded string, including checksum
-inline std::string EncodeBase58Check(const std::vector<unsigned char>& vchIn)
+inline std::string EncodeBase58Check(const valtype& vchIn)
 {
     // add 4-byte hash check to the end
-    std::vector<unsigned char> vch(vchIn);
+    valtype vch(vchIn);
     uint256 hash = Hash(vch.begin(), vch.end());
     vch.insert(vch.end(), (unsigned char*)&hash, (unsigned char*)&hash + 4);
     return EncodeBase58(vch);
@@ -212,7 +211,7 @@ inline std::string EncodeBase58Check(const std::vector<unsigned char>& vchIn)
 
 // Decode a base58-encoded string psz that includes a checksum, into byte vector vchRet
 // returns true if decoding is successful
-inline bool DecodeBase58Check(const char* psz, std::vector<unsigned char>& vchRet)
+inline bool DecodeBase58Check(const char* psz, valtype& vchRet)
 {
     if (!DecodeBase58(psz, vchRet))
         return false;
@@ -233,7 +232,7 @@ inline bool DecodeBase58Check(const char* psz, std::vector<unsigned char>& vchRe
 
 // Decode a base58-encoded string str that includes a checksum, into byte vector vchRet
 // returns true if decoding is successful
-inline bool DecodeBase58Check(const std::string& str, std::vector<unsigned char>& vchRet)
+inline bool DecodeBase58Check(const std::string& str, valtype& vchRet)
 {
     return DecodeBase58Check(str.c_str(), vchRet);
 }
@@ -247,7 +246,7 @@ protected:
     unsigned char nVersion;
 
     // the actually encoded data
-    std::vector<unsigned char> vchData;
+    valtype vchData;
 
     CBase58Data()
     {
@@ -278,7 +277,7 @@ protected:
 public:
     bool SetString(const char* psz)
     {
-        std::vector<unsigned char> vchTemp;
+        valtype vchTemp;
         DecodeBase58Check(psz, vchTemp);
         if (vchTemp.empty())
         {
@@ -301,7 +300,7 @@ public:
 
     std::string ToString() const
     {
-        std::vector<unsigned char> vch(1, nVersion);
+        valtype vch(1, nVersion);
         vch.insert(vch.end(), vchData.begin(), vchData.end());
         return EncodeBase58Check(vch);
     }
@@ -416,9 +415,7 @@ public:
 
     bool SetString(const char *psz)
     {
-
-
-        std::vector<unsigned char> vchTemp;
+        valtype vchTemp;
 
 #if USE_QUALIFIED_ADDRESSES
         std::string address;
@@ -460,8 +457,8 @@ public:
         }
         // first byte is version
         nVersion = vchTemp[0];
-            
-        std::map <std::vector <unsigned char>, int >* pMapVer;
+
+        std::map<valtype, int>* pMapVer;
         if (!GetMapColorID(nVersion, pMapVer))
         {
                     vchData.clear();
@@ -470,7 +467,7 @@ public:
         }
 
 
-        std::vector<unsigned char> vColorBytes(N_COLOR_BYTES);
+        valtype vColorBytes(N_COLOR_BYTES);
         memcpy(&vColorBytes[0], &vchTemp[1], N_COLOR_BYTES);
 
         if (pMapVer->find(vColorBytes) == pMapVer->end())
@@ -485,7 +482,7 @@ public:
         }
 
         this->nColor = (*pMapVer)[vColorBytes];
-                   
+
 #if USE_QUALIFIED_ADDRESSES
         if (this->nColor != nCheckColor)
         {
@@ -535,9 +532,9 @@ public:
     // color ticker is prepended with the delimeter
     std::string ToString() const
     {
-        std::vector<unsigned char> vch(1, nVersion);
+        valtype vch(1, nVersion);
 
-        std::vector<unsigned char>* pVecColorID;
+        valtype* pVecColorID;
         if (!GetVecColorID(this->nVersion, nColor, pVecColorID))
         {
               return std::string("<not valid>");
@@ -557,7 +554,6 @@ public:
 
         return sAddr;
     }
-
 
     CTxDestination Get() const {
         if (!IsValid())
@@ -611,7 +607,7 @@ public:
 };
 
 bool inline CBitcoinAddressVisitor::operator()(const CKeyID &id) const
-{ 
+{
     return addr->Set(id);
 }
 bool inline CBitcoinAddressVisitor::operator()(const CScriptID &id) const
@@ -702,8 +698,6 @@ public:
     {
     }
 };
-
-
 
 
 #endif

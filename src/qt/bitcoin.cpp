@@ -15,7 +15,6 @@
 
 #include <QApplication>
 #include <QMessageBox>
-#include <QTextCodec>
 #include <QLocale>
 #include <QTranslator>
 #include <QSplashScreen>
@@ -173,12 +172,18 @@ int main(int argc, char *argv[])
     // - First load the translator for the base language, without territory
     // - Then load the more specific locale translator
 
-    // Load e.g. qt_de.qm
-    if (qtTranslatorBase.load("qt_" + lang, QLibraryInfo::location(QLibraryInfo::TranslationsPath)))
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+#define QT_TRANSLATIONS_PATH QLibraryInfo::path(QLibraryInfo::TranslationsPath)
+#else
+#define QT_TRANSLATIONS_PATH QLibraryInfo::location(QLibraryInfo::TranslationsPath)
+#endif
+
+    // Load e.g. qt_de_DE.qm
+    if (qtTranslatorBase.load("qt_" + lang, QT_TRANSLATIONS_PATH))
         app.installTranslator(&qtTranslatorBase);
 
     // Load e.g. qt_de_DE.qm
-    if (qtTranslator.load("qt_" + lang_territory, QLibraryInfo::location(QLibraryInfo::TranslationsPath)))
+    if (qtTranslator.load("qt_" + lang_territory, QT_TRANSLATIONS_PATH))
         app.installTranslator(&qtTranslator);
 
     // Load e.g. bitcoin_de.qm (shortcut "de" needs to be defined in bitcoin.qrc)
@@ -206,7 +211,8 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    QSplashScreen splash(QPixmap(":/images/splash"), 0);
+    QSplashScreen splash(QPixmap(":/images/splash"),
+                         Qt::WindowFlags(Qt::Widget));
     if (GetBoolArg("-splash", true) && !GetBoolArg("-min"))
     {
         splash.show();
@@ -237,7 +243,7 @@ int main(int argc, char *argv[])
                     splash.finish(&window);
 
                 ClientModel clientModel(&optionsModel);
-                WalletModel walletModel(pwalletMain, &optionsModel);
+                WalletModel walletModel(pwalletMain, &optionsModel, &window);
 
                 window.setClientModel(&clientModel);
                 window.setWalletModel(&walletModel);

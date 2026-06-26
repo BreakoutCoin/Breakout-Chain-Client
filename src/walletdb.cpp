@@ -353,7 +353,7 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
             if (hash != 0)
             {
                 // hash pubkey/privkey to accelerate wallet load
-                std::vector<unsigned char> vchKey;
+                valtype vchKey;
                 vchKey.reserve(vchPubKey.size() + pkey.size());
                 vchKey.insert(vchKey.end(), vchPubKey.begin(), vchPubKey.end());
                 vchKey.insert(vchKey.end(), pkey.begin(), pkey.end());
@@ -396,9 +396,9 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
         else if (strType == "ckey")
         {
             wss.nCKeys++;
-            vector<unsigned char> vchPubKey;
+            valtype vchPubKey;
             ssKey >> vchPubKey;
-            vector<unsigned char> vchPrivKey;
+            valtype vchPrivKey;
             ssValue >> vchPrivKey;
             if (!pwallet->LoadCryptedKey(vchPubKey, vchPrivKey))
             {
@@ -612,7 +612,7 @@ void ThreadFlushWalletDB(void* parg)
     int64_t nLastWalletUpdate = GetTime();
     while (true)
     {
-        MilliSleep(500);
+        MilliSleep(2000);
 
         if (nLastSeen != nWalletDBUpdated)
         {
@@ -673,20 +673,26 @@ bool BackupWallet(const CWallet& wallet, const string& strDest)
                 bitdb.mapFileUseCount.erase(wallet.strWalletFile);
 
                 // Copy wallet.dat
-                filesystem::path pathSrc = GetDataDir() / wallet.strWalletFile;
-                filesystem::path pathDest(strDest);
-                if (filesystem::is_directory(pathDest))
+                boost::filesystem::path pathSrc = GetDataDir() / wallet.strWalletFile;
+                boost::filesystem::path pathDest(strDest);
+                if (boost::filesystem::is_directory(pathDest))
                     pathDest /= wallet.strWalletFile;
 
                 try {
-#if BOOST_VERSION >= 104000
-                    filesystem::copy_file(pathSrc, pathDest, filesystem::copy_option::overwrite_if_exists);
+#if BOOST_VERSION >= 107400
+                    boost::filesystem::copy_file(pathSrc,
+                                          pathDest,
+                                          boost::filesystem::copy_options::overwrite_existing);
+#elif BOOST_VERSION >= 104000
+                    boost::filesystem::copy_file(pathSrc,
+                                          pathDest,
+                                          boost::filesystem::copy_option::overwrite_if_exists);
 #else
-                    filesystem::copy_file(pathSrc, pathDest);
+                    boost::filesystem::copy_file(pathSrc, pathDest);
 #endif
                     printf("copied wallet.dat to %s\n", pathDest.string().c_str());
                     return true;
-                } catch(const filesystem::filesystem_error &e) {
+                } catch(const boost::filesystem::filesystem_error &e) {
                     printf("error copying wallet.dat to %s - %s\n", pathDest.string().c_str(), e.what());
                     return false;
                 }

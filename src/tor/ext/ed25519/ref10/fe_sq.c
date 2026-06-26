@@ -1,5 +1,5 @@
-#include "fe.h"
-#include "crypto_int64.h"
+#include "ext/ed25519/ref10/fe.h"
+#include "ext/ed25519/ref10/crypto_int64.h"
 
 /*
 h = f * f

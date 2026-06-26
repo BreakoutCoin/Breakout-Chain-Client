@@ -1,7 +1,7 @@
 /* Added to ref10 for Tor. We place this in the public domain.  Alternatively,
  * you may have it under the Creative Commons 0 "CC0" license. */
-#include "fe.h"
-#include "ed25519_ref10.h"
+#include "ext/ed25519/ref10/fe.h"
+#include "ext/ed25519/ref10/ed25519_ref10.h"
 
 int ed25519_ref10_pubkey_from_curve25519_pubkey(unsigned char *out,
                                                 const unsigned char *inp,

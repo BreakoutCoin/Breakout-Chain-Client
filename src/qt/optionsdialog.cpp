@@ -5,14 +5,11 @@
 #include "monitoreddatamapper.h"
 #include "netbase.h"
 #include "optionsmodel.h"
-#include "util.h"
 
 #include <QDir>
 #include <QIntValidator>
 #include <QLocale>
 #include <QMessageBox>
-#include <QRegExp>
-#include <QRegExpValidator>
 
 extern int nDefaultCurrency;
 
@@ -41,11 +38,11 @@ OptionsDialog::OptionsDialog(QWidget *parent) :
     ui->socksVersion->addItem("4", 4);
     ui->socksVersion->setCurrentIndex(0);
 
-    ui->transactionFeeBrostake->setColor(BREAKOUT_COLOR_BROSTAKE);
-    ui->transactionFeeBrocoin->setColor(BREAKOUT_COLOR_BROCOIN);
-    ui->reserveBalance->setColor(BREAKOUT_COLOR_BROSTAKE);
-    ui->unitBrostake->setModel(new BitcoinUnits(this, BREAKOUT_COLOR_BROSTAKE));
-    ui->unitBrocoin->setModel(new BitcoinUnits(this, BREAKOUT_COLOR_BROCOIN));
+    ui->transactionFeeBrostake->setColor(BREAKOUT_COLOR_BRX);
+    ui->transactionFeeBrocoin->setColor(BREAKOUT_COLOR_BRK);
+    ui->reserveBalance->setColor(BREAKOUT_COLOR_BRX);
+    ui->unitBrostake->setModel(new BitcoinUnits(this, BREAKOUT_COLOR_BRX));
+    ui->unitBrocoin->setModel(new BitcoinUnits(this, BREAKOUT_COLOR_BRK));
 
     connect(ui->connectSocks, SIGNAL(toggled(bool)), ui->proxyIp, SLOT(setEnabled(bool)));
     connect(ui->connectSocks, SIGNAL(toggled(bool)), ui->proxyPort, SLOT(setEnabled(bool)));
@@ -62,12 +59,12 @@ OptionsDialog::OptionsDialog(QWidget *parent) :
     /* Currency selector init */
     ui->currencySelector->setEnabled(true);
 
-    ui->currencySelector->addItem(COLOR_NAME[BREAKOUT_COLOR_BROSTAKE],
-                                  (int) BREAKOUT_COLOR_BROSTAKE);
-    ui->currencySelector->addItem(COLOR_NAME[BREAKOUT_COLOR_BROCOIN],
-                                  (int) BREAKOUT_COLOR_BROCOIN);
-    ui->currencySelector->addItem(COLOR_NAME[BREAKOUT_COLOR_SISCOIN],
-                                  (int) BREAKOUT_COLOR_SISCOIN);
+    ui->currencySelector->addItem(COLOR_NAME[BREAKOUT_COLOR_BRX],
+                                  (int) BREAKOUT_COLOR_BRX);
+    ui->currencySelector->addItem(COLOR_NAME[BREAKOUT_COLOR_BRK],
+                                  (int) BREAKOUT_COLOR_BRK);
+    ui->currencySelector->addItem(COLOR_NAME[BREAKOUT_COLOR_SIS],
+                                  (int) BREAKOUT_COLOR_SIS);
 
     /* Display elements init */
     QDir translations(":translations");
@@ -81,20 +78,14 @@ OptionsDialog::OptionsDialog(QWidget *parent) :
         {
 #if QT_VERSION >= 0x040800
             /** display language strings as "native language - native country (locale name)", e.g. "Deutsch - Deutschland (de)" */
+#if QT_VERSION >= 0x060600
+            ui->lang->addItem(locale.nativeLanguageName() + QString(" - ") + locale.nativeTerritoryName() + QString(" (") + langStr + QString(")"), QVariant(langStr));
+#else
             ui->lang->addItem(locale.nativeLanguageName() + QString(" - ") + locale.nativeCountryName() + QString(" (") + langStr + QString(")"), QVariant(langStr));
+#endif
 #else
             /** display language strings as "language - country (locale name)", e.g. "German - Germany (de)" */
             ui->lang->addItem(QLocale::languageToString(locale.language()) + QString(" - ") + QLocale::countryToString(locale.country()) + QString(" (") + langStr + QString(")"), QVariant(langStr));
-#endif
-        }
-        else
-        {
-#if QT_VERSION >= 0x040800
-            /** display language strings as "native language (locale name)", e.g. "Deutsch (de)" */
-            ui->lang->addItem(locale.nativeLanguageName() + QString(" (") + langStr + QString(")"), QVariant(langStr));
-#else
-            /** display language strings as "language (locale name)", e.g. "German (de)" */
-            ui->lang->addItem(QLocale::languageToString(locale.language()) + QString(" (") + langStr + QString(")"), QVariant(langStr));
 #endif
         }
     }

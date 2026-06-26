@@ -10,127 +10,71 @@
 
 #include <openssl/sha.h>
 #include <openssl/ripemd.h>
+#include <openssl/evp.h> 
+
 #include <vector>
 
-//template<typename T1>
-//inline uint256 Hash(const T1 pbegin, const T1 pend)
-//{
-//    static unsigned char pblank[1];
-//    uint256 hash1;
-//    SHA256((pbegin == pend ? pblank : (unsigned char*)&pbegin[0]), (pend - pbegin) * sizeof(pbegin[0]), (unsigned char*)&hash1);
-//    uint256 hash2;
-//    SHA256((unsigned char*)&hash1, sizeof(hash1), (unsigned char*)&hash2);
-//    return hash2;
-//}
+class CBlock;
 
-//class CHashWriter
-//{
-//private:
-//    SHA256_CTX ctx;
+unsigned int MurmurHash3(unsigned int nHashSeed, const valtype& vDataToHash);
 
-//public:
-//    int nType;
-//    int nVersion;
+void HMAC_SHA512(const void* pkey,
+                 size_t keylen,
+                 const void* pdata,
+                 size_t datalen,
+                 unsigned char* out,
+                 size_t& out_len);
 
-//    void Init() {
-//        SHA256_Init(&ctx);
-//    }
-
-//    CHashWriter(int nTypeIn, int nVersionIn) : nType(nTypeIn), nVersion(nVersionIn) {
-//        Init();
-//    }
-
-//    CHashWriter& write(const char *pch, size_t size) {
-//        SHA256_Update(&ctx, pch, size);
-//        return (*this);
-//    }
-
-//    // invalidates the object
-//    uint256 GetHash() {
-//        uint256 hash1;
-//        SHA256_Final((unsigned char*)&hash1, &ctx);
-//        uint256 hash2;
-//        SHA256((unsigned char*)&hash1, sizeof(hash1), (unsigned char*)&hash2);
-//        return hash2;
-//    }
-
-//    template<typename T>
-//    CHashWriter& operator<<(const T& obj) {
-//        // Serialize to this stream
-//        ::Serialize(*this, obj, nType, nVersion);
-//        return (*this);
-//    }
-//};
-
-
-//template<typename T1, typename T2>
-//inline uint256 Hash(const T1 p1begin, const T1 p1end,
-//                    const T2 p2begin, const T2 p2end)
-//{
-//    static unsigned char pblank[1];
-//    uint256 hash1;
-//    SHA256_CTX ctx;
-//    SHA256_Init(&ctx);
-//    SHA256_Update(&ctx, (p1begin == p1end ? pblank : (unsigned char*)&p1begin[0]), (p1end - p1begin) * sizeof(p1begin[0]));
-//    SHA256_Update(&ctx, (p2begin == p2end ? pblank : (unsigned char*)&p2begin[0]), (p2end - p2begin) * sizeof(p2begin[0]));
-//    SHA256_Final((unsigned char*)&hash1, &ctx);
-//    uint256 hash2;
-//    SHA256((unsigned char*)&hash1, sizeof(hash1), (unsigned char*)&hash2);
-//    return hash2;
-//}
-
-//template<typename T1, typename T2, typename T3>
-//inline uint256 Hash(const T1 p1begin, const T1 p1end,
-//                    const T2 p2begin, const T2 p2end,
-//                    const T3 p3begin, const T3 p3end)
-//{
-//    static unsigned char pblank[1];
-//    uint256 hash1;
-//    SHA256_CTX ctx;
-//    SHA256_Init(&ctx);
-//    SHA256_Update(&ctx, (p1begin == p1end ? pblank : (unsigned char*)&p1begin[0]), (p1end - p1begin) * sizeof(p1begin[0]));
-//    SHA256_Update(&ctx, (p2begin == p2end ? pblank : (unsigned char*)&p2begin[0]), (p2end - p2begin) * sizeof(p2begin[0]));
-//    SHA256_Update(&ctx, (p3begin == p3end ? pblank : (unsigned char*)&p3begin[0]), (p3end - p3begin) * sizeof(p3begin[0]));
-//    SHA256_Final((unsigned char*)&hash1, &ctx);
-//    uint256 hash2;
-//    SHA256((unsigned char*)&hash1, sizeof(hash1), (unsigned char*)&hash2);
-//    return hash2;
-//}
-
-//template<typename T>
-//uint256 SerializeHash(const T& obj, int nType=SER_GETHASH, int nVersion=PROTOCOL_VERSION)
-//{
-//    CHashWriter ss(nType, nVersion);
-//    ss << obj;
-//    return ss.GetHash();
-//}
-
-//template<typename T1>
-//inline uint160 Hash160(const T1 pbegin, const T1 pend)
-//{
-//    static unsigned char pblank[1];
-//    uint256 hash1;
-//    SHA256((pbegin == pend ? pblank : (unsigned char*)&pbegin[0]), (pend - pbegin) * sizeof(pbegin[0]), (unsigned char*)&hash1);
-//    uint160 hash2;
-//    RIPEMD160((unsigned char*)&hash1, sizeof(hash1), (unsigned char*)&hash2);
-//    return hash2;
-//}
-
-//inline uint160 Hash160(const std::vector<unsigned char>& vch)
-//{
-//    return Hash160(vch.begin(), vch.end());
-//}
-
-unsigned int MurmurHash3(unsigned int nHashSeed, const std::vector<unsigned char>& vDataToHash);
-
-typedef struct
+// RAII wrapper for EVP_MAC_CTX
+struct EvpMacCtx
 {
-    SHA512_CTX ctxInner;
-    SHA512_CTX ctxOuter;
-} HMAC_SHA512_CTX;
+    EVP_MAC_CTX* ctx;
+    explicit EvpMacCtx(EVP_MAC* mac)
+    : ctx(EVP_MAC_CTX_new(mac))
+    {
+        if (!ctx)
+        {
+            throw std::runtime_error("EVP_MAC_CTX_new failed");
+        }
+    }
+    ~EvpMacCtx()
+    {
+        EVP_MAC_CTX_free(ctx);
+    }
+    EvpMacCtx(const EvpMacCtx&) = delete;
+    EvpMacCtx& operator=(const EvpMacCtx&) = delete;
+};
 
-int HMAC_SHA512_Init(HMAC_SHA512_CTX *pctx, const void *pkey, size_t len);
-int HMAC_SHA512_Update(HMAC_SHA512_CTX *pctx, const void *pdata, size_t len);
-int HMAC_SHA512_Final(unsigned char *pmd, HMAC_SHA512_CTX *pctx);
+// RAII wrapper for EVP_MAC
+struct EvpMac
+{
+    EVP_MAC* mac;
+    explicit EvpMac(const char* algorithm)
+    : mac(EVP_MAC_fetch(nullptr, algorithm, nullptr))
+    {
+        if (!mac)
+        {
+            throw std::runtime_error(
+                std::string("EVP_MAC_fetch failed for: ") + algorithm);
+        }
+    }
+    ~EvpMac()
+    {
+        EVP_MAC_free(mac);
+    }
+    EvpMac(const EvpMac&) = delete;
+    EvpMac& operator=(const EvpMac&) = delete;
+};
+
+class CHMAC_SHA512
+{
+private:
+    EvpMac mac;
+    EvpMacCtx ctx;
+public:
+    explicit CHMAC_SHA512(const void* pkey, size_t keylen);
+    CHMAC_SHA512& Write(const void* pdata, size_t datalen);
+    void Finalize(unsigned char* out);
+};
 
 #endif

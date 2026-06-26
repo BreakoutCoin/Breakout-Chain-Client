@@ -16,7 +16,7 @@
 
 #include "kernel.h"
 #include "checkpoints.h"
-#include "txdb.h"
+#include "txdb-leveldb.h"
 #include "util.h"
 #include "main.h"
 
@@ -35,27 +35,27 @@ static leveldb::Options GetOptions() {
 
 void init_blockindex(leveldb::Options& options, bool fRemoveOld = false) {
     // First time init.
-    filesystem::path directory = GetDataDir() / "txleveldb";
+    boost::filesystem::path directory = GetDataDir() / "txleveldb";
 
     if (fRemoveOld) {
-        filesystem::remove_all(directory); // remove directory
+        boost::filesystem::remove_all(directory); // remove directory
         unsigned int nFile = 1;
 
         while (true)
         {
-            filesystem::path strBlockFile = GetDataDir() / strprintf("blk%04u.dat", nFile);
+            boost::filesystem::path strBlockFile = GetDataDir() / strprintf("blk%04u.dat", nFile);
 
             // Break if no such file
-            if( !filesystem::exists( strBlockFile ) )
+            if( !boost::filesystem::exists( strBlockFile ) )
                 break;
 
-            filesystem::remove(strBlockFile);
+            boost::filesystem::remove(strBlockFile);
 
             nFile++;
         }
     }
 
-    filesystem::create_directory(directory);
+    boost::filesystem::create_directory(directory);
     printf("Opening LevelDB in %s\n", directory.string().c_str());
     leveldb::Status status = leveldb::DB::Open(options, directory.string(), &txdb);
     if (!status.ok()) {
@@ -371,6 +371,8 @@ bool CTxDB::LoadBlockIndex()
         pindexNew->nTime             = diskindex.nTime;
         pindexNew->nBits             = diskindex.nBits;
         pindexNew->nNonce            = diskindex.nNonce;
+        pindexNew->nNonce64          = diskindex.nNonce64;
+        pindexNew->mix_hash          = diskindex.mix_hash;
 
         // Watch for genesis block
         if (pindexGenesisBlock == NULL && blockHash == (!fTestNet ? hashGenesisBlock : hashGenesisBlockTestNet))
@@ -396,31 +398,43 @@ bool CTxDB::LoadBlockIndex()
     delete iterator;
 
     if (fRequestShutdown)
+    {
         return true;
+    }
 
     // Calculate nChainTrust
     vector<pair<int, CBlockIndex*> > vSortedByHeight;
-    if (fDebug)
-    {
-        printf("mapBlockIndex size: %d k\n", mapBlockIndex.size()/1000);
-    }
+    int nBlockIndexSize = mapBlockIndex.size();
+    printf("mapBlockIndex size: %d k\n", nBlockIndexSize / 1000);
     vSortedByHeight.reserve(mapBlockIndex.size());
     if (fDebug)
     {
-        printf("vSortedByHeight reserved: %d k\n", mapBlockIndex.size()/1000);
+        printf("vSortedByHeight reserved: %lu k\n", mapBlockIndex.size()/1000);
     }
     BOOST_FOREACH(const PAIRTYPE(uint256, CBlockIndex*)& item, mapBlockIndex)
     {
         CBlockIndex* pindex = item.second;
         vSortedByHeight.push_back(make_pair(pindex->nHeight, pindex));
     }
+    printf("Sorting block indices for trust calculation and lookups.\n"
+           "  This could take a while.\n");
     sort(vSortedByHeight.begin(), vSortedByHeight.end());
+    printf("Assigning chain trusts.\n");
+    int progress = 1;
     BOOST_FOREACH(const PAIRTYPE(int, CBlockIndex*)& item, vSortedByHeight)
     {
+        if (progress % 100000 == 0)
+        {
+            printf("Assigned %d of %d chain trusts (%0.2f%%)\n",
+                   progress,
+                   nBlockIndexSize,
+                   (float) (100 * progress) / nBlockIndexSize);
+        }
         CBlockIndex* pindex = item.second;
         pindex->nChainTrust = (pindex->pprev ? pindex->pprev->nChainTrust : 0) + pindex->GetBlockTrust();
         // NovaCoin: calculate stake modifier checksum
         pindex->nStakeModifierChecksum = GetStakeModifierChecksum(pindex);
+        progress += 1;
         if (!CheckStakeModifierCheckpoints(pindex->nHeight, pindex->nStakeModifierChecksum))
         {
             return error("CTxDB::LoadBlockIndex() : "
@@ -429,12 +443,16 @@ bool CTxDB::LoadBlockIndex()
                          pindex->bnStakeModifier.ToString().c_str());
         }
     }
+    printf("Chain trusts done.\n");
 
     // Load hashBestChain pointer to end of best chain
     if (!ReadHashBestChain(hashBestChain))
     {
         if (pindexGenesisBlock == NULL)
+        {
+            printf("No existing chain found.\n");
             return true;
+        }
         return error("CTxDB::LoadBlockIndex() : hashBestChain not loaded");
     }
     if (!mapBlockIndex.count(hashBestChain))
@@ -460,14 +478,26 @@ bool CTxDB::LoadBlockIndex()
     int nCheckDepth = GetArg( "-checkblocks", 2500);
     if (nCheckDepth == 0)
         nCheckDepth = 1000000000; // suffices until the year 19000
+    else if (nCheckDepth < 0)
+    {
+        nCheckDepth = 0;
+    }
     if (nCheckDepth > nBestHeight)
         nCheckDepth = nBestHeight;
-    printf("Verifying last %i blocks at level %i\n", nCheckDepth, nCheckLevel);
+    if (nCheckDepth > 0)
+    {
+        printf("Verifying last %i blocks at level %i\n", nCheckDepth, nCheckLevel);
+    }
+    else
+    {
+        printf("Skipping block verification (-checkblocks < 0)\n");
+    }
+        
     CBlockIndex* pindexFork = NULL;
     map<pair<unsigned int, unsigned int>, CBlockIndex*> mapBlockPos;
     for (CBlockIndex* pindex = pindexBest; pindex && pindex->pprev; pindex = pindex->pprev)
     {
-        if (fRequestShutdown || pindex->nHeight < nBestHeight-nCheckDepth)
+        if (fRequestShutdown || (pindex->nHeight < nBestHeight-nCheckDepth))
             break;
         CBlock block;
         if (!block.ReadFromDisk(pindex))
@@ -570,6 +600,26 @@ bool CTxDB::LoadBlockIndex()
             }
         }
     }
+
+    printf("LoadBlockIndex(): building block index lookup\n");
+    CBlockIndex* pindexLookup = pindexBest;
+    progress = 1;
+    for (int i = pindexBest->nHeight; i >= 0; --i)
+    {
+        if (!pindexLookup)
+        {
+            return error("LoadBlockIndex() : unexpected null index");
+        }
+        mapBlockLookup[i] = pindexLookup;
+        if (progress % 100000 == 0)
+        {
+            printf("LoadBlockIndex(): created %d lookups\n", progress);
+        }
+        progress += 1;
+        pindexLookup = pindexLookup->pprev;
+    }
+    printf("LoadBlockIndex(): finished creating %d lookups\n", progress);
+
     if (pindexFork && !fRequestShutdown)
     {
         // Reorg back to the fork

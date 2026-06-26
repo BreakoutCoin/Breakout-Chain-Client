@@ -23,11 +23,12 @@
 # SUCH DAMAGE.
 
 
-#if defined(OPTIMIZED_SALSA) && defined(__x86_64__)
 
-#if defined(__linux__) && defined(__ELF__)
-	.section .note.GNU-stack,"",%progbits
+#if defined(__ELF__) && !defined(_WIN32)
+	.section .note.GNU-stack, "", %progbits
 #endif
+
+#if defined(OPTIMIZED_SALSA) && defined(__x86_64__)
 
 #define scrypt_shuffle(src, so, dest, do) \
 	movl	so+60(src), %r8d; \

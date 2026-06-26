@@ -62,11 +62,7 @@ public slots:
     void accept();
     SendCoinsEntry *addEntry();
     void updateRemoveEnabled();
-    void setBalance(std::map<int, qint64> mapBalance,
-                    std::map<int, qint64> mapStake,
-                    std::map<int, qint64> mapUnconfirmedBalance,
-                    std::map<int, qint64> mapImmatureBalance,
-                    std::vector<int> vCards);
+    void setBalance();
 
     // exist
     void openExist();

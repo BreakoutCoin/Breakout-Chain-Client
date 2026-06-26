@@ -146,7 +146,7 @@ void SignVerifyMessageDialog::on_signMessageButton_SM_clicked()
     ss << strMessageMagic;
     ss << ui->messageIn_SM->document()->toPlainText().toStdString();
 
-    std::vector<unsigned char> vchSig;
+    valtype vchSig;
     if (!key.SignCompact(Hash(ss.begin(), ss.end()), vchSig))
     {
         ui->statusLabel_SM->setStyleSheet("QLabel { color: red; }");
@@ -209,7 +209,7 @@ void SignVerifyMessageDialog::on_verifyMessageButton_VM_clicked()
     }
 
     bool fInvalid = false;
-    std::vector<unsigned char> vchSig = DecodeBase64(ui->signatureIn_VM->text().toStdString().c_str(), &fInvalid);
+    valtype vchSig = DecodeBase64(ui->signatureIn_VM->text().toStdString().c_str(), &fInvalid);
 
     if (fInvalid)
     {

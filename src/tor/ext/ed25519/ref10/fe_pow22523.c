@@ -1,4 +1,4 @@
-#include "fe.h"
+#include "ext/ed25519/ref10/fe.h"
 
 void fe_pow22523(fe out,const fe z)
 {
@@ -7,7 +7,7 @@ void fe_pow22523(fe out,const fe z)
   fe t2;
   int i;
 
-#include "pow22523.h"
+#include "ext/ed25519/ref10/pow22523.h"
 
   return;
 }

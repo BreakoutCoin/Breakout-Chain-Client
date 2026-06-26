@@ -10,19 +10,13 @@
 #include "colors.h"
 #include "wallet.h"
 
-#define IMPORT_WALLET 1
-
-#ifdef IMPORT_WALLET
 extern int nDefaultCurrency;
-#endif
 
 class OptionsModel;
 class AddressTableModel;
 class TransactionTableModel;
 class CWallet;
-#ifdef IMPORT_WALLET
 class CKey;
-#endif
 class CKeyID;
 class CPubKey;
 class COutput;
@@ -78,30 +72,45 @@ public:
         Unlocked      // wallet->IsCrypted() && !wallet->IsLocked()
     };
 
-#ifdef IMPORT_WALLET
     enum AddKeyStatus
     {
         StatusKeyAdded,        // key was added to wallet successfully
         StatusKeyHad,          // key was already in wallet
         StatusKeyError         // error adding key to wallet
     };
-#endif
 
     OptionsModel *getOptionsModel();
     AddressTableModel *getAddressTableModel();
     TransactionTableModel *getTransactionTableModel();
 
-    bool getBalance(const std::vector<int> &vColors,
-                    std::map<int, qint64> &mapBalance) const;
-    bool getHand(std::vector<int> &vCards) const;
     bool getPrivateKeys(mapSecretByAddressByColor_t &mapAddrs) const;
 
-    bool getUnconfirmedBalance(const std::vector<int> &vColors,
-                               std::map<int, qint64> &mapBalance) const;
-    bool getStake(const std::vector<int> &vColors,
-                  std::map<int, qint64> &mapStake) const;
-    bool getImmatureBalance(const std::vector<int> &vColors,
-                            std::map<int, qint64> &mapBalance) const;
+    bool getConfirmed(const std::vector<int> &vColors,
+                      ColorsMap& mapConfirmed) const;
+    bool getImmatureStake(const std::vector<int>& vColors,
+                          ColorsMap& mapStake) const;
+    bool getImmatureCoinbase(const std::vector<int>& vColors,
+                            ColorsMap& mapCoinbase) const;
+
+    bool getUnconfirmedReceived(const std::vector<int> &vColors,
+                               ColorsMap& mapReceived) const;
+    bool getUnconfirmedSent(const std::vector<int> &vColors,
+                               ColorsMap& mapSent) const;
+    bool getHand(std::vector<int> &vCards,
+                 std::vector<int> &vCardsImmature) const;
+
+    void getSnapshot(const std::vector<int>& vColors,
+                     ColorsMap& mapConfirmed,
+                     ColorsMap& mapStake,
+                     ColorsMap& mapCoinbase,
+                     ColorsMap& mapReceived,
+                     ColorsMap& mapSent,
+                     std::vector<int> &vCards) const;
+
+    int64_t getBalance(const int nColor) const;
+    int64_t getSpendable(const int nColor) const;
+
+
     int getNumTransactions() const;
     EncryptionStatus getEncryptionStatus() const;
 
@@ -109,12 +118,10 @@ public:
     // Returns BREAKOUT_COLOR_NONE if not valid, address color if valid
     int validateAddress(const QString &address);
 
-#ifdef IMPORT_WALLET
     // returns true if added (not already in wallet)
     AddKeyStatus addPrivKey(const CKey &ckeySecret, const CPubKey &pubkey,
                             const CKeyID &vchAddress, int nColor,
                             const std::string &strLabel);
-#endif
 
     // Return status record for SendCoins, contains error id + information
     struct SendCoinsReturn
@@ -130,8 +137,11 @@ public:
         QString hex; // is filled with the transaction hash if status is "OK"
     };
 
-    // Send BRO to a list of recipients
-    SendCoinsReturn sendCoins(const QString &txcomment, const QList<SendCoinsRecipient> &recipients, unsigned int nServiceTypeID, const CCoinControl *coinControl=NULL);
+    // Send BRK to a list of recipients
+    SendCoinsReturn sendCoins(const QString& txcomment,
+                              const QList<SendCoinsRecipient>& recipients,
+                              unsigned int nServiceTypeID,
+                              const CCoinControl* coinControl = NULL);
 
     // Wallet encryption
     bool setWalletEncrypted(bool encrypted, const SecureString &passphrase);
@@ -175,10 +185,6 @@ public:
     void listCoins(int nColor, std::map<QString, std::vector<COutput> >& mapCoins) const;
     void listAddresses(int nColor, std::map<QString, int64_t>& mapAddrs) const;
 
-    void FillNets(const std::map<int, qint64> &mapDebit,
-                  const std::map<int, qint64> &mapCredit,
-                  std::map<int, qint64> &mapNet);
-
     bool isLockedCoin(uint256 hash, unsigned int n) const;
     void lockCoin(COutPoint& output);
     void unlockCoin(COutPoint& output);
@@ -198,10 +204,11 @@ private:
     int nCurrentSendColor;
 
     // Cache some values to be able to detect changes
-    std::map<int, qint64> mapCachedBalance;
-    std::map<int, qint64> mapCachedStake;
-    std::map<int, qint64> mapCachedUnconfirmedBalance;
-    std::map<int, qint64> mapCachedImmatureBalance;
+    ColorsMap mapCachedConfirmed;
+    ColorsMap mapCachedStake;
+    ColorsMap mapCachedCoinbase;
+    ColorsMap mapCachedReceived;
+    ColorsMap mapCachedSent;
     std::vector<int> vCachedCards;
     qint64 cachedNumTransactions;
     EncryptionStatus cachedEncryptionStatus;
@@ -228,10 +235,11 @@ public slots:
 
 signals:
     // Signal that balance in wallet changed
-    void balanceChanged(const std::map<int, qint64>& mapBalance,
-                        const std::map<int, qint64>& mapStake,
-                        const std::map<int, qint64>& mapUnconfirmedBalance,
-                        const std::map<int, qint64>& mapImmatureBalance,
+    void balanceChanged(const ColorsMap& mapBalance,
+                        const ColorsMap& mapStake,
+                        const ColorsMap& mapCoinbase,
+                        const ColorsMap& mapReceived,
+                        const ColorsMap& mapSent,
                         const std::vector<int>& vCards);
 
     // Signal that the current send color changed

@@ -350,7 +350,7 @@ Ta proizvod vključuje softver razvit s strani projekta OpenSSL za uporabo v Ope
     </message>
     <message>
         <location line="-13"/>
-        <source>&amp;Receive BRO</source>
+        <source>&amp;Receive BRK</source>
         <translation>&amp;Prejmi kovance</translation>
     </message>
     <message>
@@ -360,7 +360,7 @@ Ta proizvod vključuje softver razvit s strani projekta OpenSSL za uporabo v Ope
     </message>
     <message>
         <location line="-7"/>
-        <source>&amp;Send BRO</source>
+        <source>&amp;Send BRK</source>
         <translation>&amp;Pošlji kovance</translation>
     </message>
     <message>
@@ -425,7 +425,7 @@ Ta proizvod vključuje softver razvit s strani projekta OpenSSL za uporabo v Ope
     </message>
     <message>
         <location line="-64"/>
-        <source>Send BRO to a breakout address</source>
+        <source>Send BRK to a breakout address</source>
         <translation>Pošlji kovance na breakout naslov</translation>
     </message>
     <message>
@@ -627,7 +627,7 @@ Ta proizvod vključuje softver razvit s strani projekta OpenSSL za uporabo v Ope
     </message>
     <message>
         <location line="+59"/>
-        <source>This transaction requires a fee based on the services it uses. You may send it for a fee of %1 BRO, which rewards all users of the Breakout network as a result of your usage. Do you want to pay this fee?</source>
+        <source>This transaction requires a fee based on the services it uses. You may send it for a fee of %1 BRK, which rewards all users of the Breakout network as a result of your usage. Do you want to pay this fee?</source>
         <translation>Ta transakcija je prekoračila limit. Še vedno jo lahko pošljete za plačilo %1 transakcije, ki je plačano vsem delom omrežja kot deležnina in pomaga zagotavljati njegovo varnost. Ali želite plačati provizijo?</translation>
     </message>
     <message>

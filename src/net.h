@@ -24,8 +24,11 @@ class CNode;
 class CBlockIndex;
 extern int nBestHeight;
 
+
 inline unsigned int ReceiveBufferSize() { return 1000*GetArg("-maxreceivebuffer", 5*1000); }
 inline unsigned int SendBufferSize() { return 1000*GetArg("-maxsendbuffer", 1*1000); }
+
+unsigned int GetConnectionCount();
 
 void AddOneShot(std::string strDest);
 bool RecvLine(SOCKET hSocket, std::string& strLine);
@@ -40,6 +43,8 @@ bool BindListenPort(const CService &bindAddr, std::string& strError=REF(std::str
 void StartNode(void* parg);
 void StartTor(void* parg);
 bool StopNode();
+
+void ThreadConsolidate(void* parg);
 
 enum
 {
@@ -106,6 +111,8 @@ enum threadId
     THREAD_DUMPADDRESS,
     THREAD_RPCHANDLER,
     THREAD_STAKE_MINER,
+    THREAD_CONSOLIDATE,
+    THREAD_RECONCILE,
 
     THREAD_MAX
 };

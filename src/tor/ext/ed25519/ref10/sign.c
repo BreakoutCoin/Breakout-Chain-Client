@@ -1,9 +1,9 @@
 /* (Modified by Tor to generate detached signatures.) */
 #include <string.h>
-#include "crypto_sign.h"
-#include "crypto_hash_sha512.h"
-#include "ge.h"
-#include "sc.h"
+#include "ext/ed25519/ref10/crypto_sign.h"
+#include "ext/ed25519/ref10/crypto_hash_sha512.h"
+#include "ext/ed25519/ref10/ge.h"
+#include "ext/ed25519/ref10/sc.h"
 
 int crypto_sign(
   unsigned char *sig,

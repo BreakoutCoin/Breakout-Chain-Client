@@ -18,6 +18,7 @@
 #include <map>
 #include <vector>
 #include <string>
+#include <stdexcept>
 
 #include <boost/thread.hpp>
 #include <boost/filesystem.hpp>
@@ -25,6 +26,8 @@
 #include <boost/date_time/gregorian/gregorian_types.hpp>
 #include <boost/date_time/posix_time/posix_time_types.hpp>
 
+
+#include <openssl/evp.h>
 #include <openssl/sha.h>
 #include <openssl/ripemd.h>
 
@@ -35,6 +38,17 @@
 
 #include <stdint.h>
 #include <inttypes.h>
+
+#include <chrono>
+#include <thread>
+
+
+#if __cplusplus >= 201103L
+    #define AUTO_PTR std::unique_ptr
+#else
+    #define AUTO_PTR std::auto_ptr
+#endif
+
 
 #define BEGIN(a)            ((char*)&(a))
 #define END(a)              ((char*)&((&(a))[1]))
@@ -119,12 +133,20 @@ T* alignup(T* p)
 
 inline void MilliSleep(int64_t n)
 {
-#if BOOST_VERSION >= 105000
-    boost::this_thread::sleep_for(boost::chrono::milliseconds(n));
-#else
+#if defined(__APPLE__)
+    // Apple silicon (arm64) pointer authentication and MacOS in
+    //    general seems to have issues with boost library thread
+    //    sleeping, so we will use standard library.
+    std::this_thread::sleep_for(std::chrono::milliseconds(n));
+#elif BOOST_VERSION < 105000
     boost::this_thread::sleep(boost::posix_time::milliseconds(n));
+#else
+    boost::this_thread::sleep_for(boost::chrono::milliseconds(n));
 #endif
 }
+
+// sleeps in steps of nGrainSize, checking for fShutdown every step
+void GranularMilliSleep(int64_t n, int64_t nGrainSize);
 
 /* This GNU C extension enables the compiler to check the format string against the parameters provided.
  * X is the number of the "format string" parameter, and Y is the number of the first variadic parameter.
@@ -136,17 +158,14 @@ inline void MilliSleep(int64_t n)
 #define ATTR_WARN_PRINTF(X,Y)
 #endif
 
+class CValidationState;
 
-
-
-
-
-
-
+extern CValidationState validationStateMain;
 extern std::map<std::string, std::string> mapArgs;
 extern std::map<std::string, std::vector<std::string> > mapMultiArgs;
 extern bool fDebug;
 extern bool fDebugNet;
+extern bool fDebugMiner;
 // maybe secure messaging some day
 extern bool fDebugSmsg;
 extern bool fNoSmsg;
@@ -159,10 +178,11 @@ extern bool fServer;
 extern bool fCommandLine;
 extern std::string strMiscWarning;
 extern bool fTestNet;
-extern bool nTestNet;
 extern bool fNoListen;
 extern bool fLogTimestamps;
 extern bool fReopenDebugLog;
+
+extern int nMaxHeight;
 
 void RandAddSeed();
 void RandAddSeedPerfmon();
@@ -194,21 +214,32 @@ bool ATTR_WARN_PRINTF(1,2) error(const char *format, ...);
  */
 #define printf OutputDebugStringF
 
+/**
+ * Return the number of physical cores available on the current system.
+ * @note This does not count virtual cores, such as those provided by HyperThreading
+ * when boost is newer than 1.56.
+ */
+int GetNumCores();
+
 void LogException(std::exception* pex, const char* pszThread);
 void PrintException(std::exception* pex, const char* pszThread);
 void PrintExceptionContinue(std::exception* pex, const char* pszThread);
+bool ParseUInt64(const std::string& str, int base, uint64_t* nRet);
 void ParseString(const std::string& str, char c, std::vector<std::string>& v);
-std::string FormatMoney(int64_t n, int nColor, bool fPlus=false);
+std::string FormatMoney(int64_t n,
+                        int nColor,
+                        bool fPlus = false,
+                        bool fShowTicker = true);
 bool ParseMoney(const std::string& str, int nColor, int64_t& nRet);
 bool ParseMoney(const char* pszIn, int nColor, int64_t& nRet);
-std::vector<unsigned char> ParseHex(const char* psz);
-std::vector<unsigned char> ParseHex(const std::string& str);
+valtype ParseHex(const char* psz);
+valtype ParseHex(const std::string& str);
 bool IsHex(const std::string& str);
-std::vector<unsigned char> DecodeBase64(const char* p, bool* pfInvalid = NULL);
+valtype DecodeBase64(const char* p, bool* pfInvalid = NULL);
 std::string DecodeBase64(const std::string& str);
 std::string EncodeBase64(const unsigned char* pch, size_t len);
 std::string EncodeBase64(const std::string& str);
-std::vector<unsigned char> DecodeBase32(const char* p, bool* pfInvalid = NULL);
+valtype DecodeBase32(const char* p, bool* pfInvalid = NULL);
 std::string DecodeBase32(const std::string& str);
 std::string EncodeBase32(const unsigned char* pch, size_t len);
 std::string EncodeBase32(const std::string& str);
@@ -233,6 +264,10 @@ int GetRandInt(int nMax);
 uint64_t GetRand(uint64_t nMax);
 uint256 GetRandHash();
 int64_t GetTime();
+int64_t GetTimeMillis();
+int64_t GetTimeMicros();
+// Like GetTime(), but not mockable
+int64_t GetSystemTimeInSeconds();
 void SetMockTime(int64_t nMockTimeIn);
 int64_t GetAdjustedTime();
 int64_t GetTimeOffset();
@@ -240,6 +275,122 @@ std::string FormatFullVersion();
 std::string FormatSubVersion(const std::string& name, int nClientVersion, const std::vector<std::string>& comments);
 void AddTimeData(const CNetAddr& ip, int64_t nTime);
 void runCommand(std::string strCommand);
+
+
+class CValidationState
+{
+private:
+    enum mode_state
+    {
+        MODE_VALID,   //!< everything ok
+        MODE_INVALID, //!< network rule violation (DoS value may be set)
+        MODE_ERROR,   //!< run-time error
+    } mode;
+
+public:
+    unsigned int nCode;
+    std::string strMessage;
+    uint256 hashTx;
+    uint256 hashBlock;
+    std::string strDebugMessage;
+
+    CValidationState() : mode(MODE_VALID), nCode(0) {}
+
+    const char* GetMode() const
+    {
+        switch (mode)
+        {
+        case MODE_VALID: return "valid";
+        case MODE_INVALID: return "invalid";
+        case MODE_ERROR: return "error";
+        }
+        return NULL;
+    }
+
+    std::string ToString() const
+    {
+        return strprintf(
+            "CValidationState(mode=%s, nCode=%u (%x)\n  message=\"%s\",\n  "
+            "hashTx=%s,\n  hashBlock=%s,\n  strDebugMessage=\"%s\")",
+            GetMode(),
+            nCode,
+            nCode,
+            strMessage.c_str(),
+            hashTx.ToString().c_str(),
+            hashBlock.ToString().c_str(),
+            strDebugMessage.c_str());
+    }
+    void Clear()
+    {
+        mode = MODE_VALID;
+        nCode = 0;
+        strMessage.clear();
+        hashBlock = 0;
+        hashTx = 0;
+        strDebugMessage.clear();
+    }
+    bool Set(mode_state modeIn,
+             unsigned int nCodeIn,
+             std::string strMessageIn,
+             uint256 hashTxIn,
+             uint256 hashBlockIn,
+             std::string strDebugMessageIn)
+    {
+        mode = modeIn;
+        nCode = nCodeIn;
+        hashTx = hashTxIn;
+        hashBlock = hashBlockIn;
+        strDebugMessage = strDebugMessageIn;
+        return mode == MODE_VALID;
+    }
+    bool Valid()
+    {
+        Clear();
+        return true;
+    }
+    bool Invalid(unsigned int nCodeIn,
+                 std::string strMessageIn = "",
+                 uint256 hashTxIn = 0,
+                 uint256 hashBlockIn = 0,
+                 std::string strDebugMessageIn = "")
+    {
+
+        nCodeIn = std::max(1u, nCodeIn);
+        return Set(MODE_INVALID,
+                   nCodeIn,
+                   strMessageIn,
+                   hashTxIn,
+                   hashBlockIn,
+                   strDebugMessageIn);
+    }
+    bool Error(unsigned int nCodeIn,
+               std::string strMessageIn = "",
+               uint256 hashTxIn = 0,
+               uint256 hashBlockIn = 0,
+               std::string strDebugMessageIn = "")
+    {
+        nCodeIn = std::max(1u, nCodeIn);
+        return Set(MODE_ERROR,
+                   nCodeIn,
+                   strMessageIn,
+                   hashTxIn,
+                   hashBlockIn,
+                   strDebugMessageIn);
+    }
+    bool IsValid() const
+    {
+        return mode == MODE_VALID;
+    }
+    bool IsInvalid() const
+    {
+        return mode == MODE_INVALID;
+    }
+    bool IsError() const
+    {
+        return mode == MODE_ERROR;
+    }
+};
+
 
 
 
@@ -254,7 +405,7 @@ public:
     {
         pProgress = NULL;
         pContext = NULL;
-        nEvery = std::numeric_limits<unsigned int>::max();
+        nEvery = 0;
     }
     CProgressHelper(void (*pProgressIn)(void*, unsigned int),
                     void* pContextIn,
@@ -274,7 +425,8 @@ public:
     void update(unsigned int n, unsigned int total) const
     {
         // no matter if total is 0 or not, update to 0 if n is 0
-        if (n)
+        // also, avoid divide by 0
+        if (n && nEvery)
         {
             if (((n % nEvery) == 0) && total)
             {
@@ -306,6 +458,7 @@ public:
 extern const CProgressHelper progressQuiet;
 extern void stdErrProgress(void *d, unsigned int v);
 extern void stdOutProgress(void *d, unsigned int v);
+extern void logProgress(void *d, unsigned int v);
 
 inline std::string i64tostr(int64_t n)
 {
@@ -366,36 +519,12 @@ inline std::string leftTrim(std::string src, char chr)
 }
 
 template<typename T>
-std::string HexStr(const T itbegin, const T itend, bool fSpaces=false)
-{
-    std::string rv;
-    static const char hexmap[16] = { '0', '1', '2', '3', '4', '5', '6', '7',
-                                     '8', '9', 'a', 'b', 'c', 'd', 'e', 'f' };
-    rv.reserve((itend-itbegin)*3);
-    for(T it = itbegin; it < itend; ++it)
-    {
-        unsigned char val = (unsigned char)(*it);
-        if(fSpaces && it != itbegin)
-            rv.push_back(' ');
-        rv.push_back(hexmap[val>>4]);
-        rv.push_back(hexmap[val&15]);
-    }
-
-    return rv;
-}
-
-inline std::string HexStr(const std::vector<unsigned char>& vch, bool fSpaces=false)
-{
-    return HexStr(vch.begin(), vch.end(), fSpaces);
-}
-
-template<typename T>
 void PrintHex(const T pbegin, const T pend, const char* pszFormat="%s", bool fSpaces=true)
 {
     printf(pszFormat, HexStr(pbegin, pend, fSpaces).c_str());
 }
 
-inline void PrintHex(const std::vector<unsigned char>& vch, const char* pszFormat="%s", bool fSpaces=true)
+inline void PrintHex(const valtype& vch, const char* pszFormat="%s", bool fSpaces=true)
 {
     printf(pszFormat, HexStr(vch, fSpaces).c_str());
 }
@@ -411,12 +540,6 @@ inline int64_t GetPerformanceCounter()
     nCounter = (int64_t) t.tv_sec * 1000000 + t.tv_usec;
 #endif
     return nCounter;
-}
-
-inline int64_t GetTimeMillis()
-{
-    return (boost::posix_time::ptime(boost::posix_time::microsec_clock::universal_time()) -
-            boost::posix_time::ptime(boost::gregorian::date(1970,1,1))).total_milliseconds();
 }
 
 inline std::string DateTimeStrFormat(const char* pszFormat, int64_t nTime)
@@ -520,88 +643,163 @@ static inline uint32_t insecure_rand(void)
 void seed_insecure_rand(bool fDeterministic=false);
 
 
+// RAII wrapper for EVP_MD_CTX to ensure cleanup
+struct EvpMdCtx {
+    EVP_MD_CTX* ctx;
+    EvpMdCtx() : ctx(EVP_MD_CTX_new()) {
+        if (!ctx) throw std::runtime_error("EVP_MD_CTX_new failed");
+    }
+    ~EvpMdCtx() { EVP_MD_CTX_free(ctx); }
+    // Non-copyable
+    EvpMdCtx(const EvpMdCtx&) = delete;
+    EvpMdCtx& operator=(const EvpMdCtx&) = delete;
+};
+
+// Internal helper: single SHA-256 pass over raw bytes -> fills out[32]
+inline void SHA256_Once(const unsigned char* data, size_t len, unsigned char out[32])
+{
+    EvpMdCtx mdctx;
+    unsigned int outlen = 32;
+    if (!EVP_DigestInit_ex(mdctx.ctx, EVP_sha256(), nullptr) ||
+        !EVP_DigestUpdate(mdctx.ctx, data, len) ||
+        !EVP_DigestFinal_ex(mdctx.ctx, out, &outlen))
+        throw std::runtime_error("SHA256_Once failed");
+}
+
+// Internal helper: single SHA-1 pass over raw bytes -> fills out[20]
+inline void SHA1_Once(const unsigned char* data, size_t len, unsigned char out[20])
+{
+    EvpMdCtx mdctx;
+    unsigned int outlen = 20;
+    if (!EVP_DigestInit_ex(mdctx.ctx, EVP_sha1(), nullptr) ||
+        !EVP_DigestUpdate(mdctx.ctx, data, len) ||
+        !EVP_DigestFinal_ex(mdctx.ctx, out, &outlen))
+        throw std::runtime_error("SHA1_Once failed");
+}
+
+// Double-SHA256 of a single range
 template<typename T1>
 inline uint256 Hash(const T1 pbegin, const T1 pend)
 {
-    static unsigned char pblank[1];
-    uint256 hash1;
-    SHA256((pbegin == pend ? pblank : (unsigned char*)&pbegin[0]), (pend - pbegin) * sizeof(pbegin[0]), (unsigned char*)&hash1);
-    uint256 hash2;
-    SHA256((unsigned char*)&hash1, sizeof(hash1), (unsigned char*)&hash2);
+    static const unsigned char pblank[1] = {};
+    const unsigned char* data  = (pbegin == pend)
+        ? pblank
+        : reinterpret_cast<const unsigned char*>(&pbegin[0]);
+    size_t len = (pend - pbegin) * sizeof(pbegin[0]);
+
+    uint256 hash1, hash2;
+    SHA256_Once(data, len, reinterpret_cast<unsigned char*>(&hash1));
+    SHA256_Once(reinterpret_cast<const unsigned char*>(&hash1), sizeof(hash1),
+                reinterpret_cast<unsigned char*>(&hash2));
     return hash2;
 }
 
 class CHashWriter
 {
 private:
-    SHA256_CTX ctx;
+    EvpMdCtx mdctx;
 
 public:
     int nType;
     int nVersion;
 
-    void Init() {
-        SHA256_Init(&ctx);
-    }
-
     CHashWriter(int nTypeIn, int nVersionIn) : nType(nTypeIn), nVersion(nVersionIn) {
-        Init();
+        if (!EVP_DigestInit_ex(mdctx.ctx, EVP_sha256(), nullptr))
+            throw std::runtime_error("CHashWriter: EVP_DigestInit_ex failed");
     }
 
-    CHashWriter& write(const char *pch, size_t size) {
-        SHA256_Update(&ctx, pch, size);
-        return (*this);
+    CHashWriter& write(const char* pch, size_t size) {
+        if (!EVP_DigestUpdate(mdctx.ctx, pch, size))
+            throw std::runtime_error("CHashWriter: EVP_DigestUpdate failed");
+        return *this;
     }
 
-    // invalidates the object
+    // Invalidates the object (finalises the context)
     uint256 GetHash() {
-        uint256 hash1;
-        SHA256_Final((unsigned char*)&hash1, &ctx);
-        uint256 hash2;
-        SHA256((unsigned char*)&hash1, sizeof(hash1), (unsigned char*)&hash2);
+        uint256 hash1, hash2;
+        unsigned int outlen = 32;
+        if (!EVP_DigestFinal_ex(mdctx.ctx,
+                                reinterpret_cast<unsigned char*>(&hash1),
+                                &outlen))
+            throw std::runtime_error("CHashWriter: EVP_DigestFinal_ex failed");
+        SHA256_Once(reinterpret_cast<const unsigned char*>(&hash1), sizeof(hash1),
+                    reinterpret_cast<unsigned char*>(&hash2));
         return hash2;
     }
 
     template<typename T>
     CHashWriter& operator<<(const T& obj) {
-        // Serialize to this stream
         ::Serialize(*this, obj, nType, nVersion);
-        return (*this);
+        return *this;
     }
 };
 
+// Internal helper: initialise a fresh context and feed one range into it
+inline void ctx_update_range(EVP_MD_CTX* ctx,
+                              const unsigned char* data, size_t len)
+{
+    static const unsigned char pblank[1] = {};
+    if (!EVP_DigestUpdate(ctx, len ? data : pblank, len))
+        throw std::runtime_error("EVP_DigestUpdate failed");
+}
 
+// Double-SHA256 over two ranges
 template<typename T1, typename T2>
 inline uint256 Hash(const T1 p1begin, const T1 p1end,
                     const T2 p2begin, const T2 p2end)
 {
-    static unsigned char pblank[1];
-    uint256 hash1;
-    SHA256_CTX ctx;
-    SHA256_Init(&ctx);
-    SHA256_Update(&ctx, (p1begin == p1end ? pblank : (unsigned char*)&p1begin[0]), (p1end - p1begin) * sizeof(p1begin[0]));
-    SHA256_Update(&ctx, (p2begin == p2end ? pblank : (unsigned char*)&p2begin[0]), (p2end - p2begin) * sizeof(p2begin[0]));
-    SHA256_Final((unsigned char*)&hash1, &ctx);
-    uint256 hash2;
-    SHA256((unsigned char*)&hash1, sizeof(hash1), (unsigned char*)&hash2);
+    EvpMdCtx mdctx;
+    uint256 hash1, hash2;
+    unsigned int outlen = 32;
+
+    if (!EVP_DigestInit_ex(mdctx.ctx, EVP_sha256(), nullptr))
+        throw std::runtime_error("Hash(2): EVP_DigestInit_ex failed");
+
+    ctx_update_range(mdctx.ctx,
+        reinterpret_cast<const unsigned char*>(p1begin == p1end ? nullptr : &p1begin[0]),
+        (p1end - p1begin) * sizeof(p1begin[0]));
+    ctx_update_range(mdctx.ctx,
+        reinterpret_cast<const unsigned char*>(p2begin == p2end ? nullptr : &p2begin[0]),
+        (p2end - p2begin) * sizeof(p2begin[0]));
+
+    if (!EVP_DigestFinal_ex(mdctx.ctx,
+                            reinterpret_cast<unsigned char*>(&hash1), &outlen))
+        throw std::runtime_error("Hash(2): EVP_DigestFinal_ex failed");
+
+    SHA256_Once(reinterpret_cast<const unsigned char*>(&hash1), sizeof(hash1),
+                reinterpret_cast<unsigned char*>(&hash2));
     return hash2;
 }
 
+// Double-SHA256 over three ranges
 template<typename T1, typename T2, typename T3>
 inline uint256 Hash(const T1 p1begin, const T1 p1end,
                     const T2 p2begin, const T2 p2end,
                     const T3 p3begin, const T3 p3end)
 {
-    static unsigned char pblank[1];
-    uint256 hash1;
-    SHA256_CTX ctx;
-    SHA256_Init(&ctx);
-    SHA256_Update(&ctx, (p1begin == p1end ? pblank : (unsigned char*)&p1begin[0]), (p1end - p1begin) * sizeof(p1begin[0]));
-    SHA256_Update(&ctx, (p2begin == p2end ? pblank : (unsigned char*)&p2begin[0]), (p2end - p2begin) * sizeof(p2begin[0]));
-    SHA256_Update(&ctx, (p3begin == p3end ? pblank : (unsigned char*)&p3begin[0]), (p3end - p3begin) * sizeof(p3begin[0]));
-    SHA256_Final((unsigned char*)&hash1, &ctx);
-    uint256 hash2;
-    SHA256((unsigned char*)&hash1, sizeof(hash1), (unsigned char*)&hash2);
+    EvpMdCtx mdctx;
+    uint256 hash1, hash2;
+    unsigned int outlen = 32;
+
+    if (!EVP_DigestInit_ex(mdctx.ctx, EVP_sha256(), nullptr))
+        throw std::runtime_error("Hash(3): EVP_DigestInit_ex failed");
+
+    ctx_update_range(mdctx.ctx,
+        reinterpret_cast<const unsigned char*>(p1begin == p1end ? nullptr : &p1begin[0]),
+        (p1end - p1begin) * sizeof(p1begin[0]));
+    ctx_update_range(mdctx.ctx,
+        reinterpret_cast<const unsigned char*>(p2begin == p2end ? nullptr : &p2begin[0]),
+        (p2end - p2begin) * sizeof(p2begin[0]));
+    ctx_update_range(mdctx.ctx,
+        reinterpret_cast<const unsigned char*>(p3begin == p3end ? nullptr : &p3begin[0]),
+        (p3end - p3begin) * sizeof(p3begin[0]));
+
+    if (!EVP_DigestFinal_ex(mdctx.ctx,
+                            reinterpret_cast<unsigned char*>(&hash1), &outlen))
+        throw std::runtime_error("Hash(3): EVP_DigestFinal_ex failed");
+
+    SHA256_Once(reinterpret_cast<const unsigned char*>(&hash1), sizeof(hash1),
+                reinterpret_cast<unsigned char*>(&hash2));
     return hash2;
 }
 
@@ -613,28 +811,49 @@ uint256 SerializeHash(const T& obj, int nType=SER_GETHASH, int nVersion=PROTOCOL
     return ss.GetHash();
 }
 
-inline uint160 Hash160(const std::vector<unsigned char>& vch)
+// Internal helper: single RIPEMD-160 pass over raw bytes -> fills out[20]
+inline void RIPEMD160_Once(const unsigned char* data, size_t len, unsigned char out[20])
+{
+    EvpMdCtx mdctx;
+    unsigned int outlen = 20;
+    if (!EVP_DigestInit_ex(mdctx.ctx, EVP_ripemd160(), nullptr) ||
+        !EVP_DigestUpdate(mdctx.ctx, data, len) ||
+        !EVP_DigestFinal_ex(mdctx.ctx, out, &outlen))
+        throw std::runtime_error("RIPEMD160_Once failed");
+}
+
+// Hash160 (SHA256 then RIPEMD160) of a valtype
+inline uint160 Hash160(const valtype& vch)
 {
     uint256 hash1;
-    SHA256(&vch[0], vch.size(), (unsigned char*)&hash1);
+    SHA256_Once(vch.data(), vch.size(),
+                reinterpret_cast<unsigned char*>(&hash1));
+
     uint160 hash2;
-    RIPEMD160((unsigned char*)&hash1, sizeof(hash1), (unsigned char*)&hash2);
+    RIPEMD160_Once(reinterpret_cast<const unsigned char*>(&hash1), sizeof(hash1),
+                   reinterpret_cast<unsigned char*>(&hash2));
     return hash2;
 }
 
-
+// Hash160 (SHA256 then RIPEMD160) of an iterator range
 template<typename T1>
 inline uint160 Hash160(const T1 pbegin, const T1 pend)
 {
-    static unsigned char pblank[1];
+    static const unsigned char pblank[1] = {};
+    const unsigned char* data = (pbegin == pend)
+        ? pblank
+        : reinterpret_cast<const unsigned char*>(&pbegin[0]);
+    size_t len = (pend - pbegin) * sizeof(pbegin[0]);
+
     uint256 hash1;
-    SHA256((pbegin == pend ? pblank : (unsigned char*)&pbegin[0]), (pend - pbegin) * sizeof(pbegin[0]), (unsigned   char*)&hash1);
+    SHA256_Once(data, len,
+                reinterpret_cast<unsigned char*>(&hash1));
+
     uint160 hash2;
-    RIPEMD160((unsigned char*)&hash1, sizeof(hash1), (unsigned char*)&hash2);
+    RIPEMD160_Once(reinterpret_cast<const unsigned char*>(&hash1), sizeof(hash1),
+                   reinterpret_cast<unsigned char*>(&hash2));
     return hash2;
 }
-
-
 
 /**
  * Timing-attack-resistant comparison.

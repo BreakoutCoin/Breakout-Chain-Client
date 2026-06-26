@@ -51,6 +51,26 @@ public:
         READWRITE(source);
         READWRITE(nLastSuccess);
         READWRITE(nAttempts);
+        // This shouldn't be necessary, but peers.dat seems to sometimes
+        //    get corrupted, which can play havoc with CPU usage when
+        //    nAttempts is deserialized to an absurd value.
+        // Because of how it is used, it makes no practical
+        //    sense for nAttempts to ever be larger than 22.
+        // See notes in addrman.cpp.
+        int& mutnAttempts = const_cast<int&>(this->nAttempts);
+        if (mutnAttempts < 0)
+        {
+            mutnAttempts = 0;
+        }
+        else if (mutnAttempts > 22)
+        {
+            if (mutnAttempts > 1048575)
+            {
+                printf("WARNING: peers.dat may be corrupted\n");
+                printf("   consider: stop - delete peers.dat - restart\n");
+            }
+            mutnAttempts = 22;
+        }
     )
 
     void Init()
@@ -74,13 +94,13 @@ public:
     }
 
     // Calculate in which "tried" bucket this entry belongs
-    int GetTriedBucket(const std::vector<unsigned char> &nKey) const;
+    int GetTriedBucket(const valtype &nKey) const;
 
     // Calculate in which "new" bucket this entry belongs, given a certain source
-    int GetNewBucket(const std::vector<unsigned char> &nKey, const CNetAddr& src) const;
+    int GetNewBucket(const valtype &nKey, const CNetAddr& src) const;
 
     // Calculate in which "new" bucket this entry belongs, using its default source
-    int GetNewBucket(const std::vector<unsigned char> &nKey) const
+    int GetNewBucket(const valtype &nKey) const
     {
         return GetNewBucket(nKey, source);
     }
@@ -169,7 +189,7 @@ private:
     mutable CCriticalSection cs;
 
     // secret key to randomize bucket select with
-    std::vector<unsigned char> nKey;
+    valtype nKey;
 
     // last used nId
     int nIdCount;
@@ -235,7 +255,7 @@ protected:
 #ifdef DEBUG_ADAGSAN
     // Perform consistency check. Returns an error code or zero.
     int Check_();
-#endif
+#endif  // DEBUG_ADAGSAN
 
     // Select several addresses at once.
     void GetAddr_(std::vector<CAddress> &vAddr);
@@ -269,8 +289,8 @@ public:
         // changes to the ADAGSAN_ parameters without breaking the on-disk structure.
         {
             LOCK(cs);
-            unsigned char nVersion = 0;
-            READWRITE(nVersion);
+            unsigned char nSerVersion = 0;
+            READWRITE(nSerVersion);
             READWRITE(nKey);
             READWRITE(nNew);
             READWRITE(nTried);
@@ -282,9 +302,15 @@ public:
                 READWRITE(nUBuckets);
                 std::map<int, int> mapUnkIds;
                 int nIds = 0;
-                for (std::map<int, CAddrInfo>::iterator it = am->mapInfo.begin(); it != am->mapInfo.end(); it++)
+                for (std::map<int, CAddrInfo>::iterator it = am->mapInfo.begin();
+                     it != am->mapInfo.end();
+                     it++)
                 {
-                    if (nIds == nNew) break; // this means nNew was wrong, oh ow
+                    if (nIds == nNew)
+                    {
+                        // this means nNew was wrong, oh ow
+                        break;
+                    }
                     mapUnkIds[(*it).first] = nIds;
                     CAddrInfo &info = (*it).second;
                     if (info.nRefCount)
@@ -294,9 +320,15 @@ public:
                     }
                 }
                 nIds = 0;
-                for (std::map<int, CAddrInfo>::iterator it = am->mapInfo.begin(); it != am->mapInfo.end(); it++)
+                for (std::map<int, CAddrInfo>::iterator it = am->mapInfo.begin();
+                     it != am->mapInfo.end();
+                     it++)
                 {
-                    if (nIds == nTried) break; // this means nTried was wrong, oh ow
+                    if (nIds == nTried)
+                    {
+                        // this means nTried was wrong, oh ow
+                        break;
+                    }
                     CAddrInfo &info = (*it).second;
                     if (info.fInTried)
                     {
@@ -304,26 +336,34 @@ public:
                         nIds++;
                     }
                 }
-                for (std::vector<std::set<int> >::iterator it = am->vvNew.begin(); it != am->vvNew.end(); it++)
+                for (std::vector<std::set<int> >::iterator it = am->vvNew.begin();
+                     it != am->vvNew.end();
+                     it++)
                 {
                     const std::set<int> &vNew = (*it);
                     int nSize = vNew.size();
                     READWRITE(nSize);
-                    for (std::set<int>::iterator it2 = vNew.begin(); it2 != vNew.end(); it2++)
+                    for (std::set<int>::iterator it2 = vNew.begin();
+                         it2 != vNew.end();
+                         it2++)
                     {
                         int nIndex = mapUnkIds[*it2];
                         READWRITE(nIndex);
                     }
                 }
-            } else {
+            }
+            else
+            {
                 int nUBuckets = 0;
                 READWRITE(nUBuckets);
                 am->nIdCount = 0;
                 am->mapInfo.clear();
                 am->mapAddr.clear();
                 am->vRandom.clear();
-                am->vvTried = std::vector<std::vector<int> >(ADAGSAN_TRIED_BUCKET_COUNT, std::vector<int>(0));
-                am->vvNew = std::vector<std::set<int> >(ADAGSAN_NEW_BUCKET_COUNT, std::set<int>());
+                am->vvTried = std::vector<std::vector<int> >(ADAGSAN_TRIED_BUCKET_COUNT,
+                                                             std::vector<int>(0));
+                am->vvNew = std::vector<std::set<int> >(ADAGSAN_NEW_BUCKET_COUNT,
+                                                        std::set<int>());
                 for (int n = 0; n < am->nNew; n++)
                 {
                     CAddrInfo &info = am->mapInfo[n];
@@ -353,7 +393,9 @@ public:
                         am->mapAddr[info] = am->nIdCount;
                         vTried.push_back(am->nIdCount);
                         am->nIdCount++;
-                    } else {
+                    }
+                    else
+                    {
                         nLost++;
                     }
                 }
@@ -368,7 +410,8 @@ public:
                         int nIndex = 0;
                         READWRITE(nIndex);
                         CAddrInfo &info = am->mapInfo[nIndex];
-                        if (nUBuckets == ADAGSAN_NEW_BUCKET_COUNT && info.nRefCount < ADAGSAN_NEW_BUCKETS_PER_ADDRESS)
+                        if ((nUBuckets == ADAGSAN_NEW_BUCKET_COUNT) &&
+                            (info.nRefCount < ADAGSAN_NEW_BUCKETS_PER_ADDRESS))
                         {
                             info.nRefCount++;
                             vNew.insert(nIndex);
@@ -379,7 +422,10 @@ public:
         }
     });)
 
-    CAddrMan() : vRandom(0), vvTried(ADAGSAN_TRIED_BUCKET_COUNT, std::vector<int>(0)), vvNew(ADAGSAN_NEW_BUCKET_COUNT, std::set<int>())
+    CAddrMan() : vRandom(0),
+                 vvTried(ADAGSAN_TRIED_BUCKET_COUNT,
+                         std::vector<int>(0)),
+                 vvNew(ADAGSAN_NEW_BUCKET_COUNT, std::set<int>())
     {
          nKey.resize(32);
          RAND_bytes(&nKey[0], 32);
@@ -430,8 +476,12 @@ public:
         {
             LOCK(cs);
             Check();
-            for (std::vector<CAddress>::const_iterator it = vAddr.begin(); it != vAddr.end(); it++)
+            for (std::vector<CAddress>::const_iterator it = vAddr.begin();
+                 it != vAddr.end();
+                 it++)
+            {
                 nAdd += Add_(*it, source, nTimePenalty) ? 1 : 0;
+            }
             Check();
         }
         if (nAdd)

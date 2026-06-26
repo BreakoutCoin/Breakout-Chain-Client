@@ -1,20 +1,20 @@
-/* trunnel-impl.h -- copied from Trunnel v1.5.1
+/* trunnel-impl.h -- copied from Trunnel v1.5.3
  * https://gitweb.torproject.org/trunnel.git
  * You probably shouldn't edit this file.
  */
 /* trunnel-impl.h -- Implementation helpers for trunnel, included by
  * generated trunnel files
  *
- * Copyright 2014-2015, The Tor Project, Inc.
+ * Copyright 2014-2019, The Tor Project, Inc.
  * See license at the end of this file for copying information.
  */
 
 #ifndef TRUNNEL_IMPL_H_INCLUDED_
 #define TRUNNEL_IMPL_H_INCLUDED_
 #ifdef TRUNNEL_LOCAL_H
-#include "trunnel-local.h"
+#include "trunnel/trunnel-local.h"
 #endif
-#include "trunnel.h"
+#include "ext/trunnel/trunnel.h"
 #include <assert.h>
 #include <string.h>
 #include <stdlib.h>

@@ -57,7 +57,7 @@ public:
     IMPLEMENT_SERIALIZE
     (
         READWRITE(this->nVersion);
-        nVersion = this->nVersion;
+        nSerVersion = this->nVersion;
         READWRITE(nCreateTime);
     )
 
@@ -174,7 +174,7 @@ public:
             return false;
 
         // hash pubkey/privkey to accelerate wallet load
-        std::vector<unsigned char> vchKey;
+        valtype vchKey;
         vchKey.reserve(vchPubKey.size() + vchPrivKey.size());
         vchKey.insert(vchKey.end(), vchPubKey.begin(), vchPubKey.end());
         vchKey.insert(vchKey.end(), vchPrivKey.begin(), vchPrivKey.end());
@@ -183,7 +183,7 @@ public:
     }
 
 
-    bool WriteCryptedKey(const CPubKey& vchPubKey, const std::vector<unsigned char>& vchCryptedSecret, const CKeyMetadata &keyMeta)
+    bool WriteCryptedKey(const CPubKey& vchPubKey, const valtype& vchCryptedSecret, const CKeyMetadata &keyMeta)
     {
         nWalletDBUpdated++;
         bool fEraseUnencryptedKey = true;

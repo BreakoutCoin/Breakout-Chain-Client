@@ -8,10 +8,9 @@
 using namespace std;
 
 // Helpers:
-static std::vector<unsigned char>
-Serialize(const CScript& s)
+static valtype Serialize(const CScript& s)
 {
-    std::vector<unsigned char> sSerialized(s);
+    valtype sSerialized(s);
     return sSerialized;
 }
 

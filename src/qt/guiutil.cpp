@@ -22,6 +22,9 @@
 #include <QFileDialog>
 #include <QDesktopServices>
 #include <QThread>
+#include <QStandardPaths>
+#include <QRegularExpression>
+#include <QLocale>
 
 #include <boost/filesystem.hpp>
 #include <boost/filesystem/fstream.hpp>
@@ -48,17 +51,17 @@ namespace GUIUtil {
 
 QString dateTimeStr(const QDateTime &date)
 {
-    return date.date().toString(Qt::SystemLocaleShortDate) + QString(" ") + date.toString("hh:mm");
+    return QLocale().toString(date.date(), QLocale::ShortFormat) + QString(" ") + date.toString("hh:mm");
 }
 
 QString dateTimeStr(qint64 nTime)
 {
-    return dateTimeStr(QDateTime::fromTime_t((qint32)nTime));
+    return dateTimeStr(QDateTime::fromSecsSinceEpoch((qint64)nTime));
 }
 
 QFont bitcoinAddressFont()
 {
-    QFont font("Monospace");
+    QFont font("Courier New");
     font.setStyleHint(QFont::TypeWriter);
     return font;
 }
@@ -198,11 +201,12 @@ QString getSaveFileName(QWidget *parent, const QString &caption,
     QString result = QFileDialog::getSaveFileName(parent, caption, myDir, filter, &selectedFilter);
 
     /* Extract first suffix from filter pattern "Description (*.foo)" or "Description (*.foo *.bar ...) */
-    QRegExp filter_re(".* \\(\\*\\.(.*)[ \\)]");
+    QRegularExpression filter_re(".* \\(\\*\\.(.*)[ \\)]");
     QString selectedSuffix;
-    if(filter_re.exactMatch(selectedFilter))
+    QRegularExpressionMatch match = filter_re.match(selectedFilter);
+    if(match.hasMatch())
     {
-        selectedSuffix = filter_re.cap(1);
+        selectedSuffix = match.captured(1);
     }
 
     /* Add suffix if needed */

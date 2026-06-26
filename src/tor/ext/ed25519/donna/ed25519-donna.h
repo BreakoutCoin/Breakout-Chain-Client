@@ -9,7 +9,7 @@
 */
 
 
-#include "ed25519-donna-portable.h"
+#include "ext/ed25519/donna/ed25519-donna-portable.h"
 #include "orconfig.h"
 
 #ifdef HAVE_CFLAG_WOVERLENGTH_STRINGS
@@ -59,7 +59,7 @@
 	#include "curve25519-donna-32bit.h"
 #endif
 
-#include "curve25519-donna-helpers.h"
+#include "ext/ed25519/donna/curve25519-donna-helpers.h"
 
 /* separate uint128 check for 64 bit sse2 */
 #if defined(HAVE_UINT128) && !defined(ED25519_FORCE_32BIT)
@@ -105,7 +105,7 @@ typedef struct ge25519_pniels_t {
 	bignum25519 ysubx, xaddy, z, t2d;
 } ge25519_pniels;
 
-#include "ed25519-donna-basepoint-table.h"
+#include "ext/ed25519/donna/ed25519-donna-basepoint-table.h"
 
 #if defined(ED25519_64BIT)
 	#include "ed25519-donna-64bit-tables.h"

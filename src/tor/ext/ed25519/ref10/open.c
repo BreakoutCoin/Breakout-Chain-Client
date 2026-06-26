@@ -1,11 +1,11 @@
 /* (Modified by Tor to verify signature separately from message) */
 
-#include "crypto_sign.h"
+#include "ext/ed25519/ref10/crypto_sign.h"
 #include <string.h>
-#include "crypto_hash_sha512.h"
-#include "crypto_verify_32.h"
-#include "ge.h"
-#include "sc.h"
+#include "ext/ed25519/ref10/crypto_hash_sha512.h"
+#include "ext/ed25519/ref10/crypto_verify_32.h"
+#include "ext/ed25519/ref10/ge.h"
+#include "ext/ed25519/ref10/sc.h"
 
 /* 'signature' must be 64-bytes long. */
 int crypto_sign_open(

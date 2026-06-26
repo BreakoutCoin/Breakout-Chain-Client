@@ -1,11 +1,11 @@
-#include "ge.h"
+#include "ext/ed25519/ref10/ge.h"
 
 static const fe d = {
-#include "d.h"
+#include "ext/ed25519/ref10/d.h"
 } ;
 
 static const fe sqrtm1 = {
-#include "sqrtm1.h"
+#include "ext/ed25519/ref10/sqrtm1.h"
 } ;
 
 int ge_frombytes_negate_vartime(ge_p3 *h,const unsigned char *s)

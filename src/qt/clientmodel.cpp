@@ -38,7 +38,7 @@ ClientModel::~ClientModel()
 
 int ClientModel::getNumConnections() const
 {
-    return vNodes.size();
+    return static_cast<int>(GetConnectionCount());
 }
 
 int ClientModel::getNumBlocks() const
@@ -55,9 +55,9 @@ int ClientModel::getNumBlocksAtStartup()
 QDateTime ClientModel::getLastBlockDate() const
 {
     if (pindexBest)
-        return QDateTime::fromTime_t(pindexBest->GetBlockTime());
+        return QDateTime::fromSecsSinceEpoch(pindexBest->GetBlockTime());
     else
-        return QDateTime::fromTime_t(1409736828); // Genesis block's time
+        return QDateTime::fromSecsSinceEpoch(1409736828); // Genesis block's time
 }
 
 void ClientModel::updateTimer()
@@ -143,7 +143,8 @@ QString ClientModel::clientName() const
 
 QString ClientModel::formatClientStartupTime() const
 {
-    return QDateTime::fromTime_t(nClientStartupTime).toString();
+    return QDateTime::fromSecsSinceEpoch(nClientStartupTime).toString();
+
 }
 
 // Handlers for core signals

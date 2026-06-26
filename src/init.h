@@ -7,7 +7,7 @@
 
 #include "wallet.h"
 
-#include "breakout.h"
+#include "toradapter.h"
 
 extern CWallet* pwalletMain;
 extern std::string strWalletFileName;

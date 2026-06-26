@@ -2,6 +2,8 @@
 
 #include "colors.h"
 
+using namespace std;
+
 //////////////////////////////////////////////////////////////////////
 ///
 /// Forks
@@ -33,6 +35,11 @@ static const int64_t FORK_005_TIME = 1524632400;
 // Thu May 17 22:00:00 2018 PDT
 // Fix minimum BRX PoS reward
 static const int64_t FORK_006_TIME = 1526619600;
+
+//
+// New KawPow proof-of-work (from Raven & Ethereum)
+const int64_t nKAWPOWActivationTime = 1777836782;  // asdf
+static const int64_t FORK_007_TIME = nKAWPOWActivationTime;
 
 
 //////////////////////////////////////////////////////////////////////
@@ -70,8 +77,10 @@ unsigned char pchMessageStartTestnet[4] = { 0xcb, 0xad, 0xef, 0xfd };
 //////////////////////////////////////////////////////////////////////
 // proof limits
 CBigNum bnProofOfWorkLimit(~uint256(0) >> 26);
+CBigNum bnProofOfWorkLimitKawpow(~uint256(0) >> 12);
 CBigNum bnProofOfStakeLimit(~uint256(0) >> 14);
 CBigNum bnProofOfWorkLimitTestNet(~uint256(0) >> 24);
+CBigNum bnProofOfWorkLimitKawpowTestNet(~uint256(0) >> 8);
 CBigNum bnProofOfStakeLimitTestNet(~uint256(0) >> 8);
 
 // target spacings
@@ -155,10 +164,10 @@ const int64_t BASE_CENT = 1000000;
 // const bool COINAGE_DEPENDENT_POS = false;
 
 // for qualified addresses with currency as name
-std::string ADDRESS_DELIMETER = "_";
+string ADDRESS_DELIMETER = "_";
 
 // different currencies may have different divisibilities
-//                               -     BRX        BRO     BAM
+//                               -     BRX        BRK     BAM
 const int64_t COIN[N_COLORS] = { 0, BASE_COIN, BASE_COIN,  1,
                       // Joker
                                     1,
@@ -173,7 +182,7 @@ const int64_t COIN[N_COLORS] = { 0, BASE_COIN, BASE_COIN,  1,
                       //               SIS
                                     BASE_COIN };
 
-//                               -     BRX        BRO     BAM
+//                               -     BRX        BRK     BAM
 const int64_t CENT[N_COLORS] = { 0, BASE_CENT, BASE_CENT,  1,
                       // Joker
                                     1,
@@ -189,7 +198,7 @@ const int64_t CENT[N_COLORS] = { 0, BASE_CENT, BASE_CENT,  1,
                                     BASE_CENT };
 
 // related to max supply
-//                            -      BRX           BRO              BAM
+//                            -      BRX           BRK              BAM
 //                            -   19,500,000   1,000,000,000   10,000,000,000
 const int DIGITS[N_COLORS] = {0,           8,             10,              11,
                       // Joker
@@ -208,7 +217,7 @@ const int DIGITS[N_COLORS] = {0,           8,             10,              11,
 
 
 // related to divisibility
-//                              -      BRX          BRO         BAM
+//                              -      BRX          BRK         BAM
 //                              -   0.00000001      0.00000001    -
 const int DECIMALS[N_COLORS] = {0,           8,              8,   0,
                         // Joker
@@ -231,10 +240,10 @@ const int DECIMALS[N_COLORS] = {0,           8,              8,   0,
 #if COINAGE_DEPENDENT_POS
 // colored coins are generated based on relative preponderance
 // these are in order of BREAKOUT_COLOR
-//    "when brocoin is generated it is generated with a multiplier of 1"
-//    "and brostake is generated with a multiplier of 0 (never generated)"
+//    "when BRK is generated it is generated with a multiplier of 1"
+//    "and BRX is generated with a multiplier of 0 (never generated)"
 // if a currency can't mint, then this value is not relevant
-//                                           0  BRX  BRO  BAM
+//                                           0  BRX  BRK  BAM
 const int64_t STAKE_MULTIPLIER[N_COLORS] = { 0,   0,   1,   0,
                                     // Joker
                                                   0,
@@ -249,7 +258,7 @@ const int64_t STAKE_MULTIPLIER[N_COLORS] = { 0,   0,   1,   0,
 //                                              SIS
                                                   0 };
 
-//                                                  0  BRX       BRO        BAM
+//                                                  0  BRX       BRK        BAM
 const int64_t MAX_MINT_PROOF_OF_STAKE[N_COLORS] = { 0,  0,  40 * BASE_CENT,  0,
                                           // Joker
                                                         0,
@@ -269,7 +278,7 @@ const int64_t MAX_MINT_PROOF_OF_STAKE[N_COLORS] = { 0,  0,  40 * BASE_CENT,  0,
 // If a currency can't stake, then this value is not relevant.
 // These are somewhat like markers, and are
 //    used for calculations in GetProofOfStakeReward().
-// stake color (in order of BREAKOUT_COLOR)  -         BRX         BRO   BAM
+// stake color (in order of BREAKOUT_COLOR)  -         BRX         BRK   BAM
 const int64_t BASE_POS_REWARD[N_COLORS] = {  0,   BASE_COIN * 10,    0,    0,
           // Joker
                        14,
@@ -285,12 +294,12 @@ const int64_t BASE_POS_REWARD[N_COLORS] = {  0,   BASE_COIN * 10,    0,    0,
                                                   0 };
 #endif
 
-// BROSTAKE MAX_MONEY is same as premine: no more created ever
-// BROCOIN MAX_MONEY expected to be reached about 80 years after launch
-// ATOMIC MAX_MONEY is same as premine: no more created ever
+// BRX MAX_MONEY is same as premine: no more created ever
+// BRK MAX_MONEY expected to be reached about 80 years after launch
+// BAM MAX_MONEY is same as premine: no more created ever
 // MAX_MONEY also sets the max amount to spend
 // IMPORTANT: make sure these values are in smallest divisible units
-//                                    -                 BRX                    BRO           BAM (1e10)
+//                                    -                 BRX                    BRK           BAM (1e10)
 const int64_t MAX_MONEY[N_COLORS] = { 0, BASE_COIN * 12500000, BASE_COIN * 1000000000,  BASE_COIN * 100,
                               // Joker
                                             1,
@@ -309,77 +318,77 @@ const int64_t MAX_MONEY[N_COLORS] = { 0, BASE_COIN * 12500000, BASE_COIN * 10000
 
 // Fees are complicated. Each currency can be sent with a fee payable in it's
 // FEE_COLOR. Most of the times the FEE_COLOR is the transaction currency itself.
-// For example, the fee currency for BRO is BRO. However, delegating a fee currency
+// For example, the fee currency for BRK is BRK. However, delegating a fee currency
 // is necessary for atomic currencies with a low coin count. They would cease to
 // be useful very quickly. The fee currency for the proof of concept atomic
-// currency, BAM, is BRO.
+// currency, BAM, is BRK.
 const int FEE_COLOR[N_COLORS] = { (int) BREAKOUT_COLOR_NONE,
-                                  (int) BREAKOUT_COLOR_BROSTAKE,   // BRX
-                                  (int) BREAKOUT_COLOR_BROCOIN,    // BRO
-                                  (int) BREAKOUT_COLOR_ATOMIC,     // BAM
+                                  (int) BREAKOUT_COLOR_BRX,
+                                  (int) BREAKOUT_COLOR_BRK,
+                                  (int) BREAKOUT_COLOR_BAM,
            // Cards mint Sister Coin, so their fees are in Sister Coin.
            // This also means that there will be a 1 block Sister Coin premine so
            //   cards can be sent out.
                                   // Joker
-                                  (int) BREAKOUT_COLOR_SISCOIN,
+                                  (int) BREAKOUT_COLOR_SIS,
                                   // Spades
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
                                   // Spades
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
                                   // Spades
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
                                   // Spades
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
-                                  (int) BREAKOUT_COLOR_SISCOIN,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
+                                  (int) BREAKOUT_COLOR_SIS,
                                   // SIS
-                                  (int) BREAKOUT_COLOR_SISCOIN };
+                                  (int) BREAKOUT_COLOR_SIS };
 
 
 // MIN_TX_FEE, MIN_RELAY_TX_FEE, and OP_RET_FEE_PER_CHAR are in units of the **FEE_COLOR**
@@ -428,7 +437,7 @@ const int64_t MIN_RELAY_TX_FEE[N_COLORS] = { 0, BASE_CENT * 15 / 10, BASE_CENT, 
 
 // (0.01 per byte)
 const int64_t COMMENT_FEE_PER_CHAR[N_COLORS] = { 0,
-                //   BRX                   BRO                   BAM
+                //   BRX                   BRK                   BAM
                      BASE_CENT * 15 / 100, BASE_CENT * 10 / 100,   1,
          // Joker
          BASE_CENT * 10 / 100,
@@ -457,7 +466,7 @@ const int64_t COMMENT_FEE_PER_CHAR[N_COLORS] = { 0,
 
 // op returns can be big, but they are expensive (0.015 per byte)
 const int64_t OP_RET_FEE_PER_CHAR[N_COLORS] = { 0,
-                //   BRX                   BRO                   BAM
+                //   BRX                   BRK                   BAM
                      BASE_CENT * 23 / 100, BASE_CENT * 15 / 100,   2,
          // Joker
          BASE_CENT * 15 / 100,
@@ -487,7 +496,7 @@ const int64_t OP_RET_FEE_PER_CHAR[N_COLORS] = { 0,
 // Can the currency be recovered by fee scavenging?
 // There probably aren't any good reasons to make a currency non-scavengable,
 //         but this is already written in, so keep it in case I come up with one.
-//                                     -     BRX   BRO   BAM
+//                                     -     BRX   BRK   BAM
 const bool SCAVENGABLE[N_COLORS] = { false, true, true, true,
              // Joker
              true,
@@ -535,7 +544,7 @@ const int64_t MIN_INPUT_VALUE[N_COLORS] = {0, BASE_CENT, BASE_CENT, 1,
 // combine threshold for creating coinstake
 // if a currency can't stake, then this value is not relevant
 // IMPORTANT: make sure these values are in smallest divisible units
-//                                                  -        BRX           BRO    BAM
+//                                                  -        BRX           BRK    BAM
 const int64_t STAKE_COMBINE_THRESHOLD[N_COLORS] = { 0, 1000 * BASE_COIN,     0,     0,
                                           // Joker
                                                         1,
@@ -553,37 +562,38 @@ const int64_t STAKE_COMBINE_THRESHOLD[N_COLORS] = { 0, 1000 * BASE_COIN,     0, 
 
 // what does a given currency mint (see GetProofOfStakeReward)
 // these are in order of BREAKOUT_COLOR
-//    "brostake mints brocoin, but brocoin mints nothing"
+//    "Breakout Stake (BRX) mints Breakout Coin (BRK),
+//    but Breakout Coin mints nothing (NONE)"
 const int MINT_COLOR[N_COLORS] = { (int) BREAKOUT_COLOR_NONE,
-                                   (int) BREAKOUT_COLOR_BROCOIN,   // BRX
-                                   (int) BREAKOUT_COLOR_NONE,      // BRO
+                                   (int) BREAKOUT_COLOR_BRK,       // BRX
+                                   (int) BREAKOUT_COLOR_NONE,      // BRK
                                    (int) BREAKOUT_COLOR_NONE,      // BAM
                // Joker
-               (int) BREAKOUT_COLOR_SISCOIN,
+               (int) BREAKOUT_COLOR_SIS,
                // Spades
-               (int) BREAKOUT_COLOR_SISCOIN,
-               (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
-               (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
-               (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
-               (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
+               (int) BREAKOUT_COLOR_SIS,
+               (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS,
+               (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS,
+               (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS,
+               (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS,
                // Diamonds
-               (int) BREAKOUT_COLOR_SISCOIN,
-               (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
-               (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
-               (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
-               (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
+               (int) BREAKOUT_COLOR_SIS,
+               (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS,
+               (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS,
+               (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS,
+               (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS,
                // Clubs
-               (int) BREAKOUT_COLOR_SISCOIN,
-               (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
-               (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
-               (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
-               (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
+               (int) BREAKOUT_COLOR_SIS,
+               (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS,
+               (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS,
+               (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS,
+               (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS,
                // Hearts
-               (int) BREAKOUT_COLOR_SISCOIN,
-               (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
-               (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
-               (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
-               (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN, (int) BREAKOUT_COLOR_SISCOIN,
+               (int) BREAKOUT_COLOR_SIS,
+               (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS,
+               (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS,
+               (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS,
+               (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS, (int) BREAKOUT_COLOR_SIS,
                // SIS
                (int) BREAKOUT_COLOR_NONE };
 
@@ -633,7 +643,7 @@ const char *COLOR_NAME[N_COLORS] = { "<none>", "Breakout Stake", "Breakout Coin"
 // Yes, fitting the deck into one byte is going to make for some ugly addresses.
 const unsigned char aColorID[N_VERSIONS][N_COLORS][N_COLOR_BYTES] = {
 
-                                                                  //      -    BRX    BRO    BAM
+                                                                  //      -    BRX    BRK    BAM
         /* Main Net PUBKEY */                                          { {0}, {174}, {160}, {120},
                    // Joker
                     {5},
@@ -648,7 +658,7 @@ const unsigned char aColorID[N_VERSIONS][N_COLORS][N_COLOR_BYTES] = {
                    // SIS
                     {234} },
 
-                                                                  //      -    BRX    BRO    BAM
+                                                                  //      -    BRX    BRK    BAM
         /* Main Net SCRIPT */                                          { {0}, {107}, {203}, { 55},
                    // Joker
                     {9},
@@ -662,7 +672,7 @@ const unsigned char aColorID[N_VERSIONS][N_COLORS][N_COLOR_BYTES] = {
                    {112}, {113}, {114}, {115}, {116}, {117}, {118}, {119}, {121}, {123}, {124}, {125}, {126},
                    // SIS
                    {235} },
-                                                                  //      -    BRX    BRO    BAM
+                                                                  //      -    BRX    BRK    BAM
         /* Test Net PUBKEY */                                          { {0}, {  6}, { 28}, { 48},
                    // Joker
                     {11},
@@ -676,7 +686,7 @@ const unsigned char aColorID[N_VERSIONS][N_COLORS][N_COLOR_BYTES] = {
                    {167}, {168}, {169}, {170}, {171}, {172}, {173}, {175}, {176}, {177}, {178}, {179}, {180},
                    // SIS
                    {236} },
-                                                                  //      -    BRX    BRO    BAM
+                                                                  //      -    BRX    BRK    BAM
         /* Test Net SCRIPT */                                          { {0}, {122}, { 70}, {  8},
                    // Joker
                    {13},
@@ -693,9 +703,9 @@ const unsigned char aColorID[N_VERSIONS][N_COLORS][N_COLOR_BYTES] = {
 };
 
 // COLOR_ID (vector version of 3D aColorID)
-std::vector<std::vector<std::vector<unsigned char> > > COLOR_ID(
-                       N_VERSIONS, std::vector<std::vector<unsigned char> >(
-                            N_COLORS, std::vector<unsigned char>(N_COLOR_BYTES)));
+vector<vector<valtype> > COLOR_ID(N_VERSIONS,
+                                  vector<valtype>(N_COLORS,
+                                  valtype(N_COLOR_BYTES)));
 
 // Think of PRIORITY_MULTIPLIER this way:
 //              priority ~ multiplier[color] * value_in * confs
@@ -742,14 +752,14 @@ const int64_t PRIORITY_MULTIPLIER[N_COLORS] = { 0, 1, 1, 1,
 // there is a chance to control the chain for 53 blocks if one person collects
 // the deck, but that is probably more difficult and expensive than buying all
 // available BRX
-static const int64_t nCW = COIN[BREAKOUT_COLOR_BROSTAKE] * 1048576;
+static const int64_t nCW = COIN[BREAKOUT_COLOR_BRX] * 1048576;
 
 // their weights determine how readily they stake
 // these are in order of BREAKOUT_COLOR
-//    "when brostake generates, it does so with a weight of 1"
-//    "and brocoin & atomic stakes with a weight of 0x (never stakes)"
+//    "when BRX generates, it does so with a weight of 1"
+//    "and BRK & BAM stakes with a weight of 0 (never stakes)"
 // IMPORTANT: make sure to take money supply into account right here, these are per coin
-//                                            -   BRX  BRO  BAM
+//                                            -   BRX  BRK  BAM
 const int64_t WEIGHT_MULTIPLIER[N_COLORS] = { 0,    1,   0,   0,
              // Joker
                            nCW,
@@ -768,7 +778,7 @@ const int64_t WEIGHT_MULTIPLIER[N_COLORS] = { 0,    1,   0,   0,
 // These are for the premine blocks. No premine for Sistercoin.
 // IMPORTANT: make sure these values are in smallest divisible units
 //      the smallest divisble unit of BAM is the integer 1, which is the same as a BRK brotoshi
-//                                     -        BRX                BRO                     BAM 1e10)
+//                                     -        BRX                BRK                     BAM 1e10)
 const int64_t POW_SUBSIDY[N_COLORS] = {0, 12500000 * BASE_COIN, 19500000 * BASE_COIN, 100 * BASE_COIN,
                                  // Joker
                                                1,
@@ -788,7 +798,7 @@ const int64_t POW_SUBSIDY[N_COLORS] = {0, 12500000 * BASE_COIN, 19500000 * BASE_
 // has this structure: 
 //      [ {version1_bytes_color1 : color1, version1_bytes_color2, ...},
 //        {version2_bytes_color1 : color1, version2_bytes_color2, ...}, ... ]
-std::vector<std::map <std::vector <unsigned char>, int > > MAPS_COLOR_ID;
+vector<map<valtype, int> > MAPS_COLOR_ID;
 
 
 
@@ -852,12 +862,12 @@ const int CARD_VALUE[N_COLORS] =
 // The default currency for the gui-less client is NONE.
 // These are default currencies for the gui client, where the user
 //    will need to have an operational client without any configuration.
-const int DEFAULT_COLOR = (int) BREAKOUT_COLOR_BROCOIN;
-const int DEFAULT_STAKE_COLOR = (int) BREAKOUT_COLOR_BROSTAKE;
+const int DEFAULT_COLOR = (int) BREAKOUT_COLOR_BRK;
+const int DEFAULT_STAKE_COLOR = (int) BREAKOUT_COLOR_BRX;
 
 // For the gui, how divisible is the currency?
 // For example, BTC is 3 (BTC, mBTC, uBTC)
-//                                 -  BRX  BRO  BAM
+//                                 -  BRX  BRK  BAM
 const int COLOR_UNITS[N_COLORS] = {0,   3,   3,   1,
                           // Joker
                                         1,
@@ -876,12 +886,12 @@ const int COLOR_UNITS[N_COLORS] = {0,   3,   3,   1,
 // The GUI can create overview stats for only a few (e.g. 3) currencies.
 // These are the default ordering
 const int aGuiOverviewColors[N_GUI_OVERVIEW_COLORS] =
-                                         {BREAKOUT_COLOR_BROCOIN,
-                                          BREAKOUT_COLOR_BROSTAKE,
-                                          BREAKOUT_COLOR_SISCOIN};
+                                         {BREAKOUT_COLOR_BRK,
+                                          BREAKOUT_COLOR_BRX,
+                                          BREAKOUT_COLOR_SIS};
 
 // A vector is used so that number of currencies may be dynamic.
-std::vector<int> GUI_OVERVIEW_COLORS;
+vector<int> GUI_OVERVIEW_COLORS;
 
 const int aGuiDeckColors[N_GUI_DECK_COLORS] = {
               JOKER,
@@ -902,7 +912,7 @@ const int aGuiDeckColors[N_GUI_DECK_COLORS] = {
               SIX_OF_HEARTS, SEVEN_OF_HEARTS, EIGHT_OF_HEARTS, NINE_OF_HEARTS, TEN_OF_HEARTS,
               JACK_OF_HEARTS, QUEEN_OF_HEARTS, KING_OF_HEARTS };
 
-std::vector<int> GUI_DECK_COLORS;
+vector<int> GUI_DECK_COLORS;
 
 
 
@@ -923,16 +933,17 @@ int GetFork(int64_t nTime)
                                {       FORK_003_TIME,  BRK_FORK003},
                                {       FORK_004_TIME,  BRK_FORK004},
                                {       FORK_005_TIME,  BRK_FORK005},
-                               {       FORK_006_TIME,  BRK_FORK006}
+                               {       FORK_006_TIME,  BRK_FORK006},
+                               {       FORK_007_TIME,  BRK_FORK007}
                                            };
 
-    if (fTestNet)
-    {
-        return (int) TOTAL_FORKS;
-    }
+    // if (fTestNet)
+    // {
+    //     return (int) TOTAL_FORKS;
+    // }
 
-    // loop has strange logic, but if fork i height is greater than
-    // nTimeBlockPrev then you are on fork i-1
+    // loop has strange logic, but if fork i time is greater than
+    // nTime then you are on fork i-1
     int nFork = aForks[0][1];
     for (int i = 1; i < TOTAL_FORKS; ++i)
     {
@@ -957,7 +968,7 @@ int GetFork(int64_t nTime)
 int GetMinPeerProtoVersion(int64_t nTime)
 {
     // helps to prevent buffer overrun
-    static const int nVersions = 4;
+    static const int nVersions = 5;
 
     // Make sure forks are ascending!
     const int aVersions[nVersions][2] = {
@@ -965,7 +976,8 @@ int GetMinPeerProtoVersion(int64_t nTime)
                    {               BRK_FORK003,         61010 },
                    {               BRK_FORK004,         61011 },
                    {               BRK_FORK005,         61012 },
-                   {               BRK_FORK006,         61013 }
+                   {               BRK_FORK006,         61013 },
+                   {               BRK_FORK007,         61014 }
                                           };
 
     int nFork = GetFork(nTime);
@@ -991,12 +1003,12 @@ int GetMinPeerProtoVersion(int64_t nTime)
 ///
 //////////////////////////////////////////////////////////////////////
 
-bool GetColorFromTicker(const std::string &ticker, int &nColorIn)
+bool GetColorFromTicker(const string &ticker, int &nColorIn)
 {
     nColorIn = (int) BREAKOUT_COLOR_NONE;
     for (int nColor = 1; nColor < N_COLORS; ++nColor)
     {
-        if (std::string(COLOR_TICKER[nColor]) == ticker)
+        if (string(COLOR_TICKER[nColor]) == ticker)
         {
               nColorIn = nColor;
               return true;
@@ -1005,7 +1017,7 @@ bool GetColorFromTicker(const std::string &ticker, int &nColorIn)
     return false;
 }
 
-bool GetTickerFromColor(int nColor, std::string &ticker)
+bool GetTickerFromColor(int nColor, string &ticker)
 {
      if (nColor < 1 || nColor > N_COLORS)
      {
@@ -1079,7 +1091,7 @@ int GetStakeMinConfirmations(int nColor)
 {
     if (!CanStake(nColor))
     {
-       return std::numeric_limits<int>::max();
+       return numeric_limits<int>::max();
     }
     if (IsDeck(nColor))
     {
@@ -1108,13 +1120,15 @@ int64_t GetWeightMultiplier(int nColor, int64_t nTime)
 
 
 
-bool SplitQualifiedAddress(const std::string &qualAddress,
-                              std::string &address, int &nColor, bool fDebug)
+bool SplitQualifiedAddress(const string &qualAddress,
+                           string &address,
+                           int &nColor,
+                           bool fDebug)
 {
 
     // find the delimeter
     size_t x = qualAddress.find(ADDRESS_DELIMETER);
-    if (x == std::string::npos)
+    if (x == string::npos)
     {
           if (fDebug)
           {
@@ -1124,7 +1138,7 @@ bool SplitQualifiedAddress(const std::string &qualAddress,
     }
 
     // make the ticker, check, set nColor
-    std::string ticker = qualAddress.substr(x + ADDRESS_DELIMETER.size(),
+    string ticker = qualAddress.substr(x + ADDRESS_DELIMETER.size(),
                                                           qualAddress.size());
     if (!GetColorFromTicker(ticker, nColor))
     {
@@ -1142,7 +1156,7 @@ bool SplitQualifiedAddress(const std::string &qualAddress,
 }
 
 // add b58 compatible bytes of n to end of vch, little byte first
-bool AppendColorBytes(int n, std::vector<unsigned char> &vch)
+bool AppendColorBytes(int n, valtype &vch)
 {
         if(!CheckColor(n))
         {
@@ -1155,73 +1169,6 @@ bool AppendColorBytes(int n, std::vector<unsigned char> &vch)
         }
         vch.push_back(n);
         return true;
-}
-
-
-//////////////////////////////////////////////////////////////////////
-///
-/// Data Structures
-///
-//////////////////////////////////////////////////////////////////////
-
-bool ValueMapAllPositive(const std::map<int, int64_t> &mapNet)
-{
-    if (mapNet.empty())
-    {
-       return false;
-    }
-    std::map<int, int64_t>::const_iterator itnet;
-    for (itnet = mapNet.begin(); itnet != mapNet.end(); ++itnet)
-    {
-        if (itnet->second <= 0)
-        {
-            return false;
-        }
-    }
-    return true;
-}
-
-bool ValueMapAllZero(const std::map<int, int64_t> &mapNet)
-{
-    std::map<int, int64_t>::const_iterator itnet;
-    for (itnet = mapNet.begin(); itnet != mapNet.end(); ++itnet)
-    {
-        if (itnet->second != 0)
-        {
-            return false;
-        }
-    }
-    return true;
-}
-
-
-// effectively mapCredit - mapDebit
-void FillNets(const std::map<int, int64_t> &mapDebit,
-              const std::map<int, int64_t> &mapCredit,
-              std::map<int, int64_t> &mapNet)
-{
-    mapNet = mapCredit;
-    std::map<int, int64_t>::iterator itnet;
-    std::map<int, int64_t>::const_iterator itdeb;
-    for (itnet = mapNet.begin(); itnet != mapNet.end(); ++itnet)
-    {
-        for (itdeb = mapDebit.begin(); itdeb != mapDebit.end(); ++itdeb)
-        {
-            if (itnet->first == itdeb->first)
-            {
-                itnet->second -= itdeb->second;
-                break;
-            }
-        }
-    }
-    for (itdeb = mapDebit.begin(); itdeb != mapDebit.end(); ++itdeb)
-    {
-        itnet = mapNet.find(itdeb->first);
-        if (itnet == mapNet.end())
-        {
-            mapNet[itdeb->first] = -itdeb->second;
-        }
-    }
 }
 
 
@@ -1265,7 +1212,7 @@ struct CardSorter cardSorter;
 ///
 //////////////////////////////////////////////////////////////////////
 
-CBigNum GetTargetLimit(bool fProofOfStake)
+CBigNum GetTargetLimit(bool fProofOfStake, unsigned int nTime)
 {
     CBigNum bnTargetLimit;
     if (fProofOfStake)
@@ -1274,7 +1221,16 @@ CBigNum GetTargetLimit(bool fProofOfStake)
     }
     else
     {
-        bnTargetLimit = fTestNet ? bnProofOfWorkLimitTestNet : bnProofOfWorkLimit;
+        if (GetFork(nTime) < BRK_FORK007)
+        {
+            bnTargetLimit = fTestNet ? bnProofOfWorkLimitTestNet
+                                     : bnProofOfWorkLimit;
+        }
+        else
+        {
+            bnTargetLimit = fTestNet ? bnProofOfWorkLimitKawpowTestNet
+                                     : bnProofOfWorkLimitKawpow;
+        }
     }
     return bnTargetLimit;
 }

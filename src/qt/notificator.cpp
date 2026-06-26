@@ -43,7 +43,9 @@ Notificator::Notificator(const QString &programName, QSystemTrayIcon *trayicon, 
         mode = Freedesktop;
     }
 #endif
+
 #ifdef Q_OS_MAC
+#ifdef WITH_GROWL
     // Check if Growl is installed (based on Qt's tray icon implementation)
     CFURLRef cfurl;
     OSStatus status = LSGetApplicationForInfo(kLSUnknownType, kLSUnknownCreator, CFSTR("growlTicket"), kLSRolesAll, 0, &cfurl);
@@ -58,6 +60,7 @@ Notificator::Notificator(const QString &programName, QSystemTrayIcon *trayicon, 
         CFRelease(cfurl);
         CFRelease(bundle);
     }
+#endif  // Growl
 #endif
 }
 
@@ -225,8 +228,9 @@ void Notificator::notifySystray(Class cls, const QString &title, const QString &
     trayIcon->showMessage(title, text, sicon, millisTimeout);
 }
 
-// Based on Qt's tray icon implementation
 #ifdef Q_OS_MAC
+#ifdef WITH_GROWL
+// Based on Qt's tray icon implementation
 void Notificator::notifyGrowl(Class cls, const QString &title, const QString &text, const QIcon &icon)
 {
     const QString script(
@@ -272,6 +276,7 @@ void Notificator::notifyGrowl(Class cls, const QString &title, const QString &te
     QString growlApp(this->mode == Notificator::Growl13 ? "Growl" : "GrowlHelperApp");
     // qt_mac_execute_apple_script(script.arg(notificationApp, quotedTitle, quotedText, notificationIcon, growlApp), 0);
 }
+#endif  // Growl
 #endif
 
 void Notificator::notify(Class cls, const QString &title, const QString &text, const QIcon &icon, int millisTimeout)
@@ -287,10 +292,12 @@ void Notificator::notify(Class cls, const QString &title, const QString &text, c
         notifySystray(cls, title, text, icon, millisTimeout);
         break;
 #ifdef Q_OS_MAC
+#ifdef WITH_GROWL
     case Growl12:
     case Growl13:
         notifyGrowl(cls, title, text, icon);
         break;
+#endif  // Growl
 #endif
     default:
         if(cls == Critical)

@@ -7,7 +7,7 @@
 #include <boost/assign/list_of.hpp>
 
 #include "kernel.h"
-#include "txdb.h"
+#include "txdb-leveldb.h"
 
 using namespace std;
 
@@ -415,14 +415,24 @@ bool CheckKernel(int nStakeColor, CBlockIndex* pindexPrev, unsigned int nBits,
 // Get stake modifier checksum
 unsigned int GetStakeModifierChecksum(const CBlockIndex* pindex)
 {
-    if (!pindex->pprev && fDebug) {
-           printf("GetStakeModifierChecksum:\n");
-           printf("   real genesis: %s\n   expected: %s\n", pindex->GetBlockHash().ToString().c_str(),
-                       (!fTestNet ? hashGenesisBlock.ToString().c_str() :
-                                    hashGenesisBlockTestNet.ToString().c_str()));
+    if (!pindex->pprev && fDebugMiner)
+    {
+        printf("GetStakeModifierChecksum:\n");
+        printf("   real genesis: %s\n   expected: %s\n",
+               pindex->GetBlockHash().ToString().c_str(),
+               (!fTestNet ? hashGenesisBlock.ToString().c_str()
+                          : hashGenesisBlockTestNet.ToString().c_str()));
+        printf("   height: %d, time: %u\n", pindex->nHeight, pindex->nTime);
+        CBlock block;
+        assert (block.ReadFromDisk(pindex->nFile,
+                                pindex->nBlockPos,
+                                false));
+        printf("   block height: %d, block time: %u\n", block.nHeight, block.nTime);
     }
-    if (fDebug) {
-        printf("GetStakeModifierChecksum: block %s\n", pindex->GetBlockHash().ToString().c_str());
+    if (fDebug)
+    {
+        printf("GetStakeModifierChecksum: block %s\n",
+               pindex->GetBlockHash().ToString().c_str());
     }
     assert (pindex->pprev || pindex->GetBlockHash() == (!fTestNet ? hashGenesisBlock : hashGenesisBlockTestNet));
     // Hash previous checksum with flags, hashProofOfStake and bnStakeModifier

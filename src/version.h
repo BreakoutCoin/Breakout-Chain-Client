@@ -76,7 +76,16 @@ static const int DATABASE_VERSION = 70508;
 // 61014
 //    (1.6.3.0)
 //        removed sync checkpoints
-static const int PROTOCOL_VERSION = 61014;
+// 61020
+//    (1.7.1.0)
+// asdf
+//        removed txid from sighash
+//        tor update to v0.4.8.1-alpha
+//        moved libcrypto++ to an external dependency
+//        updated leveldb to 1.23
+//        balances tracked for main wallet to save cpus
+//        mining algo
+static const int PROTOCOL_VERSION = 61020;
 
 
 // intial proto version, to be increased after version/verack negotiation

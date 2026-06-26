@@ -12,9 +12,11 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdexcept>
+
+typedef std::vector<unsigned char> valtype;
 
 inline int Testuint256AdHoc(std::vector<std::string> vArg);
-
 
 /** Base class without constructors for uint256 and uint160.
  * This makes the compiler let u use it in a union.
@@ -23,7 +25,7 @@ template<unsigned int BITS>
 class base_uint
 {
 protected:
-    enum { WIDTH=BITS/32 };
+    static constexpr int WIDTH = BITS / 32;
     unsigned int pn[WIDTH];
 public:
 
@@ -289,14 +291,20 @@ public:
         return (!(a == b));
     }
 
-
-
     std::string GetHex() const
     {
-        char psz[sizeof(pn)*2 + 1];
-        for (unsigned int i = 0; i < sizeof(pn); i++)
-            sprintf(psz + i*2, "%02x", ((unsigned char*)pn)[sizeof(pn) - i - 1]);
-        return std::string(psz, psz + sizeof(pn)*2);
+        constexpr size_t L = sizeof(pn);
+        constexpr size_t M = L * 2;
+        constexpr size_t N = M + 1;
+        char psz[N];
+        for (unsigned int i = 0; i < L; i++)
+        {
+            snprintf(psz + i * 2,
+                     N - i * 2,
+                     "%02x",
+                     ((unsigned char*) pn)[L - i - 1]);
+        }
+        return std::string(psz, psz + M);
     }
 
     void SetHex(const char* psz)
@@ -344,6 +352,11 @@ public:
     unsigned char* begin()
     {
         return (unsigned char*)&pn[0];
+    }
+
+    const unsigned char* cbegin() const
+    {
+        return (const unsigned char*)&pn[0];
     }
 
     unsigned char* end()
@@ -447,7 +460,7 @@ public:
         SetHex(str);
     }
 
-    explicit uint160(const std::vector<unsigned char>& vch)
+    explicit uint160(const valtype& vch)
     {
         if (vch.size() == sizeof(pn))
             memcpy(pn, &vch[0], sizeof(pn));
@@ -562,14 +575,76 @@ public:
         SetHex(str);
     }
 
-    explicit uint256(const std::vector<unsigned char>& vch)
+    explicit uint256(const valtype& vch)
     {
         if (vch.size() == sizeof(pn))
             memcpy(pn, &vch[0], sizeof(pn));
         else
             *this = 0;
     }
+
+    friend uint256 Uint256Divide(const uint256&, const uint256&);
 };
+
+inline uint256 CompactToUint256(uint32_t nCompact)
+{
+    int nSize = nCompact >> 24;
+    uint32_t nWord = nCompact & 0x007fffff;
+
+    uint256 result(0);
+    if (nSize <= 3) {
+        nWord >>= 8 * (3 - nSize);
+        result = nWord;
+    } else {
+        result = nWord;
+        result <<= 8 * (nSize - 3);
+    }
+    return result;
+}
+
+inline uint256 Uint256Divide(const uint256& numerator, const uint256& denominator)
+{
+    if (!denominator)
+        throw std::runtime_error("Division by zero");
+
+    uint256 div = denominator;
+    uint256 num = numerator;
+    uint256 result(0);
+
+    // Find the highest bit set in each
+    // (replaces arith_uint256::bits())
+    auto countBits = [](const uint256& n) -> int {
+        for (int pos = uint256::WIDTH - 1; pos >= 0; pos--) {
+            if (n.pn[pos]) {
+                for (int nbits = 31; nbits > 0; nbits--)
+                    if (n.pn[pos] & (1u << nbits))
+                        return 32 * pos + nbits + 1;
+                return 32 * pos + 1;
+            }
+        }
+        return 0;
+    };
+
+    int num_bits = countBits(num);
+    int div_bits = countBits(div);
+
+    if (div_bits > num_bits)
+        return result; // result is 0
+
+    int shift = num_bits - div_bits;
+    div <<= shift;
+
+    while (shift >= 0) {
+        if (num >= div) {
+            num -= div;
+            result.pn[shift / 32] |= (1u << (shift & 31));
+        }
+        div >>= 1;
+        shift--;
+    }
+
+    return result;
+}
 
 inline bool operator==(const uint256& a, uint64_t b)                         { return (base_uint256)a == b; }
 inline bool operator!=(const uint256& a, uint64_t b)                         { return (base_uint256)a != b; }
@@ -620,6 +695,7 @@ inline const uint256 operator|(const uint256& a, const uint256& b)      { return
 inline const uint256 operator+(const uint256& a, const uint256& b)      { return (base_uint256)a +  (base_uint256)b; }
 inline const uint256 operator-(const uint256& a, const uint256& b)      { return (base_uint256)a -  (base_uint256)b; }
 
+inline const uint256 operator/(const uint256& a, const uint256& b)      { return Uint256Divide(a, b); }
 
 
 
@@ -676,7 +752,7 @@ public:
         SetHex(str);
     }
 
-    explicit uint512(const std::vector<unsigned char>& vch)
+    explicit uint512(const valtype& vch)
     {
         if (vch.size() == sizeof(pn))
             memcpy(pn, &vch[0], sizeof(pn));
@@ -744,9 +820,28 @@ inline const uint512 operator+(const uint512& a, const uint512& b)      { return
 inline const uint512 operator-(const uint512& a, const uint512& b)      { return (base_uint512)a -  (base_uint512)b; }
 
 
+/* uint256 from const char *.
+ * This is a separate function because the constructor uint256(const char*) can
+ * result in dangerously catching uint256(0).
+ */
+inline uint256 uint256S(const char* str)
+{
+    uint256 rv;
+    rv.SetHex(str);
+    return rv;
+}
 
-
-
+/* uint256 from std::string.
+ * This is a separate function because the constructor uint256(const
+ * std::string &str) can result in dangerously catching uint256(0) via
+ * std::string(const char*).
+ */
+inline uint256 uint256S(const std::string& str)
+{
+    uint256 rv;
+    rv.SetHex(str);
+    return rv;
+}
 
 
 #ifdef TEST_UINT256

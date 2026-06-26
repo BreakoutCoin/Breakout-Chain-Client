@@ -1,3 +1,16 @@
+################################
+# Local build configuration
+################################
+*local-env-*
+Makefile
+
+
+################################
+# Products from qmake
+################################
+.qmake.stash
+Makefile.*
+breakout-chain_plugin_import.cpp
 
 ################################
 # Operating System Files
@@ -122,17 +135,25 @@ nosetests.xml
 # vim backup files
 *~
 
+# vim swap
+*.swp
+
 # Translations
 *.mo
 
 # general
+not-*
 *.not
 *eraseme*
-erase.*
-erase-*
+erase*
 cache
 *.bak
 *.lkg
+old.*
+old-*
+
+# Accessory files
+_*
 
 
 ################################
@@ -165,8 +186,5 @@ cache
 # daemon
 breakoutd
 
-# libcryptopp
-src/libcryptopp/*.o
-src/libcryptopp/adhoc.cpp
-src/libcryptopp/cryptest.exe
-src/libcryptopp/libcryptopp.a
+# leveldb products
+src/leveldb/out-*

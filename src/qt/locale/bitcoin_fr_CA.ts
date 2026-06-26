@@ -352,7 +352,7 @@ This product includes software developed by the OpenSSL Project for use in the O
     </message>
     <message>
         <location line="-13"/>
-        <source>&amp;Receive BRO</source>
+        <source>&amp;Receive BRK</source>
         <translation>&amp;Recevoir des monnaies</translation>
     </message>
     <message>
@@ -362,7 +362,7 @@ This product includes software developed by the OpenSSL Project for use in the O
     </message>
     <message>
         <location line="-7"/>
-        <source>&amp;Send BRO</source>
+        <source>&amp;Send BRK</source>
         <translation>&amp;Envoyer des monnaies</translation>
     </message>
     <message>
@@ -427,7 +427,7 @@ This product includes software developed by the OpenSSL Project for use in the O
     </message>
     <message>
         <location line="-64"/>
-        <source>Send BRO to a breakout address</source>
+        <source>Send BRK to a breakout address</source>
         <translation>Envoyer des monnaies vers une adresse breakout</translation>
     </message>
     <message>
@@ -629,7 +629,7 @@ This product includes software developed by the OpenSSL Project for use in the O
     </message>
     <message>
         <location line="+59"/>
-        <source>This transaction requires a fee based on the services it uses. You may send it for a fee of %1 BRO, which rewards all users of the Breakout network as a result of your usage. Do you want to pay this fee?</source>
+        <source>This transaction requires a fee based on the services it uses. You may send it for a fee of %1 BRK, which rewards all users of the Breakout network as a result of your usage. Do you want to pay this fee?</source>
         <translation>Cette transaction dépasse la limite autorisée. Vous pouvez tout de même effectuer cette opération, moyennant %1 de frais, qui seront envoyés aux noeuds qui valideront cette transaction, et dont l&apos;objectif vise à supporter le réseau. Etes-vous d&apos;accord pour payer ces frais ?</translation>
     </message>
     <message>

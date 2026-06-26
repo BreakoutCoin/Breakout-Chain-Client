@@ -1,14 +1,10 @@
 #ifndef BITCOINGUI_H
 #define BITCOINGUI_H
 
-#define IMPORT_WALLET 1
-
 #include <QMainWindow>
 #include <QSystemTrayIcon>
 
-#ifdef IMPORT_WALLET
 #include <QInputDialog>
-#endif
 
 class TransactionTableModel;
 class ClientModel;
@@ -72,10 +68,8 @@ private:
     SendCoinsDialog *sendCoinsPage;
     SignVerifyMessageDialog *signVerifyMessageDialog;
 
-#ifdef IMPORT_WALLET
     QInputDialog *simplePasswordDialog;
     QInputDialog *simpleLabelDialog;
-#endif
 
     QLabel *labelEncryptionIcon;
     QLabel *labelStakingIcon;
@@ -86,6 +80,8 @@ private:
 
     QLabel *progressBarLabel;
     QProgressBar *progressBar;
+
+    QLabel *labelReconcilingStatus;
 
     QMenuBar *appMenuBar;
     QAction *overviewAction;
@@ -102,9 +98,7 @@ private:
     QAction *exportAction;
     QAction *encryptWalletAction;
 
-#ifdef IMPORT_WALLET
     QAction *importWalletAction;
-#endif
     QAction *getPrivkeysAction;
     QAction *backupWalletAction;
     QAction *rebuildWalletAction;
@@ -156,6 +150,11 @@ public slots:
     void askFee(qint64 nFeeRequired, int nColor, bool *payFee);
     void handleURI(QString strURI);
 
+    /** Show reconciling-balances status label */
+    void reconcileStarted();
+    /** Hide reconciling-balances status label */
+    void reconcileEnded();
+
 private slots:
     /** Switch to overview (home) page */
     void gotoOverviewPage();
@@ -189,10 +188,8 @@ private slots:
     void incomingTransaction(const QModelIndex & parent, int start, int end);
     /** Encrypt the wallet */
     void encryptWallet(bool status);
-#ifdef IMPORT_WALLET
     /** Import the wallet */
     void importWallet();
-#endif
     /** Get Private Keys **/
     void getPrivkeys();
     /** Backup the wallet */

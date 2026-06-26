@@ -175,16 +175,21 @@ QString BitcoinUnits::format(int unit, qint64 n, int nColorIn,
 
     if (localized)
     {
-       QChar thousands = locale.groupSeparator();
-       int N(quotient_str.size());
-       for (int i = 3; i < N; ++i)
-       {
-           if (i % 3 == 0)
-           {
-               quotient_str.insert(N - i, thousands);
-           }
-       }
+        QString thousands = locale.groupSeparator();
+        if (thousands.isEmpty())
+        {
+            thousands = QStringLiteral(","); // fallback
+        }
+        int N(quotient_str.size());
+        for (int i = 3; i < N; ++i)
+        {
+            if (i % 3 == 0)
+            {
+                quotient_str.insert(N - i, thousands);
+            }
+        }
     }
+
     if (n < 0)
         quotient_str.insert(0, '-');
     else if (fPlus && n > 0)
@@ -270,7 +275,7 @@ bool BitcoinUnits::parse(int unit, const QString &value, int nColorIn, qint64 *v
     {
         if (fDebug)
         {
-              printf("BitcoinUnits::parse: Size %d exceeds # decimals %d\n",
+              printf("BitcoinUnits::parse: Size %lld exceeds # decimals %d\n",
                               decimals.size(), num_decimals);
         }
         return false; // Exceeds max precision
@@ -290,7 +295,7 @@ bool BitcoinUnits::parse(int unit, const QString &value, int nColorIn, qint64 *v
     {
         if (fDebug)
         {
-              printf("BitcoinUnits::parse: String size (%d) too big\n",
+              printf("BitcoinUnits::parse: String size (%lld) too big\n",
                               str.size());
         }
         return false; // Longer numbers will exceed 63 bits

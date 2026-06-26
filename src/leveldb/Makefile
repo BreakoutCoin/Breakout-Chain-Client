@@ -78,7 +78,8 @@ DEVICE_CFLAGS = -isysroot "$(DEVICESDK)" -arch armv6 -arch armv7 -arch armv7s -a
 SIMULATOR_CFLAGS = -isysroot "$(SIMULATORSDK)" -arch i686 -arch x86_64
 STATIC_OUTDIR=out-ios-universal
 else
-STATIC_OUTDIR=out-static
+OUT_DIR ?= out-static
+STATIC_OUTDIR=$(OUT_DIR)
 SHARED_OUTDIR=out-shared
 STATIC_PROGRAMS := $(addprefix $(STATIC_OUTDIR)/, $(PROGNAMES))
 SHARED_PROGRAMS := $(addprefix $(SHARED_OUTDIR)/, db_bench)
@@ -105,13 +106,15 @@ STATIC_ALLOBJS := $(STATIC_LIBOBJECTS) $(STATIC_MEMENVOBJECTS) $(STATIC_TESTOBJS
 DEVICE_ALLOBJS := $(DEVICE_LIBOBJECTS) $(DEVICE_MEMENVOBJECTS)
 SIMULATOR_ALLOBJS := $(SIMULATOR_LIBOBJECTS) $(SIMULATOR_MEMENVOBJECTS)
 
-default: all
+default: staticlibs
 
 # Should we build shared libraries?
 ifneq ($(PLATFORM_SHARED_EXT),)
 
 # Many leveldb test apps use non-exported API's. Only build a subset for testing.
 SHARED_ALLOBJS := $(SHARED_LIBOBJECTS) $(SHARED_MEMENVOBJECTS) $(TESTHARNESS)
+
+
 
 ifneq ($(PLATFORM_SHARED_VERSIONED),true)
 SHARED_LIB1 = libleveldb.$(PLATFORM_SHARED_EXT)
@@ -147,7 +150,7 @@ check: $(STATIC_PROGRAMS)
 	for t in $(notdir $(TESTS)); do echo "***** Running $$t"; $(STATIC_OUTDIR)/$$t || exit 1; done
 
 clean:
-	-rm -rf out-static out-shared out-ios-x86 out-ios-arm out-ios-universal
+	-rm -rf out-static out-shared out-ios-x86 out-ios-arm out-ios-universal $(STATIC_OUTDIR)
 	-rm -f build_config.mk
 	-rm -rf ios-x86 ios-arm
 

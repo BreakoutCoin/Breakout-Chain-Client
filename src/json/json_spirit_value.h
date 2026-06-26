@@ -60,12 +60,14 @@ namespace json_spirit
 
         bool is_uint64() const;
         bool is_null() const;
+        bool is_str() const;
 
         const String_type& get_str()    const;
         const Object&      get_obj()    const;
         const Array&       get_array()  const;
         bool               get_bool()   const;
         int                get_int()    const;
+        unsigned int       get_uint()   const;
         boost::int64_t     get_int64()  const;
         boost::uint64_t    get_uint64() const;
         double             get_real()   const;
@@ -337,6 +339,12 @@ namespace json_spirit
     }
 
     template< class Config >
+    bool Value_impl< Config >::is_str() const
+    {
+        return type() == str_type;
+    }
+
+    template< class Config >
     void Value_impl< Config >::check_type( const Value_type vtype ) const
     {
         if( type() != vtype ) 
@@ -388,6 +396,14 @@ namespace json_spirit
         check_type(  int_type );
 
         return static_cast< int >( get_int64() );
+    }
+
+    template< class Config >
+    unsigned int Value_impl< Config >::get_uint() const
+    {
+        check_type(  int_type );
+
+        return static_cast< unsigned int >( get_int64() );
     }
     
     template< class Config >
@@ -479,6 +495,12 @@ namespace json_spirit
         int get_value( const Value& value, Type_to_type< int > )
         {
             return value.get_int();
+        }
+
+        template< class Value > 
+        unsigned int get_value( const Value& value, Type_to_type< unsigned int > )
+        {
+            return value.get_uint();
         }
        
         template< class Value > 

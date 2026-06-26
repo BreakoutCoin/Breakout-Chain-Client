@@ -19,20 +19,21 @@ Value getconnectioncount(const Array& params, bool fHelp)
             "getconnectioncount\n"
             "Returns the number of connections to other nodes.");
 
-    LOCK(cs_vNodes);
-    return (int)vNodes.size();
+    return static_cast<int>(GetConnectionCount());
 }
 
 static void CopyNodeStats(std::vector<CNodeStats>& vstats)
 {
     vstats.clear();
-
-    LOCK(cs_vNodes);
-    vstats.reserve(vNodes.size());
-    BOOST_FOREACH(CNode* pnode, vNodes) {
-        CNodeStats stats;
-        pnode->copyStats(stats);
-        vstats.push_back(stats);
+    vstats.reserve(GetConnectionCount());
+    {
+        LOCK(cs_vNodes);
+        BOOST_FOREACH (CNode* pnode, vNodes)
+        {
+            CNodeStats stats;
+            pnode->copyStats(stats);
+            vstats.push_back(stats);
+        }
     }
 }
 
@@ -121,9 +122,9 @@ Value sendalert(const Array& params, bool fHelp)
 
     CDataStream sMsg(SER_NETWORK, PROTOCOL_VERSION);
     sMsg << (CUnsignedAlert)alert;
-    alert.vchMsg = vector<unsigned char>(sMsg.begin(), sMsg.end());
+    alert.vchMsg = valtype(sMsg.begin(), sMsg.end());
 
-    vector<unsigned char> vchPrivKey = ParseHex(params[1].get_str());
+    valtype vchPrivKey = ParseHex(params[1].get_str());
 
     // if key is not correct openssl may crash
     key.SetPrivKey(CPrivKey(vchPrivKey.begin(), vchPrivKey.end()), false);

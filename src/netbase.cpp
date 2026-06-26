@@ -11,10 +11,39 @@
 #include <sys/fcntl.h>
 #endif
 
-#include "strlcpy.h"
+#include "bitcoin-strlcpy.h"
 #include <boost/algorithm/string/case_conv.hpp> // for to_lower()
 
 using namespace std;
+
+
+//////////////////////////////////////////////////////////////////////////////
+// Hidden Service Constants
+//////////////////////////////////////////////////////////////////////////////
+// Leader bytes that are only used within CNetAddr as markers,
+//    although apparently they may get their values from some standard
+static const unsigned char pchOnionCat[] = {0xFD,0x87,0xD8,0x7E,0xEB,0x43};
+static const unsigned char pchGarlicCat[] = {0xFD,0x60,0xDB,0x4D,0xDD,0xB5};
+// pre-compute a bunch of terms that are used a lot
+// tor constants
+static const size_t TOR_ADDRESS_VERSION = 3;
+static const size_t ONION_CAT_BYTES = sizeof(pchOnionCat);
+static const size_t ONION_V2_BYTES = 10 + ONION_CAT_BYTES;
+static const size_t ONION_V3_BYTES = 35 + ONION_CAT_BYTES;
+static const size_t ONION_BYTES = TOR_ADDRESS_VERSION == 3 ? ONION_V3_BYTES
+                                                           : ONION_V2_BYTES;
+static const size_t ONION_ADDRESS = ONION_BYTES - ONION_CAT_BYTES;
+
+static const string STR_ONION_SUFFIX(".onion");
+static const size_t ONION_SUFFIX = STR_ONION_SUFFIX.size();
+// i2p constants
+static const size_t GARLIC_CAT_BYTES = sizeof(pchGarlicCat);
+static const size_t GARLIC_BYTES = 10 + GARLIC_CAT_BYTES;
+static const string STR_GARLIC_SUFFIX(".oc.b32.i2p");
+static const size_t GARLIC_SUFFIX = STR_GARLIC_SUFFIX.size();
+static const size_t GARLIC_ADDRESS = GARLIC_BYTES - GARLIC_CAT_BYTES;
+//////////////////////////////////////////////////////////////////////////////
+
 
 // Settings
 static proxyType proxyInfo[NET_MAX];
@@ -25,7 +54,7 @@ bool fNameLookup = false;
 
 static const unsigned char pchIPv4[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff };
 
-enum Network ParseNetwork(std::string net) {
+enum Network ParseNetwork(string net) {
     boost::to_lower(net);
     if (net == "ipv4") return NET_IPV4;
     if (net == "ipv6") return NET_IPV6;
@@ -34,7 +63,7 @@ enum Network ParseNetwork(std::string net) {
     return NET_UNROUTABLE;
 }
 
-void SplitHostPort(std::string in, int &portOut, std::string &hostOut) {
+void SplitHostPort(string in, int &portOut, string &hostOut) {
     size_t colon = in.find_last_of(':');
     // if a : is found, and it either follows a [...], or no other : is in the string, treat it as port separator
     bool fHaveColon = colon != in.npos;
@@ -55,13 +84,14 @@ void SplitHostPort(std::string in, int &portOut, std::string &hostOut) {
         hostOut = in;
 }
 
-bool static LookupIntern(const char *pszName, std::vector<CNetAddr>& vIP, unsigned int nMaxSolutions, bool fAllowLookup)
+bool static LookupIntern(const char *pszName, vector<CNetAddr>& vIP, unsigned int nMaxSolutions, bool fAllowLookup)
 {
     vIP.clear();
 
     {
         CNetAddr addr;
-        if (addr.SetSpecial(std::string(pszName))) {
+        if (addr.SetSpecial(string(pszName)))
+        {
             vIP.push_back(addr);
             return true;
         }
@@ -117,13 +147,13 @@ bool static LookupIntern(const char *pszName, std::vector<CNetAddr>& vIP, unsign
     return (vIP.size() > 0);
 }
 
-bool LookupHost(const char *pszName, std::vector<CNetAddr>& vIP, unsigned int nMaxSolutions, bool fAllowLookup)
+bool LookupHost(const char *pszName, vector<CNetAddr>& vIP, unsigned int nMaxSolutions, bool fAllowLookup)
 {
     if (pszName[0] == 0)
         return false;
     char psz[256];
     char *pszHost = psz;
-    strlcpy(psz, pszName, sizeof(psz));
+    bitcoin_strlcpy(psz, pszName, sizeof(psz));
     if (psz[0] == '[' && psz[strlen(psz)-1] == ']')
     {
         pszHost = psz+1;
@@ -133,21 +163,24 @@ bool LookupHost(const char *pszName, std::vector<CNetAddr>& vIP, unsigned int nM
     return LookupIntern(pszHost, vIP, nMaxSolutions, fAllowLookup);
 }
 
-bool LookupHostNumeric(const char *pszName, std::vector<CNetAddr>& vIP, unsigned int nMaxSolutions)
+bool LookupHostNumeric(const char *pszName, vector<CNetAddr>& vIP, unsigned int nMaxSolutions)
 {
     return LookupHost(pszName, vIP, nMaxSolutions, false);
 }
 
-bool Lookup(const char *pszName, std::vector<CService>& vAddr, int portDefault, bool fAllowLookup, unsigned int nMaxSolutions)
+bool Lookup(const char *pszName, vector<CService>& vAddr, int portDefault, bool fAllowLookup, unsigned int nMaxSolutions)
 {
     if (pszName[0] == 0)
         return false;
     int port = portDefault;
-    std::string hostname = "";
-    SplitHostPort(std::string(pszName), port, hostname);
+    string hostname = "";
+    SplitHostPort(string(pszName), port, hostname);
 
-    std::vector<CNetAddr> vIP;
+    vector<CNetAddr> vIP;
     bool fRet = LookupIntern(hostname.c_str(), vIP, nMaxSolutions, fAllowLookup);
+    if (vIP.size() > 0)
+    {
+    }
     if (!fRet)
         return false;
     vAddr.resize(vIP.size());
@@ -158,7 +191,7 @@ bool Lookup(const char *pszName, std::vector<CService>& vAddr, int portDefault, 
 
 bool Lookup(const char *pszName, CService& addr, int portDefault, bool fAllowLookup)
 {
-    std::vector<CService> vService;
+    vector<CService> vService;
     bool fRet = Lookup(pszName, vService, portDefault, fAllowLookup, 1);
     if (!fRet)
         return false;
@@ -246,7 +279,7 @@ bool static Socks5(string strDest, int port, SOCKET& hSocket)
     }
     string strSocks5("\5\1");
     strSocks5 += '\000'; strSocks5 += '\003';
-    strSocks5 += static_cast<char>(std::min((int)strDest.size(), 255));
+    strSocks5 += static_cast<char>(min((int)strDest.size(), 255));
     strSocks5 += strDest;
     strSocks5 += static_cast<char>((port >> 8) & 0xFF);
     strSocks5 += static_cast<char>((port >> 0) & 0xFF);
@@ -436,7 +469,7 @@ bool SetProxy(enum Network net, CService addrProxy, int nSocksVersion) {
     if (nSocksVersion != 0 && !addrProxy.IsValid())
         return false;
     LOCK(cs_proxyInfos);
-    proxyInfo[net] = std::make_pair(addrProxy, nSocksVersion);
+    proxyInfo[net] = make_pair(addrProxy, nSocksVersion);
     return true;
 }
 
@@ -455,7 +488,7 @@ bool SetNameProxy(CService addrProxy, int nSocksVersion) {
     if (nSocksVersion != 0 && !addrProxy.IsValid())
         return false;
     LOCK(cs_proxyInfos);
-    nameproxyInfo = std::make_pair(addrProxy, nSocksVersion);
+    nameproxyInfo = make_pair(addrProxy, nSocksVersion);
     return true;
 }
 
@@ -561,27 +594,48 @@ void CNetAddr::SetIP(const CNetAddr& ipIn)
     memcpy(ip, ipIn.ip, sizeof(ip));
 }
 
-static const unsigned char pchOnionCat[] = {0xFD,0x87,0xD8,0x7E,0xEB,0x43};
-static const unsigned char pchGarliCat[] = {0xFD,0x60,0xDB,0x4D,0xDD,0xB5};
-
-bool CNetAddr::SetSpecial(const std::string &strName)
+bool CNetAddr::SetSpecial(const string &strName)
 {
-    if (strName.size()>6 && strName.substr(strName.size() - 6, 6) == ".onion") {
-        std::vector<unsigned char> vchAddr = DecodeBase32(strName.substr(0, strName.size() - 6).c_str());
-        if (vchAddr.size() != 16-sizeof(pchOnionCat))
+
+    int nSuffixStart;
+
+    // tor addresses
+    nSuffixStart = strName.size() - ONION_SUFFIX;
+    if ((strName.size() > ONION_SUFFIX) &&
+        (strName.substr(nSuffixStart, ONION_SUFFIX) == STR_ONION_SUFFIX))
+    {
+        string strAddr = strName.substr(0, strName.size() - ONION_SUFFIX);
+        valtype vchAddr;
+        vchAddr = DecodeBase32(strAddr.c_str());
+        if (vchAddr.size() != ONION_ADDRESS)
+        {
             return false;
-        memcpy(ip, pchOnionCat, sizeof(pchOnionCat));
-        for (unsigned int i=0; i<16-sizeof(pchOnionCat); i++)
-            ip[i + sizeof(pchOnionCat)] = vchAddr[i];
+        }
+        memcpy(ip, pchOnionCat, ONION_CAT_BYTES);
+        for (unsigned int i=0; i < ONION_ADDRESS; i++)
+        {
+            ip[i + ONION_CAT_BYTES] = vchAddr[i];
+        }
         return true;
     }
-    if (strName.size()>11 && strName.substr(strName.size() - 11, 11) == ".oc.b32.i2p") {
-        std::vector<unsigned char> vchAddr = DecodeBase32(strName.substr(0, strName.size() - 11).c_str());
-        if (vchAddr.size() != 16-sizeof(pchGarliCat))
+
+    // i2p addresses
+    nSuffixStart = strName.size() - GARLIC_SUFFIX;
+    if ((strName.size() > GARLIC_SUFFIX) &&
+        (strName.substr(nSuffixStart, GARLIC_SUFFIX) == STR_GARLIC_SUFFIX))
+    {
+        string strAddr = strName.substr(0, strName.size() - GARLIC_SUFFIX);
+        valtype vchAddr;
+        vchAddr = DecodeBase32(strAddr.c_str());
+        if (vchAddr.size() != GARLIC_ADDRESS)
+        {
             return false;
-        memcpy(ip, pchOnionCat, sizeof(pchGarliCat));
-        for (unsigned int i=0; i<16-sizeof(pchGarliCat); i++)
-            ip[i + sizeof(pchGarliCat)] = vchAddr[i];
+        }
+        memcpy(ip, pchOnionCat, GARLIC_CAT_BYTES);
+        for (unsigned int i=0; i < GARLIC_ADDRESS; i++)
+        {
+            ip[i + GARLIC_CAT_BYTES] = vchAddr[i];
+        }
         return true;
     }
     return false;
@@ -608,15 +662,15 @@ CNetAddr::CNetAddr(const struct in6_addr& ipv6Addr)
 CNetAddr::CNetAddr(const char *pszIp, bool fAllowLookup)
 {
     Init();
-    std::vector<CNetAddr> vIP;
+    vector<CNetAddr> vIP;
     if (LookupHost(pszIp, vIP, 1, fAllowLookup))
         *this = vIP[0];
 }
 
-CNetAddr::CNetAddr(const std::string &strIp, bool fAllowLookup)
+CNetAddr::CNetAddr(const string &strIp, bool fAllowLookup)
 {
     Init();
-    std::vector<CNetAddr> vIP;
+    vector<CNetAddr> vIP;
     if (LookupHost(strIp.c_str(), vIP, 1, fAllowLookup))
         *this = vIP[0];
 }
@@ -699,7 +753,7 @@ bool CNetAddr::IsTor() const
 
 bool CNetAddr::IsI2P() const
 {
-    return (memcmp(ip, pchGarliCat, sizeof(pchGarliCat)) == 0);
+    return (memcmp(ip, pchGarlicCat, sizeof(pchGarlicCat)) == 0);
 }
 
 bool CNetAddr::IsLocal() const
@@ -780,12 +834,14 @@ enum Network CNetAddr::GetNetwork() const
     return NET_IPV6;
 }
 
-std::string CNetAddr::ToStringIP() const
+string CNetAddr::ToStringIP() const
 {
     if (IsTor())
-        return EncodeBase32(&ip[6], 10) + ".onion";
+        return EncodeBase32(&ip[ONION_CAT_BYTES], ONION_ADDRESS) +
+               STR_ONION_SUFFIX;
     if (IsI2P())
-        return EncodeBase32(&ip[6], 10) + ".oc.b32.i2p";
+        return EncodeBase32(&ip[GARLIC_CAT_BYTES], GARLIC_ADDRESS) +
+               STR_GARLIC_SUFFIX;
     CService serv(*this, 0);
 #ifdef USE_IPV6
     struct sockaddr_storage sockaddr;
@@ -796,7 +852,7 @@ std::string CNetAddr::ToStringIP() const
     if (serv.GetSockAddr((struct sockaddr*)&sockaddr, &socklen)) {
         char name[1025] = "";
         if (!getnameinfo((const struct sockaddr*)&sockaddr, socklen, name, sizeof(name), NULL, 0, NI_NUMERICHOST))
-            return std::string(name);
+            return string(name);
     }
     if (IsIPv4())
         return strprintf("%u.%u.%u.%u", GetByte(3), GetByte(2), GetByte(1), GetByte(0));
@@ -808,7 +864,7 @@ std::string CNetAddr::ToStringIP() const
                          GetByte(3) << 8 | GetByte(2), GetByte(1) << 8 | GetByte(0));
 }
 
-std::string CNetAddr::ToString() const
+string CNetAddr::ToString() const
 {
     return ToStringIP();
 }
@@ -846,9 +902,9 @@ bool CNetAddr::GetIn6Addr(struct in6_addr* pipv6Addr) const
 
 // get canonical identifier of an address' group
 // no two connections will be attempted to addresses with the same group
-std::vector<unsigned char> CNetAddr::GetGroup() const
+valtype CNetAddr::GetGroup() const
 {
-    std::vector<unsigned char> vchRet;
+    valtype vchRet;
     int nClass = NET_IPV6;
     int nStartByte = 0;
     int nBits = 16;
@@ -890,13 +946,13 @@ std::vector<unsigned char> CNetAddr::GetGroup() const
     else if (IsTor())
     {
         nClass = NET_TOR;
-        nStartByte = 6;
+        nStartByte = ONION_CAT_BYTES;
         nBits = 4;
     }
     else if (IsI2P())
     {
         nClass = NET_I2P;
-        nStartByte = 6;
+        nStartByte = GARLIC_CAT_BYTES;
         nBits = 4;
     }
     // for he.net, use /36 groups
@@ -1078,7 +1134,7 @@ CService::CService(const char *pszIpPort, int portDefault, bool fAllowLookup)
         *this = ip;
 }
 
-CService::CService(const std::string &strIpPort, bool fAllowLookup)
+CService::CService(const string &strIpPort, bool fAllowLookup)
 {
     Init();
     CService ip;
@@ -1086,7 +1142,7 @@ CService::CService(const std::string &strIpPort, bool fAllowLookup)
         *this = ip;
 }
 
-CService::CService(const std::string &strIpPort, int portDefault, bool fAllowLookup)
+CService::CService(const string &strIpPort, int portDefault, bool fAllowLookup)
 {
     Init();
     CService ip;
@@ -1145,9 +1201,9 @@ bool CService::GetSockAddr(struct sockaddr* paddr, socklen_t *addrlen) const
     return false;
 }
 
-std::vector<unsigned char> CService::GetKey() const
+valtype CService::GetKey() const
 {
-     std::vector<unsigned char> vKey;
+     valtype vKey;
      vKey.resize(18);
      memcpy(&vKey[0], ip, 16);
      vKey[16] = port / 0x100;
@@ -1155,12 +1211,12 @@ std::vector<unsigned char> CService::GetKey() const
      return vKey;
 }
 
-std::string CService::ToStringPort() const
+string CService::ToStringPort() const
 {
     return strprintf("%u", port);
 }
 
-std::string CService::ToStringIPPort() const
+string CService::ToStringIPPort() const
 {
     if (IsIPv4() || IsTor() || IsI2P()) {
         return ToStringIP() + ":" + ToStringPort();
@@ -1169,7 +1225,7 @@ std::string CService::ToStringIPPort() const
     }
 }
 
-std::string CService::ToString() const
+string CService::ToString() const
 {
     return ToStringIPPort();
 }

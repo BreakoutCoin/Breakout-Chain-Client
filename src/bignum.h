@@ -111,7 +111,7 @@ public:
     CBigNum(uint64_t n)           { init(); setuint64(n); }
     explicit CBigNum(uint256 n) { init(); setuint256(n); }
 
-    explicit CBigNum(const std::vector<unsigned char>& vch)
+    explicit CBigNum(const valtype& vch)
     {
         init();
         setvch(vch);
@@ -225,7 +225,7 @@ public:
         unsigned int nSize = BN_bn2mpi(bn, NULL);
         if (nSize < 4)
             return 0;
-        std::vector<unsigned char> vch(nSize);
+        valtype vch(nSize);
         BN_bn2mpi(bn, &vch[0]);
         if (vch.size() > 4)
             vch[4] &= 0x7f;
@@ -295,7 +295,7 @@ public:
         unsigned int nSize = BN_bn2mpi(bn, NULL);
         if (nSize < 4)
             return 0;
-        std::vector<unsigned char> vch(nSize);
+        valtype vch(nSize);
         BN_bn2mpi(bn, &vch[0]);
         if (vch.size() > 4)
             vch[4] &= 0x7f;
@@ -306,9 +306,9 @@ public:
     }
 
 
-    void setvch(const std::vector<unsigned char>& vch)
+    void setvch(const valtype& vch)
     {
-        std::vector<unsigned char> vch2(vch.size() + 4);
+        valtype vch2(vch.size() + 4);
         unsigned int nSize = vch.size();
         // BIGNUM's byte stream format expects 4 bytes of
         // big endian size data info at the front
@@ -321,12 +321,12 @@ public:
         BN_mpi2bn(&vch2[0], vch2.size(), bn);
     }
 
-    std::vector<unsigned char> getvch() const
+    valtype getvch() const
     {
         unsigned int nSize = BN_bn2mpi(bn, NULL);
         if (nSize <= 4)
-            return std::vector<unsigned char>();
-        std::vector<unsigned char> vch(nSize);
+            return valtype();
+        valtype vch(nSize);
         BN_bn2mpi(bn, &vch[0]);
         vch.erase(vch.begin(), vch.begin() + 4);
         reverse(vch.begin(), vch.end());
@@ -336,7 +336,7 @@ public:
     CBigNum& SetCompact(unsigned int nCompact)
     {
         unsigned int nSize = nCompact >> 24;
-        std::vector<unsigned char> vch(4 + nSize);
+        valtype vch(4 + nSize);
         vch[3] = nSize;
         if (nSize >= 1) vch[4] = (nCompact >> 16) & 0xff;
         if (nSize >= 2) vch[5] = (nCompact >> 8) & 0xff;
@@ -348,7 +348,7 @@ public:
     unsigned int GetCompact() const
     {
         unsigned int nSize = BN_bn2mpi(bn, NULL);
-        std::vector<unsigned char> vch(nSize);
+        valtype vch(nSize);
         nSize -= 4;
         BN_bn2mpi(bn, &vch[0]);
         unsigned int nCompact = nSize << 24;
@@ -433,7 +433,7 @@ public:
     template<typename Stream>
     void Unserialize(Stream& s, int nType=0, int nVersion=PROTOCOL_VERSION)
     {
-        std::vector<unsigned char> vch;
+        valtype vch;
         ::Unserialize(s, vch, nType, nVersion);
         setvch(vch);
     }
@@ -541,9 +541,9 @@ public:
     * default causes error rate of 2^-80.
     * @return true if prime
     */
-    bool isPrime(const int checks=BN_prime_checks) const {
+    bool isPrime() const {
         CAutoBN_CTX pctx;
-        int ret = BN_is_prime_ex(bn, checks, pctx, NULL);
+        int ret = BN_check_prime(bn, pctx, NULL);
         if(ret < 0){
             throw bignum_error("CBigNum::isPrime :BN_is_prime");
         }

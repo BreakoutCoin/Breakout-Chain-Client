@@ -352,7 +352,7 @@ This product includes software developed by the OpenSSL Project for use in the O
     </message>
     <message>
         <location line="-13"/>
-        <source>&amp;Receive BRO</source>
+        <source>&amp;Receive BRK</source>
         <translation>接收黑币(&amp;R)</translation>
     </message>
     <message>
@@ -362,7 +362,7 @@ This product includes software developed by the OpenSSL Project for use in the O
     </message>
     <message>
         <location line="-7"/>
-        <source>&amp;Send BRO</source>
+        <source>&amp;Send BRK</source>
         <translation>发送货币(&amp;S)</translation>
     </message>
     <message>
@@ -427,7 +427,7 @@ This product includes software developed by the OpenSSL Project for use in the O
     </message>
     <message>
         <location line="-64"/>
-        <source>Send BRO to a breakout address</source>
+        <source>Send BRK to a breakout address</source>
         <translation>向指定的地址发送黑币</translation>
     </message>
     <message>
@@ -629,7 +629,7 @@ This product includes software developed by the OpenSSL Project for use in the O
     </message>
     <message>
         <location line="+59"/>
-        <source>This transaction requires a fee based on the services it uses. You may send it for a fee of %1 BRO, which rewards all users of the Breakout network as a result of your usage. Do you want to pay this fee?</source>
+        <source>This transaction requires a fee based on the services it uses. You may send it for a fee of %1 BRK, which rewards all users of the Breakout network as a result of your usage. Do you want to pay this fee?</source>
         <translation>该笔交易数据量太大，需支付%1手续费给执行该笔交易的网络结点。您愿意支付吗？</translation>
     </message>
     <message>

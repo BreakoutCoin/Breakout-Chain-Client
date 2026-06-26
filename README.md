@@ -4,7 +4,7 @@
 
 Breakout Chain is a peer-to-peer decentralized cryptocurrency that employs two types of blockchain security. The first is Proof-of-Work, where miners race to solve computationally difficult mathematical puzzles. The winner for each block of transactions is allowed to certify the block for the network and claim the signing fee. The second type of security is Proof-of-Stake, where stakers participate in a lottery to win the privilege to certify the block. A staker's chance of winning is proportional to how much stake they have.
 
-In Breakout Chain, Proof-of-Work miners are awarded Sistercoin. Stakers, on the other hand, are awarded in two currencies, Breakout Coin and Sister Coin. Stakers who are awarded Breakout Coin prove ownership of a currency called Breakout Stake. Stakers who are awarded Sister Coin prove ownership of one of 53 playing cards, each card being a currency in its own right. The deck consists of a Joker and the other 52 cards of a standard deck.
+In Breakout Chain, Proof-of-Work miners are awarded Sister Coin. Stakers, on the other hand, are awarded in two currencies, Breakout Coin and Sister Coin. Stakers who are awarded Breakout Coin prove ownership of a currency called Breakout Stake. Stakers who are awarded Sister Coin prove ownership of one of 53 playing cards, each card being a currency in its own right. The deck consists of a Joker and the other 52 cards of a standard deck.
 
 The deck is essentially 53 colored coins with unique identities. Their identities are unambiguous in that their ordering is cemented into the genesis block as salt. The salt is a hash calculated by the following python script
 
@@ -27,13 +27,15 @@ The deck is essentially 53 colored coins with unique identities. Their identitie
     >>> hashlib.sha256(names).hexdigest()
     'f4be9677f3caaa8a9a1f9e58a0f9a80dd9fd9f224455714c414f4963848e0b9b'
 
+Note that in this script, "Brostake" and "Brocoin" represent Breakout Stake and Breakout Coin, respectively. The reason is that the salt was created prior to testnet, but the names of these two coins were changed for mainnet. Mainnet had launched before anyone thought to update the salt for the new names. Sister Coin is not included in the salt because it was added as a currency after testnet.
+
 
 ## Chain Stats
 
 ### General
 
 * Block Times: 5 Minutes
-* Security: Proof of Work + Proof of Stake v2
+* Security: KawPoW Proof of Work + Proof of Stake v2
 * Currencies: Breakout Coin, Breakout Stake, Sister Coin, Atomic, The Deck
 * Coinbase Maturity: 240 Blocks (20 hr)
 

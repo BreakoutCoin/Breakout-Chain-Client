@@ -5,7 +5,7 @@
 
 #include "util.h"
 #include "sync.h"
-#include "strlcpy.h"
+#include "bitcoin-strlcpy.h"
 #include "version.h"
 #include "ui_interface.h"
 #include <boost/algorithm/string/join.hpp>
@@ -62,10 +62,13 @@ namespace boost {
 
 using namespace std;
 
+CValidationState validationStateMain;
+
 map<string, string> mapArgs;
 map<string, vector<string> > mapMultiArgs;
 bool fDebug = false;
 bool fDebugNet = false;
+bool fDebugMiner = false;
 // maybe secure messaging some day
 bool fDebugSmsg = false;
 bool fNoSmsg = false;
@@ -78,11 +81,12 @@ bool fServer = false;
 bool fCommandLine = false;
 string strMiscWarning;
 bool fTestNet = false;
-bool nTestNet = 0;
 bool fNoListen = false;
 bool fLogTimestamps = false;
 CMedianFilter<int64_t> vTimeOffsets(200,0);
 bool fReopenDebugLog = false;
+
+int nMaxHeight = -1;
 
 // Init OpenSSL library multithreading support
 static CCriticalSection** ppmutexOpenSSL;
@@ -92,6 +96,21 @@ void locking_callback(int mode, int i, const char* file, int line)
         ENTER_CRITICAL_SECTION(*ppmutexOpenSSL[i]);
     } else {
         LEAVE_CRITICAL_SECTION(*ppmutexOpenSSL[i]);
+    }
+}
+
+void GranularMilliSleep(int64_t n, int64_t nGrainSize)
+{
+    nGrainSize = std::max((int64_t)1, nGrainSize);
+    nGrainSize = std::min(n, nGrainSize);
+    int64_t nSteps = n / nGrainSize;
+    for (int i = 0; i < nSteps; ++i)
+    {
+        MilliSleep(nGrainSize);
+        if (fShutdown)
+        {
+            break;
+        }
     }
 }
 
@@ -107,7 +126,13 @@ void stdOutProgress(void *d, unsigned int v)
     printf("%s: %u %%\n", static_cast<string*>(d)->c_str(), v);
 }
 
+void logProgress(void *d, unsigned int v)
+{
+    OutputDebugStringF("%s: %u %%\n", static_cast<string*>(d)->c_str(), v);
+}
+
 LockedPageManager LockedPageManager::instance;
+
 
 // Init
 class CInit
@@ -189,7 +214,7 @@ uint64_t GetRand(uint64_t nMax)
 
     // The range of the random source must be a multiple of the modulus
     // to give every possible output value an equal possibility
-    uint64_t nRange = (std::numeric_limits<uint64_t>::max() / nMax) * nMax;
+    uint64_t nRange = (numeric_limits<uint64_t>::max() / nMax) * nMax;
     uint64_t nRand = 0;
     do
         RAND_bytes((unsigned char*)&nRand, sizeof(nRand));
@@ -280,7 +305,7 @@ inline int OutputDebugStringF(const char* pszFormat, ...)
         // accumulate and output a line at a time
         {
             LOCK(cs_OutputDebugStringF);
-            static std::string buffer;
+            static string buffer;
 
             va_list arg_ptr;
             va_start(arg_ptr, pszFormat);
@@ -323,7 +348,7 @@ string vstrprintf(const char *format, va_list ap)
         limit *= 2;
         p = new char[limit];
         if (p == NULL)
-            throw std::bad_alloc();
+            throw bad_alloc();
     }
     string str(p, p+ret);
     if (p != buffer)
@@ -340,7 +365,7 @@ string real_strprintf(const char *format, int dummy, ...)
     return str;
 }
 
-string real_strprintf(const std::string &format, int dummy, ...)
+string real_strprintf(const string &format, int dummy, ...)
 {
     va_list arg_ptr;
     va_start(arg_ptr, dummy);
@@ -353,12 +378,50 @@ bool error(const char *format, ...)
 {
     va_list arg_ptr;
     va_start(arg_ptr, format);
-    std::string str = vstrprintf(format, arg_ptr);
+    string str = vstrprintf(format, arg_ptr);
     va_end(arg_ptr);
     printf("ERROR: %s\n", str.c_str());
     return false;
 }
 
+bool ParseUInt64(const string& str, int base, uint64_t* nRet) {
+    if (str.empty())
+    {
+        return false;
+    }
+    if (str.find('\0') != string::npos)
+    {
+        // internal null bytes
+        return false;
+    }
+    const char* c_str = str.c_str();
+    char* end_ptr;
+    // global variable of stdlib
+    errno = 0;
+    unsigned long long result = strtoull(c_str, &end_ptr, base);
+    if (errno == ERANGE)
+    {
+        // overflow
+        return false;
+    }
+    if (end_ptr != c_str + str.length())
+    {
+        // contains padding
+        return false;
+    }
+    if (end_ptr == c_str)
+    {
+        // not parseable as number
+        return false;
+    }
+    if (result > UINT64_MAX)
+    {
+        // too big for uint64_t
+        return false;
+    }
+    *nRet = static_cast<uint64_t>(result);
+    return true;
+}
 
 void ParseString(const string& str, char c, vector<string>& v)
 {
@@ -379,11 +442,11 @@ void ParseString(const string& str, char c, vector<string>& v)
     }
 }
 
-string FormatMoney(int64_t n, int nColor, bool fPlus)
+string FormatMoney(int64_t n, int nColor, bool fPlus, bool fShowTicker)
 {
     if (!CheckColor(nColor))
     {
-         return std::string();
+        return string();
     }
     // Note: not using straight sprintf here because we do NOT want
     // localized number formatting.
@@ -394,15 +457,28 @@ string FormatMoney(int64_t n, int nColor, bool fPlus)
 
     // Right-trim excess zeros before the decimal point:
     int nTrim = 0;
-    for (int i = str.size()-1; (str[i] == '0' && isdigit(str[i-2])); --i)
+    for (int i = str.size() - 1; (str[i] == '0' && isdigit(str[i - 2])); --i)
+    {
         ++nTrim;
+    }
     if (nTrim)
-        str.erase(str.size()-nTrim, nTrim);
+    {
+        str.erase(str.size() - nTrim, nTrim);
+    }
 
     if (n < 0)
-        str.insert((unsigned int)0, 1, '-');
+    {
+        str.insert((unsigned int) 0, 1, '-');
+    }
     else if (fPlus && n > 0)
-        str.insert((unsigned int)0, 1, '+');
+    {
+        str.insert((unsigned int) 0, 1, '+');
+    }
+    if (fShowTicker)
+    {
+        str += " ";
+        str += COLOR_TICKER[nColor];
+    }
     return str;
 }
 
@@ -486,10 +562,10 @@ bool IsHex(const string& str)
     return (str.size() > 0) && (str.size()%2 == 0);
 }
 
-vector<unsigned char> ParseHex(const char* psz)
+valtype ParseHex(const char* psz)
 {
     // convert hex dump to vector
-    vector<unsigned char> vch;
+    valtype vch;
     while (true)
     {
         while (isspace(*psz))
@@ -507,7 +583,7 @@ vector<unsigned char> ParseHex(const char* psz)
     return vch;
 }
 
-vector<unsigned char> ParseHex(const string& str)
+valtype ParseHex(const string& str)
 {
     return ParseHex(str.c_str());
 }
@@ -517,7 +593,7 @@ static void InterpretNegativeSetting(string name, map<string, string>& mapSettin
     // interpret -nofoo as -foo=0 (and -nofoo=0 as -foo=1) as long as -foo not set
     if (name.find("-no") == 0)
     {
-        std::string positive("-");
+        string positive("-");
         positive.append(name.begin()+3, name.end());
         if (mapSettingsRet.count(positive) == 0)
         {
@@ -534,7 +610,7 @@ void ParseParameters(int argc, const char* const argv[])
     for (int i = 1; i < argc; i++)
     {
         char psz[10000];
-        strlcpy(psz, argv[i], sizeof(psz));
+        bitcoin_strlcpy(psz, argv[i], sizeof(psz));
         char* pszValue = (char*)"";
         if (strchr(psz, '='))
         {
@@ -561,9 +637,11 @@ void ParseParameters(int argc, const char* const argv[])
         //  interpret --foo as -foo (as long as both are not set)
         if (name.find("--") == 0)
         {
-            std::string singleDash(name.begin()+1, name.end());
+            string singleDash(name.begin()+1, name.end());
             if (mapArgs.count(singleDash) == 0)
+            {
                 mapArgs[singleDash] = entry.second;
+            }
             name = singleDash;
         }
 
@@ -572,45 +650,57 @@ void ParseParameters(int argc, const char* const argv[])
     }
 }
 
-std::string GetArg(const std::string& strArg, const std::string& strDefault)
+string GetArg(const string& strArg, const string& strDefault)
 {
     if (mapArgs.count(strArg))
+    {
         return mapArgs[strArg];
+    }
     return strDefault;
 }
 
-int64_t GetArg(const std::string& strArg, int64_t nDefault)
+int64_t GetArg(const string& strArg, int64_t nDefault)
 {
     if (mapArgs.count(strArg))
+    {
         return atoi64(mapArgs[strArg]);
+    }
     return nDefault;
 }
 
-bool GetBoolArg(const std::string& strArg, bool fDefault)
+bool GetBoolArg(const string& strArg, bool fDefault)
 {
     if (mapArgs.count(strArg))
     {
         if (mapArgs[strArg].empty())
+        {
             return true;
+        }
         return (atoi(mapArgs[strArg]) != 0);
     }
     return fDefault;
 }
 
-bool SoftSetArg(const std::string& strArg, const std::string& strValue)
+bool SoftSetArg(const string& strArg, const string& strValue)
 {
     if (mapArgs.count(strArg))
+    {
         return false;
+    }
     mapArgs[strArg] = strValue;
     return true;
 }
 
-bool SoftSetBoolArg(const std::string& strArg, bool fValue)
+bool SoftSetBoolArg(const string& strArg, bool fValue)
 {
     if (fValue)
-        return SoftSetArg(strArg, std::string("1"));
+    {
+        return SoftSetArg(strArg, string("1"));
+    }
     else
-        return SoftSetArg(strArg, std::string("0"));
+    {
+        return SoftSetArg(strArg, string("0"));
+    }
 }
 
 
@@ -665,7 +755,7 @@ string EncodeBase64(const string& str)
     return EncodeBase64((const unsigned char*)str.c_str(), str.size());
 }
 
-vector<unsigned char> DecodeBase64(const char* p, bool* pfInvalid)
+valtype DecodeBase64(const char* p, bool* pfInvalid)
 {
     static const int decode64_table[256] =
     {
@@ -687,7 +777,7 @@ vector<unsigned char> DecodeBase64(const char* p, bool* pfInvalid)
     if (pfInvalid)
         *pfInvalid = false;
 
-    vector<unsigned char> vchRet;
+    valtype vchRet;
     vchRet.reserve(strlen(p)*3/4);
 
     int mode = 0;
@@ -750,7 +840,7 @@ vector<unsigned char> DecodeBase64(const char* p, bool* pfInvalid)
 
 string DecodeBase64(const string& str)
 {
-    vector<unsigned char> vchRet = DecodeBase64(str.c_str());
+    valtype vchRet = DecodeBase64(str.c_str());
     return string((const char*)&vchRet[0], vchRet.size());
 }
 
@@ -818,7 +908,7 @@ string EncodeBase32(const string& str)
     return EncodeBase32((const unsigned char*)str.c_str(), str.size());
 }
 
-vector<unsigned char> DecodeBase32(const char* p, bool* pfInvalid)
+valtype DecodeBase32(const char* p, bool* pfInvalid)
 {
     static const int decode32_table[256] =
     {
@@ -840,7 +930,7 @@ vector<unsigned char> DecodeBase32(const char* p, bool* pfInvalid)
     if (pfInvalid)
         *pfInvalid = false;
 
-    vector<unsigned char> vchRet;
+    valtype vchRet;
     vchRet.reserve((strlen(p))*5/8);
 
     int mode = 0;
@@ -937,7 +1027,7 @@ vector<unsigned char> DecodeBase32(const char* p, bool* pfInvalid)
 
 string DecodeBase32(const string& str)
 {
-    vector<unsigned char> vchRet = DecodeBase32(str.c_str());
+    valtype vchRet = DecodeBase32(str.c_str());
     return string((const char*)&vchRet[0], vchRet.size());
 }
 
@@ -974,11 +1064,18 @@ bool WildcardMatch(const string& str, const string& mask)
 
 
 
+int GetNumCores()
+{
+#if BOOST_VERSION >= 105600
+    return boost::thread::physical_concurrency();
+#else // Must fall back to hardware_concurrency, which unfortunately counts virtual cores
+    return boost::thread::hardware_concurrency();
+#endif
+}
 
 
 
-
-static std::string FormatException(std::exception* pex, const char* pszThread)
+static string FormatException(exception* pex, const char* pszThread)
 {
 #ifdef WIN32
     char pszModule[MAX_PATH] = "";
@@ -994,15 +1091,15 @@ static std::string FormatException(std::exception* pex, const char* pszThread)
             "UNKNOWN EXCEPTION       \n%s in %s       \n", pszModule, pszThread);
 }
 
-void LogException(std::exception* pex, const char* pszThread)
+void LogException(exception* pex, const char* pszThread)
 {
-    std::string message = FormatException(pex, pszThread);
+    string message = FormatException(pex, pszThread);
     printf("\n%s", message.c_str());
 }
 
-void PrintException(std::exception* pex, const char* pszThread)
+void PrintException(exception* pex, const char* pszThread)
 {
-    std::string message = FormatException(pex, pszThread);
+    string message = FormatException(pex, pszThread);
     printf("\n\n************************\n%s\n", message.c_str());
     fprintf(stderr, "\n\n************************\n%s\n", message.c_str());
     strMiscWarning = message;
@@ -1022,9 +1119,9 @@ void LogStackTrace() {
     }
 }
 
-void PrintExceptionContinue(std::exception* pex, const char* pszThread)
+void PrintExceptionContinue(exception* pex, const char* pszThread)
 {
-    std::string message = FormatException(pex, pszThread);
+    string message = FormatException(pex, pszThread);
     printf("\n\n************************\n%s\n", message.c_str());
     fprintf(stderr, "\n\n************************\n%s\n", message.c_str());
     strMiscWarning = message;
@@ -1059,45 +1156,58 @@ boost::filesystem::path GetDefaultDataDir()
 #endif
 }
 
-const boost::filesystem::path &GetDataDir(bool fNetSpecific)
+const boost::filesystem::path& GetDataDir(bool fNetSpecific)
 {
     namespace fs = boost::filesystem;
 
     static fs::path pathCached[2];
     static CCriticalSection csPathCached;
-    static bool cachedPath[2] = {false, false};
+    static bool cachedPath[2] = { false, false };
 
-    fs::path &path = pathCached[fNetSpecific];
+    fs::path& path = pathCached[fNetSpecific];
 
     // This can be called during exceptions by printf, so we cache the
     // value so we don't have to do memory allocations after that.
     if (cachedPath[fNetSpecific])
+    {
         return path;
+    }
 
     LOCK(csPathCached);
 
-    if (mapArgs.count("-datadir")) {
+    if (mapArgs.count("-datadir"))
+    {
         path = fs::system_complete(mapArgs["-datadir"]);
-        if (!fs::is_directory(path)) {
+        if (!fs::is_directory(path))
+        {
             path = "";
             return path;
         }
-    } else {
+    }
+    else
+    {
         path = GetDefaultDataDir();
     }
     if (fNetSpecific && fTestNet)
+    {
         path /= "testnet";
+    }
 
     fs::create_directory(path);
 
-    cachedPath[fNetSpecific]=true;
+    cachedPath[fNetSpecific] = true;
     return path;
 }
 
 boost::filesystem::path GetConfigFile()
 {
     boost::filesystem::path pathConfigFile(GetArg("-conf", "breakout.conf"));
+
+#if BOOST_VERSION >= 107900
+    if (!pathConfigFile.is_absolute()) pathConfigFile = GetDataDir(false) / pathConfigFile;
+#else
     if (!pathConfigFile.is_complete()) pathConfigFile = GetDataDir(false) / pathConfigFile;
+#endif
     return pathConfigFile;
 }
 
@@ -1128,7 +1238,11 @@ void ReadConfigFile(map<string, string>& mapSettingsRet,
 boost::filesystem::path GetPidFile()
 {
     boost::filesystem::path pathPidFile(GetArg("-pid", "breakoutd.pid"));
+#if BOOST_VERSION >= 107900
+    if (!pathPidFile.is_absolute()) pathPidFile = GetDataDir() / pathPidFile;
+#else
     if (!pathPidFile.is_complete()) pathPidFile = GetDataDir() / pathPidFile;
+#endif
     return pathPidFile;
 }
 
@@ -1150,7 +1264,7 @@ bool RenameOver(boost::filesystem::path src, boost::filesystem::path dest)
     return MoveFileExA(src.string().c_str(), dest.string().c_str(),
                       MOVEFILE_REPLACE_EXISTING);
 #else
-    int rc = std::rename(src.string().c_str(), dest.string().c_str());
+    int rc = rename(src.string().c_str(), dest.string().c_str());
     return (rc == 0);
 #endif /* WIN32 */
 }
@@ -1203,6 +1317,31 @@ int64_t GetTime()
     return time(NULL);
 }
 
+int64_t GetTimeMillis()
+{
+    int64_t now = (boost::posix_time::microsec_clock::universal_time() -
+                   boost::posix_time::ptime(
+                       boost::gregorian::date(1970, 1, 1)))
+                      .total_milliseconds();
+    assert(now > 0);
+    return now;
+}
+
+int64_t GetTimeMicros()
+{
+    int64_t now = (boost::posix_time::microsec_clock::universal_time() -
+                   boost::posix_time::ptime(
+                       boost::gregorian::date(1970, 1, 1)))
+                      .total_microseconds();
+    assert(now > 0);
+    return now;
+}
+
+int64_t GetSystemTimeInSeconds()
+{
+    return GetTimeMicros()/1000000;
+}
+
 void SetMockTime(int64_t nMockTimeIn)
 {
     nMockTime = nMockTimeIn;
@@ -1235,7 +1374,7 @@ void AddTimeData(const CNetAddr& ip, int64_t nTime)
     if (vTimeOffsets.size() >= 5 && vTimeOffsets.size() % 2 == 1)
     {
         int64_t nMedian = vTimeOffsets.median();
-        std::vector<int64_t> vSorted = vTimeOffsets.sorted();
+        vector<int64_t> vSorted = vTimeOffsets.sorted();
         // Only let other nodes change our time by so much
         if (abs64(nMedian) < 70 * 60)
         {
@@ -1314,9 +1453,9 @@ string FormatFullVersion()
 }
 
 // Format the subversion field according to BIP 14 spec (https://en.bitcoin.it/wiki/BIP_0014)
-std::string FormatSubVersion(const std::string& name, int nClientVersion, const std::vector<std::string>& comments)
+string FormatSubVersion(const string& name, int nClientVersion, const vector<string>& comments)
 {
-    std::ostringstream ss;
+    ostringstream ss;
     ss << "/";
     ss << name << ":" << FormatVersion(nClientVersion);
     if (!comments.empty())
@@ -1342,7 +1481,7 @@ boost::filesystem::path GetSpecialFolderPath(int nFolder, bool fCreate)
 }
 #endif
 
-void runCommand(std::string strCommand)
+void runCommand(string strCommand)
 {
     int nErr = ::system(strCommand.c_str());
     if (nErr)
@@ -1374,7 +1513,7 @@ bool NewThread(void(*pfn)(void*), void* parg)
 {
     try
     {
-        boost::thread(pfn, parg); // thread detaches when out of scope
+        boost::thread threadNew(pfn, parg); // thread detaches when out of scope
     } catch(boost::thread_resource_error &e) {
         printf("Error creating thread: %s\n", e.what());
         return false;

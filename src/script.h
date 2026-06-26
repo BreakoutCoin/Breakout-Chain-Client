@@ -19,30 +19,33 @@
 #include "util.h"
 #include "stealth.h"
 
-typedef std::vector<unsigned char> valtype;
-
 class CTransaction;
 
 static const unsigned int MAX_SCRIPT_ELEMENT_SIZE = 520; // bytes
 static const unsigned int MAX_OP_RETURN_RELAY = 48;      // bytes
+
+// Maximum script length in bytes
+static const int MAX_SCRIPT_SIZE = 10000;
 
 static const unsigned int MAX_MULTISIG_KEYS = 16;
 
 /** Signature hash types/flags */
 enum
 {
-    SIGHASH_ALL = 1,
-    SIGHASH_NONE = 2,
-    SIGHASH_SINGLE = 3,
-    SIGHASH_ANYONECANPAY = 0x80,
+    SIGHASH_ALL             = 1,
+    SIGHASH_NONE            = 2,
+    SIGHASH_SINGLE          = 3,
+    SIGHASH_ANYONECANPAY    = 0x80
 };
 
 /** Script verification flags */
 enum
 {
-    SCRIPT_VERIFY_NONE      = 0,
-    SCRIPT_VERIFY_NOCACHE   = (1U << 0), // do not store results in signature cache (but do query it)
-    SCRIPT_VERIFY_NULLDUMMY = (1U << 1), // verify dummy stack item consumed by CHECKMULTISIG is of zero-length
+    SCRIPT_VERIFY_NONE                           = 0,
+    // do not store results in signature cache (but do query it)
+    SCRIPT_VERIFY_NOCACHE                        = (1U << 0),
+    // verify dummy stack item consumed by CHECKMULTISIG is of zero-length
+    SCRIPT_VERIFY_NULLDUMMY                      = (1U << 1),
 
     // Discourage use of NOPs reserved for upgrades (NOP1-10)
     //
@@ -52,29 +55,34 @@ enum
     // discouraged NOPs fails the script. This verification flag will never be
     // a mandatory flag applied to scripts in a block. NOPs that are not
     // executed, e.g. within an unexecuted IF ENDIF block, are *not* rejected.
-    SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS = (1U << 2),
+    SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS     = (1U << 2),
 
-    SCRIPT_VERIFY_STRICTENC = (1U << 3),
+    SCRIPT_VERIFY_STRICTENC                      = (1U << 3),
 
     // Breakout: added to MANDATORY_SCRIPT_VERIFY_FLAGS from BLK V3 fork
-    SCRIPT_VERIFY_ALLOW_EMPTY_SIG = (1U << 4),
-    SCRIPT_VERIFY_FIX_HASHTYPE = (1U << 5),
+    SCRIPT_VERIFY_ALLOW_EMPTY_SIG                = (1U << 4),
+    SCRIPT_VERIFY_FIX_HASHTYPE                   = (1U << 5),
 
     // Verify CHECKLOCKTIMEVERIFY (BIP65)
     //
-    SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY = (1U << 6),
+    SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY            = (1U << 6)
 };
 
 /** IsMine() return codes (borrowed from (c) 2009-2017 Bitcoin Core Developers)*/
 enum isminetype
 {
-    ISMINE_NO = 0,
-    ISMINE_WATCH_UNSOLVABLE = 1,
-    //! Indicates that we know how to create a scriptSig that would solve this if we were given the appropriate private keys
-    ISMINE_WATCH_SOLVABLE = 2,
-    ISMINE_WATCH_ONLY = ISMINE_WATCH_SOLVABLE | ISMINE_WATCH_UNSOLVABLE,
-    ISMINE_SPENDABLE = 4,
-    ISMINE_ALL = ISMINE_WATCH_ONLY | ISMINE_SPENDABLE
+    ISMINE_NO                = 0,
+    ISMINE_WATCH_UNSOLVABLE  = (1U << 0),
+    //! Indicates that we know how to create a scriptSig that would
+    //  solve this if we were given the appropriate private keys
+    ISMINE_WATCH_SOLVABLE    = (1U << 1),
+    ISMINE_WATCH_ONLY        = ISMINE_WATCH_SOLVABLE | ISMINE_WATCH_UNSOLVABLE,
+    ISMINE_SPENDABLE         = (1U << 2),
+    //! Indicates that we have fewer than all private keys for
+    //  a multisig scriptSig
+    ISMINE_MULTISIG          = (1U << 3),
+    ISMINE_SIGNABLE          = ISMINE_SPENDABLE | ISMINE_MULTISIG,
+    ISMINE_ALL               = ISMINE_WATCH_ONLY | ISMINE_SIGNABLE
 };
 
 inline isminetype operator|(isminetype a, isminetype b)
@@ -113,6 +121,13 @@ enum txnouttype
     TX_NULL_DATA
 };
 
+enum class ScriptSigType
+{
+    P2PK,
+    P2PKH,
+    UNKNOWN
+};
+
 class CNoDestination {
 public:
     friend bool operator==(const CNoDestination &a, const CNoDestination &b) { return true; }
@@ -137,13 +152,25 @@ public:
     int operator()(const CStealthAddress &stxAddr) const { return stxAddr.nColor; }
 };
 
+struct DestinationEqual : public boost::static_visitor<bool>
+{
+    const CTxDestination& rhs;
+    DestinationEqual(const CTxDestination& rhs) : rhs(rhs) {}
+
+    template <typename T>
+    bool operator()(const T& lhs) const
+    {
+        return lhs == boost::get<T>(rhs);
+    }
+};
+
 
 const char* GetTxnOutputType(txnouttype t);
 
 template <typename T>
-std::vector<unsigned char> ToByteVector(const T& in)
+valtype ToByteVector(const T& in)
 {
-    return std::vector<unsigned char>(in.begin(), in.end());
+    return valtype(in.begin(), in.end());
 }
 
 /** Script opcodes */
@@ -294,11 +321,15 @@ enum opcodetype
     OP_INVALIDOPCODE = 0xff,
 };
 
+
+// Maximum value that an opcode can be
+static const unsigned int MAX_OPCODE = OP_NOP10;
+
 const char* GetOpName(opcodetype opcode);
 
 
 
-inline std::string ValueString(const std::vector<unsigned char>& vch)
+inline std::string ValueString(const valtype& vch)
 {
     if (vch.size() <= 4)
         return strprintf("%d", CBigNum(vch).getint());
@@ -306,10 +337,10 @@ inline std::string ValueString(const std::vector<unsigned char>& vch)
         return HexStr(vch);
 }
 
-inline std::string StackString(const std::vector<std::vector<unsigned char> >& vStack)
+inline std::string StackString(const std::vector<valtype >& vStack)
 {
     std::string str;
-    BOOST_FOREACH(const std::vector<unsigned char>& vch, vStack)
+    BOOST_FOREACH(const valtype& vch, vStack)
     {
         if (!str.empty())
             str += " ";
@@ -319,14 +350,8 @@ inline std::string StackString(const std::vector<std::vector<unsigned char> >& v
 }
 
 
-
-
-
-
-
-
 /** Serialized script, used inside transaction inputs and outputs */
-class CScript : public std::vector<unsigned char>
+class CScript : public valtype
 {
 protected:
     CScript& push_int64(int64_t n)
@@ -359,10 +384,11 @@ protected:
 
 public:
     CScript() { }
-    CScript(const CScript& b) : std::vector<unsigned char>(b.begin(), b.end()) { }
-    CScript(const_iterator pbegin, const_iterator pend) : std::vector<unsigned char>(pbegin, pend) { }
+    // Deprecated
+    // CScript(const CScript& b) : valtype(b.begin(), b.end()) { }
+    CScript(const_iterator pbegin, const_iterator pend) : valtype(pbegin, pend) { }
 #ifndef _MSC_VER
-    CScript(const unsigned char* pbegin, const unsigned char* pend) : std::vector<unsigned char>(pbegin, pend) { }
+    CScript(const unsigned char* pbegin, const unsigned char* pend) : valtype(pbegin, pend) { }
 #endif
 
     CScript& operator+=(const CScript& b)
@@ -394,7 +420,7 @@ public:
     explicit CScript(opcodetype b)     { operator<<(b); }
     explicit CScript(const uint256& b) { operator<<(b); }
     explicit CScript(const CBigNum& b) { operator<<(b); }
-    explicit CScript(const std::vector<unsigned char>& b) { operator<<(b); }
+    explicit CScript(const valtype& b) { operator<<(b); }
 
 
     //CScript& operator<<(char b) is not portable.  Use 'signed char' or 'unsigned char'.
@@ -445,7 +471,7 @@ public:
         return *this;
     }
 
-    CScript& operator<<(const std::vector<unsigned char>& b)
+    CScript& operator<<(const valtype& b)
     {
         if (b.size() < OP_PUSHDATA1)
         {
@@ -481,7 +507,7 @@ public:
     }
 
 
-    bool GetOp(iterator& pc, opcodetype& opcodeRet, std::vector<unsigned char>& vchRet)
+    bool GetOp(iterator& pc, opcodetype& opcodeRet, valtype& vchRet)
     {
          // Wrapper so it can be called with either iterator or const_iterator
          const_iterator pc2 = pc;
@@ -498,7 +524,7 @@ public:
          return fRet;
     }
 
-    bool GetOp(const_iterator& pc, opcodetype& opcodeRet, std::vector<unsigned char>& vchRet) const
+    bool GetOp(const_iterator& pc, opcodetype& opcodeRet, valtype& vchRet) const
     {
         return GetOp2(pc, opcodeRet, &vchRet);
     }
@@ -508,7 +534,7 @@ public:
         return GetOp2(pc, opcodeRet, NULL);
     }
 
-    bool GetOp2(const_iterator& pc, opcodetype& opcodeRet, std::vector<unsigned char>* pvchRet) const
+    bool GetOp2(const_iterator& pc, opcodetype& opcodeRet, valtype* pvchRet) const
     {
         opcodeRet = OP_INVALIDOPCODE;
         if (pvchRet)
@@ -636,6 +662,8 @@ public:
     // Called by CTransaction::IsStandard.
     bool HasCanonicalPushes() const;
 
+    bool HasValidOps() const;
+
     void SetDestination(const CTxDestination& address);
     void SetMultisig(int nRequired, const std::vector<CPubKey>& keys);
 
@@ -649,7 +677,7 @@ public:
     {
         std::string str;
         opcodetype opcode;
-        std::vector<unsigned char> vch;
+        valtype vch;
         const_iterator pc = begin();
         while (pc < end())
         {
@@ -681,7 +709,7 @@ public:
     void clear()
     {
         // The default std::vector::clear() does not release memory.
-        std::vector<unsigned char>().swap(*this);
+        valtype().swap(*this);
     }
 };
 
@@ -716,14 +744,14 @@ protected:
     bool IsToScriptID(CScriptID &hash) const;
     bool IsToPubKey(CPubKey &pubkey) const;
 
-    bool Compress(std::vector<unsigned char> &out) const;
+    bool Compress(valtype &out) const;
     unsigned int GetSpecialSize(unsigned int nSize) const;
-    bool Decompress(unsigned int nSize, const std::vector<unsigned char> &out);
+    bool Decompress(unsigned int nSize, const valtype &out);
 public:
     CScriptCompressor(CScript &scriptIn) : script(scriptIn) { }
 
     unsigned int GetSerializeSize(int nType, int nVersion) const {
-        std::vector<unsigned char> compr;
+        valtype compr;
         if (Compress(compr))
             return compr.size();
         unsigned int nSize = script.size() + nSpecialScripts;
@@ -732,7 +760,7 @@ public:
 
     template<typename Stream>
     void Serialize(Stream &s, int nType, int nVersion) const {
-        std::vector<unsigned char> compr;
+        valtype compr;
         if (Compress(compr)) {
             s << CFlatData(&compr[0], &compr[compr.size()]);
             return;
@@ -747,7 +775,7 @@ public:
         unsigned int nSize;
         s >> VARINT(nSize);
         if (nSize < nSpecialScripts) {
-            std::vector<unsigned char> vch(GetSpecialSize(nSize), 0x00);
+            valtype vch(GetSpecialSize(nSize), 0x00);
             s >> REF(CFlatData(&vch[0], &vch[vch.size()]));
             Decompress(nSize, vch);
             return;
@@ -761,9 +789,9 @@ public:
 
 bool IsDERSignature(const valtype &vchSig, bool haveHashType = true);
 bool IsCompressedOrUncompressedPubKey(const valtype &vchPubKey);
-bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& script, const CTransaction& txTo, unsigned int nIn, unsigned int flags, int nHashType);
-bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, std::vector<std::vector<unsigned char> >& vSolutionsRet);
-int ScriptSigArgsExpected(txnouttype t, const std::vector<std::vector<unsigned char> >& vSolutions);
+bool EvalScript(std::vector<valtype >& stack, const CScript& script, const CTransaction& txTo, unsigned int nIn, unsigned int flags, int nHashType);
+bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, std::vector<valtype >& vSolutionsRet);
+int ScriptSigArgsExpected(txnouttype t, const std::vector<valtype >& vSolutions);
 bool IsStandard(const CScript& scriptPubKey, txnouttype& whichType);
 // fMultiSig indicates whether partial ownership of a multisig keyset qualifies as mine
 isminetype IsMine(const CKeyStore& keystore, const CScript& scriptPubKey, bool fMultiSig);
@@ -800,5 +828,9 @@ bool VerifySignature(const CTransaction& txFrom, const CTransaction& txTo, unsig
 // Given two sets of signatures for scriptPubKey, possibly with OP_0 placeholders,
 // combine them intelligently and return the result.
 CScript CombineSignatures(CScript scriptPubKey, const CTransaction& txTo, unsigned int nIn, const CScript& scriptSig1, const CScript& scriptSig2);
+
+// determines whether scriptSig is for P2PK or P2PKH
+ScriptSigType GetScriptSigType(const CScript& scriptSig);
+bool GetPubKeyFromP2PKH(const CScript& sig, valtype& vchPubkey);
 
 #endif

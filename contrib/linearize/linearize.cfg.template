@@ -1,0 +1,47 @@
+# Breakout RPC settings (linearize-hashes)
+
+rpcuser=breakoutrpc
+rpcpassword=YOURPASSWORD
+host=127.0.0.1
+
+# mainnet rpc port 50542
+# testnet rpc port 60542
+port=50542
+
+# if you have a previous hashlist, just add 1 to the highest
+# go to the bottom of the file and then getblock on the hash
+# overridden by command line option --min_height MIN (-m MIN)
+min_height=0
+
+# bootstrap.dat hashlist settings (linearize-hashes)
+# just use the highest block of your chain
+# overridden by command line option --max_height MAX (-M MAX)
+max_height=850000
+
+
+# bootstrap.dat input/output settings (linearize-data)
+
+# mainnet magic f9cfcbdf ([0xf9, 0xcf, 0xcb, 0xdf])
+# testnet magic cbadeffd ([0xcb, 0xad, 0xef, 0xfd])
+netmagic=f9cfcbdf
+
+# path to Stealth data dir
+input=/home/user/.breakout
+
+
+# genesis blocks
+#   mainnet: 00000009575edbbfbacc1d6c3668d40d85f90600673f2f2137e07a50d08a80df
+#   testnet: 0000007746ebdefa50fcdc5c4dec278e4438ba4c402c36103a977ad4e62b8a3c
+# if specified, this hash must be contained in the haslist (linearize-data.py)
+# overridden by command line option --chain_id HASH (-C HASH)
+chain_id=00000009575edbbfbacc1d6c3668d40d85f90600673f2f2137e07a50d08a80df
+
+output_file=bootstrap.dat
+
+# overridden by command line option --hashlist FILE (-H FILE)
+hashlist=hashlist.txt
+
+# debugging settings
+
+# warn of unknown blocks (true or false, default=false)
+verbose=false

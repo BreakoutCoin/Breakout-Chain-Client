@@ -7,7 +7,7 @@
 
 #include "base58.h"
 #include "bitcoinrpc.h"
-#include "txdb.h"
+#include "txdb-leveldb.h"
 #include "init.h"
 #include "main.h"
 #include "net.h"
@@ -18,31 +18,46 @@ using namespace boost;
 using namespace boost::assign;
 using namespace json_spirit;
 
-void ScriptPubKeyToJSON(const CScript& scriptPubKey, int nColor,
-                                            Object& out, bool fIncludeHex)
+txnouttype ScriptPubKeyToJSON(const CScript& scriptPubKey,
+                              int nColor,
+                              bool fIncludeHex,
+                              Object& obj)
 {
-    txnouttype type;
+    txnouttype txtype;
     vector<CTxDestination> addresses;
     int nRequired;
 
-    out.push_back(Pair("asm", scriptPubKey.ToString()));
+    obj.push_back(Pair("asm", scriptPubKey.ToString()));
 
     if (fIncludeHex)
-        out.push_back(Pair("hex", HexStr(scriptPubKey.begin(), scriptPubKey.end())));
-
-    if (!ExtractDestinations(scriptPubKey, type, addresses, nRequired))
     {
-        out.push_back(Pair("type", GetTxnOutputType(TX_NONSTANDARD)));
-        return;
+        obj.push_back(Pair("hex", HexStr(scriptPubKey.begin(),
+                                         scriptPubKey.end())));
     }
 
-    out.push_back(Pair("reqSigs", nRequired));
-    out.push_back(Pair("type", GetTxnOutputType(type)));
+    if (!ExtractDestinations(scriptPubKey, txtype, addresses, nRequired))
+    {
+        if (txtype == TX_NULL_DATA)
+        {
+            obj.push_back(Pair("type", GetTxnOutputType(TX_NULL_DATA)));
+        }
+        else
+        {
+            obj.push_back(Pair("type", GetTxnOutputType(TX_NONSTANDARD)));
+        }
+        return txtype;
+    }
+
+    obj.push_back(Pair("reqSigs", nRequired));
+    obj.push_back(Pair("type", GetTxnOutputType(txtype)));
 
     Array a;
     BOOST_FOREACH(const CTxDestination& addr, addresses)
+    {
         a.push_back(CBitcoinAddress(addr, nColor).ToString());
-    out.push_back(Pair("addresses", a));
+    }
+    obj.push_back(Pair("addresses", a));
+    return txtype;
 }
 
 void TxToJSON(const CTransaction& tx, const uint256 hashBlock, Object& entry)
@@ -55,13 +70,26 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, Object& entry)
     entry.push_back(Pair("locktime", (boost::int64_t)tx.nLockTime));
     entry.push_back(Pair("tx-comment", tx.strTxComment));
     entry.push_back(Pair("product-id", (boost::int64_t)tx.nServiceTypeID));
+    if (tx.IsCoinBase())
+    {
+        entry.push_back(Pair("flags", "coinbase"));
+    }
+    else if (tx.IsCoinStake())
+    {
+       entry.push_back(Pair("flags", "coinstake"));
+    }
 
     Array vin;
     BOOST_FOREACH(const CTxIn& txin, tx.vin)
     {
         Object in;
         if (tx.IsCoinBase())
+        {
             in.push_back(Pair("coinbase", HexStr(txin.scriptSig.begin(), txin.scriptSig.end())));
+            in.push_back(Pair("sequence", (boost::int64_t)txin.nSequence));
+            vin.push_back(in);
+            continue;
+        }
         else
         {
             in.push_back(Pair("txid", txin.prevout.hash.GetHex()));
@@ -70,8 +98,8 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, Object& entry)
             o.push_back(Pair("asm", txin.scriptSig.ToString()));
             o.push_back(Pair("hex", HexStr(txin.scriptSig.begin(), txin.scriptSig.end())));
             in.push_back(Pair("scriptSig", o));
+            in.push_back(Pair("sequence", (boost::int64_t)txin.nSequence));
         }
-        in.push_back(Pair("sequence", (boost::int64_t)txin.nSequence));
 
         CTransaction txPrev;
         CTxIndex txindex;
@@ -91,11 +119,19 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, Object& entry)
         if (ExtractDestinations(prevtxout.scriptPubKey, type, addresses, nRequired))
         {
             in.push_back(Pair("value", ValueFromAmount(prevtxout.nValue,
-                                                          prevtxout.nColor)));
+                                                       prevtxout.nColor)));
+            in.push_back(Pair("currency",  std::string(COLOR_TICKER[prevtxout.nColor])));
         }
         else
         {
-            in.push_back(Pair("type", GetTxnOutputType(TX_NONSTANDARD)));
+            if (type == TX_NULL_DATA)
+            {
+                in.push_back(Pair("type", GetTxnOutputType(TX_NULL_DATA)));
+            }
+            else
+            {
+                in.push_back(Pair("type", GetTxnOutputType(TX_NONSTANDARD)));
+            }
         }
 
         Array a;
@@ -118,8 +154,13 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, Object& entry)
         out.push_back(Pair("currency", std::string(COLOR_TICKER[txout.nColor])));
         out.push_back(Pair("n", (boost::int64_t)i));
         Object o;
-        ScriptPubKeyToJSON(txout.scriptPubKey, txout.nColor, o, false);
+        txnouttype txtype = ScriptPubKeyToJSON(txout.scriptPubKey,
+                                               txout.nColor, false, o);
         out.push_back(Pair("scriptPubKey", o));
+        if ((txtype == TX_NULL_DATA) && (txout.nValue > 0))
+        {
+            out.push_back(Pair("flags", "burn"));
+        }
         vout.push_back(out);
     }
     entry.push_back(Pair("vout", vout));
@@ -195,7 +236,7 @@ Value listunspent(const Array& params, bool fHelp)
 
     RPCTypeCheck(params, list_of(int_type)(int_type)(array_type));
 
-    checkDefaultCurrency();
+    int nColor = CheckDefaultCurrency();
 
     int nMinDepth = 1;
     if (params.size() > 0)
@@ -219,8 +260,6 @@ Value listunspent(const Array& params, bool fHelp)
            setAddress.insert(address);
         }
     }
-
-    int nColor = nDefaultCurrency;
 
     if (params.size() > 3)
     {
@@ -282,6 +321,171 @@ Value listunspent(const Array& params, bool fHelp)
     }
 
     return results;
+}
+
+Value listunspentkeys(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() > 1)
+    {
+        throw runtime_error(
+            "listunspentkeys [byticker=false]\n"
+            "Lists public keys and the number of outputs to them.\n"
+            "If [byticker] is true, each key is broken down by ticker.");
+    }
+
+    bool fByTicker = false;
+    if (params.size() > 0)
+    {
+        fByTicker = params[0].get_bool();
+    }
+
+    vector<COutput> vCoins;
+    set<CTxDestination> setSourcesEmpty;
+    set<int> setColorsEmpty;
+    pwalletMain->AvailableCoins(vCoins, setSourcesEmpty, setColorsEmpty);
+
+    // sorted by
+    //   1. fee dependency (coins come before their fee coins)
+    //   2. ascending by color (i.e. ticker)
+    //   3. ascending by depth in main chain
+    sort(vCoins.begin(), vCoins.end(), outputSorter);
+
+    // Maps from hex pubkey string to:
+    //   fByTicker=false: total output count
+    //   fByTicker=true:  map from nColor to output count
+    map<string, int> mapKeyCount;
+    map<string, map<int, int>> mapKeyTickerCount;
+
+    {
+        LOCK2(cs_main, pwalletMain->cs_wallet);
+        for (const COutput& output : vCoins)
+        {
+            const CTxOut& txout = output.tx->vout[output.i];
+            int nCoinColor = txout.nColor;
+
+            CTxDestination address;
+            if (!ExtractDestination(txout.scriptPubKey, address))
+            {
+                printf("listunspentkeys: "
+                       "could not extract destination\n  [%d]%s\n",
+                       output.i,
+                       output.tx->GetHash().ToString().c_str());
+                continue;
+            }
+
+            // Only handle CKeyID destinations (P2PK / P2PKH)
+            const CKeyID* pKeyID = boost::get<CKeyID>(&address);
+            if (!pKeyID)
+            {
+                continue;
+            }
+
+            CPubKey vchPubKey;
+            if (!pwalletMain->GetPubKey(*pKeyID, vchPubKey))
+            {
+                continue;
+            }
+
+            // Normalize to compressed form so that compressed and uncompressed
+            // representations of the same key are counted together.
+            CPubKey vchPubKeyCompressed;
+            if (vchPubKey.IsCompressed())
+            {
+                vchPubKeyCompressed = vchPubKey;
+            }
+            else
+            {
+                // Decompress to raw EC point, then re-serialize compressed.
+                std::vector<unsigned char> raw = vchPubKey.Raw();
+                // raw[0] == 0x04 for uncompressed; derive compressed prefix from Y parity.
+                unsigned char prefix = (raw[64] & 1) ? 0x03 : 0x02;
+                std::vector<unsigned char> compressed(33);
+                compressed[0] = prefix;
+                std::copy(raw.begin() + 1, raw.begin() + 33, compressed.begin() + 1);
+                vchPubKeyCompressed = CPubKey(compressed);
+            }
+
+            string strPubKey = HexStr(vchPubKeyCompressed.Raw());
+
+            if (fByTicker)
+            {
+                mapKeyTickerCount[strPubKey][nCoinColor]++;
+            }
+            else
+            {
+                mapKeyCount[strPubKey]++;
+            }
+        }
+    }
+
+    if (!fByTicker)
+    {
+        // Collect and sort by count descending
+        vector<pair<int, string>> vSorted;
+        vSorted.reserve(mapKeyCount.size());
+        for (const auto& kv : mapKeyCount)
+        {
+            vSorted.push_back(make_pair(kv.second, kv.first));
+        }
+
+        // descending
+        sort(vSorted.begin(),
+             vSorted.end(),
+             [](const pair<int, string>& a, const pair<int, string>& b)
+             { return a.first > b.first; });
+
+        // pubkey : number
+        Object result;
+        for (const auto& kv : vSorted)
+        {
+            result.push_back(Pair(kv.second, kv.first));
+        }
+
+        return result;
+    }
+    else
+    {
+        // For each pubkey, compute total count for outer sort
+        vector<pair<int, string>> vSorted;
+        vSorted.reserve(mapKeyTickerCount.size());
+        for (const auto& kv : mapKeyTickerCount)
+        {
+            int nTotal = 0;
+            for (const auto& tickerKv : kv.second)
+            {
+                nTotal += tickerKv.second;
+            }
+            vSorted.push_back(make_pair(nTotal, kv.first));
+        }
+
+        // descending
+        sort(vSorted.begin(),
+             vSorted.end(),
+             [](const pair<int, string>& a, const pair<int, string>& b)
+             { return a.first > b.first; });
+
+        Object result;
+        for (const auto& outerKv : vSorted)
+        {
+            const string& strPubKey = outerKv.second;
+            const map<int, int>& tickerMap = mapKeyTickerCount[strPubKey];
+
+            // Ticker sub-object: entries are already in ascending nColor order
+            // because std::map is sorted by key, and vCoins was iterated in
+            // ascending-color order — both agree, so no re-sort needed.
+            Object tickerObj;
+            for (const auto& tickerKv : tickerMap)
+            {
+                int nColor = tickerKv.first;
+                int nCount = tickerKv.second;
+                const string& strTicker = COLOR_TICKER[nColor];
+                tickerObj.push_back(Pair(strTicker, nCount));
+            }
+
+            result.push_back(Pair(strPubKey, tickerObj));
+        }
+        return result;
+    }
 }
 
 Value createrawtransaction(const Array& params, bool fHelp)
@@ -387,7 +591,7 @@ Value decoderawtransaction(const Array& params, bool fHelp)
 
     RPCTypeCheck(params, list_of(str_type));
 
-    vector<unsigned char> txData(ParseHex(params[0].get_str()));
+    valtype txData(ParseHex(params[0].get_str()));
     CDataStream ssData(txData, SER_NETWORK, PROTOCOL_VERSION);
     CTransaction tx;
     try {
@@ -413,9 +617,7 @@ Value decodescript(const Array& params, bool fHelp)
 
     RPCTypeCheck(params, list_of(str_type));
 
-    checkDefaultCurrency();
-
-    int nColor = nDefaultCurrency;
+    int nColor = CheckDefaultCurrency();
 
     if (params.size() > 1)
     {
@@ -431,12 +633,12 @@ Value decodescript(const Array& params, bool fHelp)
     Object r;
     CScript script;
     if (params[0].get_str().size() > 0){
-        vector<unsigned char> scriptData(ParseHexV(params[0], "argument"));
+        valtype scriptData(ParseHexV(params[0], "argument"));
         script = CScript(scriptData.begin(), scriptData.end());
     } else {
         // Empty scripts are valid
     }
-    ScriptPubKeyToJSON(script, nColor, r, false);
+    ScriptPubKeyToJSON(script, nColor, false, r);
 
     r.push_back(Pair("p2sh", CBitcoinAddress(script.GetID(), nColor).ToString()));
     return r;
@@ -461,7 +663,7 @@ Value signrawtransaction(const Array& params, bool fHelp)
 
     RPCTypeCheck(params, list_of(str_type)(array_type)(array_type)(str_type), true);
 
-    vector<unsigned char> txData(ParseHex(params[0].get_str()));
+    valtype txData(ParseHex(params[0].get_str()));
     CDataStream ssData(txData, SER_NETWORK, PROTOCOL_VERSION);
     vector<CTransaction> txVariants;
     while (!ssData.empty())
@@ -533,7 +735,7 @@ Value signrawtransaction(const Array& params, bool fHelp)
             string pkHex = find_value(prevOut, "scriptPubKey").get_str();
             if (!IsHex(pkHex))
                 throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "scriptPubKey must be hexadecimal");
-            vector<unsigned char> pkData(ParseHex(pkHex));
+            valtype pkData(ParseHex(pkHex));
             CScript scriptPubKey(pkData.begin(), pkData.end());
 
             COutPoint outpoint(txid, nOut);
@@ -649,7 +851,7 @@ Value sendrawtransaction(const Array& params, bool fHelp)
     RPCTypeCheck(params, list_of(str_type));
 
     // parse hex string from parameter
-    vector<unsigned char> txData(ParseHex(params[0].get_str()));
+    valtype txData(ParseHex(params[0].get_str()));
     CDataStream ssData(txData, SER_NETWORK, PROTOCOL_VERSION);
     CTransaction tx;
 
@@ -669,7 +871,11 @@ Value sendrawtransaction(const Array& params, bool fHelp)
     if (GetTransaction(hashTx, existingTx, hashBlock))
     {
         if (hashBlock != 0)
-            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, string("transaction already in block ")+hashBlock.GetHex());
+        {
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY,
+                               string("transaction already in block ") +
+                                   hashBlock.GetHex());
+        }
         // Not in block, but already in the memory pool; will drop
         // through to re-relay it.
     }
@@ -678,9 +884,22 @@ Value sendrawtransaction(const Array& params, bool fHelp)
         // push to local node
         CTxDB txdb("r");
         if (!tx.AcceptToMemoryPool(txdb))
+        {
             throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "TX rejected");
+        }
 
         SyncWithWallets(tx, NULL, true);
+
+        CWalletTx wtx(pwalletMain, tx);
+        bool fUnconfirmed = (wtx.GetDepthInMainChain() <= 0);
+        if (fUnconfirmed)
+        {
+            ColorsMap mapReceived;
+            ColorsMap mapSent;
+            wtx.GetAmounts(false, mapReceived, mapSent);
+            pwalletMain->mapReceived.Add(mapReceived);
+            pwalletMain->mapSent.Add(mapSent);
+        }
     }
     RelayTransaction(tx, hashTx);
 

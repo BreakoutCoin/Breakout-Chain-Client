@@ -51,9 +51,7 @@
 #include <QLocale>
 #include <QMessageBox>
 
-#ifdef IMPORT_WALLET
 #include <QInputDialog>
-#endif
 
 #include <QMimeData>
 #include <QProgressBar>
@@ -69,23 +67,18 @@
 #endif
 #include <QStyle>
 #include <QProgressDialog>
+#include <QActionGroup>
+#include <QStandardPaths>
 
 #include <iostream>
-#ifdef IMPORT_WALLET
 #include <fstream>
-#endif
 
-#ifdef IMPORT_WALLET
-// crypto++ headers
-#include "libcryptopp/cryptlib.h"
-#include "libcryptopp/aes.h"
-#include "libcryptopp/modes.h"
-#include "libcryptopp/pwdbased.h"
-#include "libcryptopp/sha.h"
-#include "libcryptopp/sha3.h"
-#include "libcryptopp/filters.h"
-#include "libcryptopp/hex.h"
-#endif
+#include <openssl/evp.h>
+#include <openssl/kdf.h>
+#include <openssl/hmac.h>
+#include <openssl/sha.h>
+#include <openssl/aes.h>
+#include <openssl/err.h>
 
 
 extern CWallet* pwalletMain;
@@ -193,7 +186,6 @@ BitcoinGUI::BitcoinGUI(QWidget *parent):
 
     signVerifyMessageDialog = new SignVerifyMessageDialog(this);
 
-#ifdef IMPORT_WALLET
     // make these dialogs manually because the convenience functions crash the client
     // simplePasswordDialog = 0;
     // simpleLabelDialog = 0;
@@ -213,7 +205,6 @@ BitcoinGUI::BitcoinGUI(QWidget *parent):
     simpleLabelDialog->setWindowTitle(tr("Label:"));
     simpleLabelDialog->setModal(false);
     simpleLabelDialog->setVisible(false);
-#endif
 
 
     centralWidget = new QStackedWidget(this);
@@ -284,6 +275,22 @@ BitcoinGUI::BitcoinGUI(QWidget *parent):
     toolbarProgress->addWidget(progressBar);
     toolbarProgress->setVisible(false);
 
+    // Reconciling label — spans the full bottom, hidden until reconcileStarted()
+    labelReconcilingStatus = new QLabel(
+        tr("⏳ Wallet is reconciling balances. Please wait."),
+        this);
+    labelReconcilingStatus->setSizePolicy(QSizePolicy::Expanding,
+                                          QSizePolicy::Preferred);
+
+    QToolBar *toolbarReconcilingStatus = addToolBar(tr("ReconcilingStatus"));
+    addToolBar(Qt::BottomToolBarArea, toolbarReconcilingStatus);
+    toolbarReconcilingStatus->setOrientation(Qt::Horizontal);
+    toolbarReconcilingStatus->setMovable(false);
+    toolbarReconcilingStatus->setFloatable(false);
+    toolbarReconcilingStatus->addWidget(labelReconcilingStatus);
+    toolbarReconcilingStatus->setVisible(false);
+    toolbarReconcilingStatus->setObjectName("toolbarReconcilingStatus");
+
     // Clicking on a transaction on the overview page simply sends you to transaction history page
     connect(overviewPage, SIGNAL(transactionClicked(QModelIndex)), this, SLOT(gotoHistoryPage()));
     connect(overviewPage, SIGNAL(transactionClicked(QModelIndex)), transactionView, SLOT(focusTransaction(QModelIndex)));
@@ -318,7 +325,7 @@ void BitcoinGUI::createActions()
     overviewAction = new QAction(QIcon(":/icons/overview"), tr("&Overview"), this);
     overviewAction->setToolTip(tr("Show general overview of wallet"));
     overviewAction->setCheckable(true);
-    overviewAction->setShortcut(QKeySequence(Qt::ALT + Qt::Key_1));
+    overviewAction->setShortcut(QKeySequence(Qt::ALT | Qt::Key_1));
     tabGroup->addAction(overviewAction);
 
 //     statisticsAction = new QAction(QIcon(":/icons/statistics"), tr("&Statistics"), this);
@@ -330,25 +337,25 @@ void BitcoinGUI::createActions()
     sendCoinsAction = new QAction(QIcon(":/icons/send"), tr("&Send"), this);
     sendCoinsAction->setToolTip(tr("Send money to a Breakout address"));
     sendCoinsAction->setCheckable(true);
-    sendCoinsAction->setShortcut(QKeySequence(Qt::ALT + Qt::Key_2));
+    sendCoinsAction->setShortcut(QKeySequence(Qt::ALT | Qt::Key_2));
     tabGroup->addAction(sendCoinsAction);
 
     receiveCoinsAction = new QAction(QIcon(":/icons/receiving_addresses"), tr("&Receive"), this);
     receiveCoinsAction->setToolTip(tr("Show the list of addresses for receiving payments"));
     receiveCoinsAction->setCheckable(true);
-    receiveCoinsAction->setShortcut(QKeySequence(Qt::ALT + Qt::Key_3));
+    receiveCoinsAction->setShortcut(QKeySequence(Qt::ALT | Qt::Key_3));
     tabGroup->addAction(receiveCoinsAction);
 
     historyAction = new QAction(QIcon(":/icons/history"), tr("&Transactions"), this);
     historyAction->setToolTip(tr("Browse transaction history"));
     historyAction->setCheckable(true);
-    historyAction->setShortcut(QKeySequence(Qt::ALT + Qt::Key_4));
+    historyAction->setShortcut(QKeySequence(Qt::ALT | Qt::Key_4));
     tabGroup->addAction(historyAction);
 
     addressBookAction = new QAction(QIcon(":/icons/address-book"), tr("&Address Book"), this);
     addressBookAction->setToolTip(tr("Edit the list of stored addresses and labels"));
     addressBookAction->setCheckable(true);
-    addressBookAction->setShortcut(QKeySequence(Qt::ALT + Qt::Key_5));
+    addressBookAction->setShortcut(QKeySequence(Qt::ALT | Qt::Key_5));
     tabGroup->addAction(addressBookAction);
 
     connect(overviewAction, SIGNAL(triggered()), this, SLOT(showNormalIfMinimized()));
@@ -364,7 +371,7 @@ void BitcoinGUI::createActions()
 
     quitAction = new QAction(QIcon(":/icons/quit"), tr("E&xit"), this);
     quitAction->setToolTip(tr("Quit application"));
-    quitAction->setShortcut(QKeySequence(Qt::CTRL + Qt::Key_Q));
+    quitAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Q));
     quitAction->setMenuRole(QAction::QuitRole);
     aboutAction = new QAction(QIcon(":/icons/bitcoin"), tr("&About Breakout"), this);
     aboutAction->setToolTip(tr("Show information about Breakout"));
@@ -379,10 +386,8 @@ void BitcoinGUI::createActions()
     encryptWalletAction = new QAction(QIcon(":/icons/lock_encrypt"), tr("&Encrypt Wallet..."), this);
     encryptWalletAction->setToolTip(tr("Encrypt or decrypt wallet"));
     encryptWalletAction->setCheckable(true);
-#ifdef IMPORT_WALLET
     importWalletAction = new QAction(QIcon(":/icons/enc_key"), tr("&Import Encrypted Wallet Key..."), this);
     importWalletAction->setToolTip(tr("Import json wallet file with encrypted wallet key"));
-#endif
     backupWalletAction = new QAction(QIcon(":/icons/filesave"), tr("&Backup Wallet..."), this);
     backupWalletAction->setToolTip(tr("Backup wallet to another location"));
     rebuildWalletAction = new QAction(QIcon(":/icons/options"), tr("&Rebuild Wallet"), this);
@@ -408,9 +413,7 @@ void BitcoinGUI::createActions()
     connect(optionsAction, SIGNAL(triggered()), this, SLOT(optionsClicked()));
     connect(toggleHideAction, SIGNAL(triggered()), this, SLOT(toggleHidden()));
     connect(encryptWalletAction, SIGNAL(triggered(bool)), this, SLOT(encryptWallet(bool)));
-#ifdef IMPORT_WALLET
     connect(importWalletAction, SIGNAL(triggered()), this, SLOT(importWallet()));
-#endif
     connect(backupWalletAction, SIGNAL(triggered()), this, SLOT(backupWallet()));
     connect(rebuildWalletAction, SIGNAL(triggered()), this, SLOT(rebuildWallet()));
     connect(changePassphraseAction, SIGNAL(triggered()), this, SLOT(changePassphrase()));
@@ -439,9 +442,7 @@ void BitcoinGUI::createMenuBar()
     file->addAction(signMessageAction);
     file->addAction(verifyMessageAction);
     file->addSeparator();
-#ifdef IMPORT_WALLET
     file->addAction(importWalletAction);
-#endif
     file->addAction(getPrivkeysAction);
     file->addSeparator();
     file->addAction(quitAction);
@@ -1085,7 +1086,6 @@ void BitcoinGUI::encryptWallet(bool status)
     setEncryptionStatus(walletModel->getEncryptionStatus());
 }
 
-#ifdef IMPORT_WALLET
 void BitcoinGUI::importWallet()
 {
     #if QT_VERSION < 0x050000
@@ -1160,12 +1160,11 @@ void BitcoinGUI::importWallet()
     }
     std::string strEncSeedHex = (std::string) it->value_.get_str();
 
-    // TODO: refactor
-    // coinsale wallet: key 16, rounds 2000, salt == password
-    int IVLEN = 16;  // CryptoPP::AES::BLOCKSIZE
-    int KEYLEN = 16;
-    int ROUNDS = 2000;
-    int SHA3LEN = 32;  // 256/8
+    // coinsale wallet: key 16 bytes, rounds 2000, salt == password
+    static const int IVLEN   = 16;  // AES block size (AES-128-CBC)
+    static const int KEYLEN  = 16;  // AES-128 key length
+    static const int ROUNDS  = 2000;
+    static const int SHA3LEN = 32;  // SHA3-256 digest length
 
     QString qsPass;
 
@@ -1189,58 +1188,134 @@ void BitcoinGUI::importWallet()
        return;
     }
 
-    byte* password = (byte*) qsPass.toStdString().c_str();
-    size_t passlen = strlen((const char*)password);
+    std::string strPassword = qsPass.toStdString();
+    const unsigned char* password = reinterpret_cast<const unsigned char*>(strPassword.c_str());
+    size_t passlen = strPassword.size();
 
-    byte aDerived[KEYLEN];
-
-    CryptoPP::PKCS5_PBKDF2_HMAC<CryptoPP::SHA256> pbkdf2;
-    pbkdf2.DeriveKey(aDerived, sizeof(aDerived), 0,
-                     password, passlen,
-                     password, passlen, ROUNDS);
-
-    std::string strEncSeed, strCText, strPText;
-
-    CryptoPP::StringSource(strEncSeedHex, true,
-            new CryptoPP::HexDecoder(
-                    new CryptoPP::StringSink(strEncSeed)));
-
-    byte aIV[IVLEN];
-    for (int i = 0; i < IVLEN; ++i)
-    {
-        aIV[i] = strEncSeed[i];
-    }
-
-    strCText = strEncSeed.substr(IVLEN, strEncSeed.size() - IVLEN);
-
-    try
-    {
-        CryptoPP::CBC_Mode<CryptoPP::AES>::Decryption d;
-        d.SetKeyWithIV(aDerived, sizeof(aDerived), aIV, sizeof(aIV));
-        CryptoPP::StringSource(strCText, true,
-            new CryptoPP::StreamTransformationFilter( d,
-                new CryptoPP::StringSink(strPText)
-            ) // StreamTransformationFilter
-        ); // StringSource
-    }
-    catch (const CryptoPP::Exception& e)
+    // --- PBKDF2-HMAC-SHA256 key derivation (salt == password, same as original) ---
+    unsigned char aDerived[KEYLEN];
+    if (PKCS5_PBKDF2_HMAC(
+            reinterpret_cast<const char*>(password), static_cast<int>(passlen),
+            password, static_cast<int>(passlen),
+            ROUNDS,
+            EVP_sha256(),
+            KEYLEN, aDerived) != 1)
     {
         QMessageBox::warning(this, tr("Decryption Failed"),
-              tr(strprintf("The password '%s' is incorrect.", qsPass.toStdString().c_str()).c_str()));
+              tr("Key derivation failed (PBKDF2)."));
         return;
     }
 
-    CryptoPP::SHA3 hash(SHA3LEN);
-    std::string strPrivKey;
-    CryptoPP::StringSource(strPText, true,
-       new CryptoPP::HashFilter(hash, new CryptoPP::StringSink(strPrivKey)));
-
-    std::vector<byte> vbyteSecret(SHA3LEN);
-
-    for (int i = 0; i < SHA3LEN; ++i)
+    // --- Hex-decode encseed using OpenSSL BIGNUM hex decoder ---
+    std::string strEncSeed;
     {
-        vbyteSecret[i] = (byte) strPrivKey[i];
+        // strEncSeedHex is an uppercase or lowercase hex string; decode it manually
+        // using OpenSSL's EVP to stay dependency-free of Crypto++.
+        const std::string& hex = strEncSeedHex;
+        if (hex.size() % 2 != 0)
+        {
+            QMessageBox::warning(this, tr("Read Failed"),
+                  tr("The encrypted seed has an invalid hex encoding."));
+            return;
+        }
+        strEncSeed.reserve(hex.size() / 2);
+        for (size_t i = 0; i < hex.size(); i += 2)
+        {
+            unsigned int byte_val = 0;
+            if (sscanf(hex.c_str() + i, "%02x", &byte_val) != 1)
+            {
+                QMessageBox::warning(this, tr("Read Failed"),
+                      tr("The encrypted seed has an invalid hex encoding."));
+                return;
+            }
+            strEncSeed.push_back(static_cast<char>(byte_val));
+        }
     }
+
+    if (static_cast<int>(strEncSeed.size()) <= IVLEN)
+    {
+        QMessageBox::warning(this, tr("Read Failed"),
+              tr("The encrypted seed is too short."));
+        return;
+    }
+
+    unsigned char aIV[IVLEN];
+    memcpy(aIV, strEncSeed.data(), IVLEN);
+
+    std::string strCText = strEncSeed.substr(IVLEN);
+    std::string strPText;
+
+    // --- AES-128-CBC decryption via OpenSSL EVP ---
+    {
+        EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+        if (!ctx)
+        {
+            QMessageBox::warning(this, tr("Decryption Failed"),
+                  tr("Failed to allocate cipher context."));
+            return;
+        }
+
+        // EVP_DecryptInit_ex uses PKCS#7 padding by default (same as Crypto++ StreamTransformationFilter)
+        if (EVP_DecryptInit_ex(ctx, EVP_aes_128_cbc(), nullptr, aDerived, aIV) != 1)
+        {
+            EVP_CIPHER_CTX_free(ctx);
+            QMessageBox::warning(this, tr("Decryption Failed"),
+                  tr(strprintf("The password '%s' is incorrect.", qsPass.toStdString().c_str()).c_str()));
+            return;
+        }
+
+        const int clen = static_cast<int>(strCText.size());
+        strPText.resize(clen + AES_BLOCK_SIZE); // EVP needs up to one extra block
+        int outlen1 = 0, outlen2 = 0;
+
+        if (EVP_DecryptUpdate(ctx,
+                reinterpret_cast<unsigned char*>(&strPText[0]), &outlen1,
+                reinterpret_cast<const unsigned char*>(strCText.data()), clen) != 1)
+        {
+            EVP_CIPHER_CTX_free(ctx);
+            QMessageBox::warning(this, tr("Decryption Failed"),
+                  tr(strprintf("The password '%s' is incorrect.", qsPass.toStdString().c_str()).c_str()));
+            return;
+        }
+
+        if (EVP_DecryptFinal_ex(ctx,
+                reinterpret_cast<unsigned char*>(&strPText[outlen1]), &outlen2) != 1)
+        {
+            EVP_CIPHER_CTX_free(ctx);
+            // Padding check failed — wrong password
+            QMessageBox::warning(this, tr("Decryption Failed"),
+                  tr(strprintf("The password '%s' is incorrect.", qsPass.toStdString().c_str()).c_str()));
+            return;
+        }
+
+        EVP_CIPHER_CTX_free(ctx);
+        strPText.resize(outlen1 + outlen2);
+    }
+
+    // --- SHA3-256 of plaintext to derive the private key ---
+    unsigned char aPrivKey[SHA3LEN];
+    {
+        EVP_MD_CTX* mdctx = EVP_MD_CTX_new();
+        if (!mdctx)
+        {
+            QMessageBox::warning(this, tr("Hashing Failed"),
+                  tr("Failed to allocate hash context."));
+            return;
+        }
+
+        if (EVP_DigestInit_ex(mdctx, EVP_sha3_256(), nullptr) != 1 ||
+            EVP_DigestUpdate(mdctx, strPText.data(), strPText.size()) != 1 ||
+            EVP_DigestFinal_ex(mdctx, aPrivKey, nullptr) != 1)
+        {
+            EVP_MD_CTX_free(mdctx);
+            QMessageBox::warning(this, tr("Hashing Failed"),
+                  tr("SHA3-256 computation failed."));
+            return;
+        }
+        EVP_MD_CTX_free(mdctx);
+    }
+
+    std::vector<unsigned char> vbyteSecret(aPrivKey, aPrivKey + SHA3LEN);
 
     CKey ckeySecret;
     ckeySecret.Set(vbyteSecret.begin(), vbyteSecret.end(), false);
@@ -1303,7 +1378,6 @@ void BitcoinGUI::importWallet()
 
     return;
 }
-#endif
 
 
 void BitcoinGUI::getPrivkeys()
@@ -1393,7 +1467,7 @@ void BitcoinGUI::rebuildWallet()
             LOCK2(cs_main, pwalletMain->cs_wallet);
 
             std::string strError;
-            pwalletMain->ClearWalletTransactions(strError, progress);
+            pwalletMain->ClearWalletTransactions(strError, &progress);
 
             dialog.setLabelText("Rescan - Scanning for wallet transactions. "
                                 "Please wait.");
@@ -1403,13 +1477,13 @@ void BitcoinGUI::rebuildWallet()
 
             pwalletMain->ScanForWalletTransactions(pindex,
                                                    true,
-                                                   progress);
+                                                   &progress);
 
             dialog.setLabelText("Rescan - Reaccepting wallet transactions. "
                                 "Please wait.");
             progress.setEvery(100);
 
-            pwalletMain->ReacceptWalletTransactions(progress);
+            pwalletMain->ReacceptWalletTransactions(&progress);
         }
 
         if (walletModel)
@@ -1421,12 +1495,11 @@ void BitcoinGUI::rebuildWallet()
     }
 
     {
-        QMessageBox::StandardButton reply;
-        reply = QMessageBox::information(
-                   this,
-                   "Breakout Chain",
-                   "Breakout Chain must quit to rebuild the transaction table.",
-                   QMessageBox::Ok);
+        QMessageBox::information(
+            this,
+            "Breakout Chain",
+            "Breakout Chain must quit to rebuild the transaction table.",
+            QMessageBox::Ok);
         StartShutdown();
     }
 }
@@ -1546,4 +1619,14 @@ void BitcoinGUI::updateStakingIcon()
         else
             labelStakingIcon->setToolTip(tr("Not staking"));
     }
+}
+
+void BitcoinGUI::reconcileStarted()
+{
+    labelReconcilingStatus->parentWidget()->setVisible(true);
+}
+
+void BitcoinGUI::reconcileEnded()
+{
+    labelReconcilingStatus->parentWidget()->setVisible(false);
 }

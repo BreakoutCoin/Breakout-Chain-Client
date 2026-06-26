@@ -51,7 +51,7 @@ Notes:
 #include "base58.h"
 #include "db.h"
 #include "init.h" // pwalletMain
-#include "txdb.h"
+#include "txdb-leveldb.h"
 
 #ifdef SECURE_MESSAGING
 #include "lz4/lz4.c"
@@ -95,7 +95,7 @@ leveldb::DB *smsgDB = NULL;
 
 namespace fs = boost::filesystem;
 
-bool SecMsgCrypter::SetKey(const std::vector<unsigned char>& vchNewKey, unsigned char* chNewIV)
+bool SecMsgCrypter::SetKey(const valtype& vchNewKey, unsigned char* chNewIV)
 {
     
     if (vchNewKey.size() < sizeof(chKey))
@@ -114,7 +114,7 @@ bool SecMsgCrypter::SetKey(const unsigned char* chNewKey, unsigned char* chNewIV
     return true;
 };
 
-bool SecMsgCrypter::Encrypt(unsigned char* chPlaintext, uint32_t nPlain, std::vector<unsigned char> &vchCiphertext)
+bool SecMsgCrypter::Encrypt(unsigned char* chPlaintext, uint32_t nPlain, valtype &vchCiphertext)
 {
     if (!fKeySet)
         return false;
@@ -123,7 +123,7 @@ bool SecMsgCrypter::Encrypt(unsigned char* chPlaintext, uint32_t nPlain, std::ve
     int nLen = nPlain;
     
     int nCLen = nLen + AES_BLOCK_SIZE, nFLen = 0;
-    vchCiphertext = std::vector<unsigned char> (nCLen);
+    vchCiphertext = valtype (nCLen);
 
     EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
     if (!ctx) return false;
@@ -145,7 +145,7 @@ bool SecMsgCrypter::Encrypt(unsigned char* chPlaintext, uint32_t nPlain, std::ve
     return true;
 };
 
-bool SecMsgCrypter::Decrypt(unsigned char* chCiphertext, uint32_t nCipher, std::vector<unsigned char>& vchPlaintext)
+bool SecMsgCrypter::Decrypt(unsigned char* chCiphertext, uint32_t nCipher, valtype& vchPlaintext)
 {
     if (!fKeySet)
         return false;
@@ -682,7 +682,7 @@ void ThreadSecureMsg(void* parg)
                                 pnode->smsgData.ignoreUntil = ignoreUntil;
                                 
                                 // -- alert peer that they are being ignored
-                                std::vector<unsigned char> vchData;
+                                valtype vchData;
                                 vchData.resize(8);
                                 memcpy(&vchData[0], &ignoreUntil, 8);
                                 pnode->PushMessage("smsgIgnore", vchData);
@@ -709,7 +709,7 @@ void ThreadSecureMsgPow(void* parg)
     RenameThread("fudcoin-smsg-pow"); // Make this thread recognisable
     
     int rv;
-    std::vector<unsigned char> vchKey;
+    valtype vchKey;
     SecMsgStored smsgStored;
     
     std::string sPrefix("qm");
@@ -1349,7 +1349,7 @@ bool SecureMsgReceiveData(CNode* pfrom, std::string strCommand, CDataStream& vRe
     
     if (strCommand == "smsgInv")
     {
-        std::vector<unsigned char> vchData;
+        valtype vchData;
         vRecv >> vchData;
         
         if (vchData.size() < 4)
@@ -1390,7 +1390,7 @@ bool SecureMsgReceiveData(CNode* pfrom, std::string strCommand, CDataStream& vRe
             return false;
         };
         
-        std::vector<unsigned char> vchDataOut;
+        valtype vchDataOut;
         vchDataOut.reserve(4 + 8 * nInvBuckets); // reserve max possible size
         vchDataOut.resize(4);
         uint32_t nShowBuckets = 0;
@@ -1483,7 +1483,7 @@ bool SecureMsgReceiveData(CNode* pfrom, std::string strCommand, CDataStream& vRe
     } else
     if (strCommand == "smsgShow")
     {
-        std::vector<unsigned char> vchData;
+        valtype vchData;
         vRecv >> vchData;
         
         if (vchData.size() < 4)
@@ -1501,7 +1501,7 @@ bool SecureMsgReceiveData(CNode* pfrom, std::string strCommand, CDataStream& vRe
         std::map<int64_t, SecMsgBucket>::iterator itb;
         std::set<SecMsgToken>::iterator it;
         
-        std::vector<unsigned char> vchDataOut;
+        valtype vchDataOut;
         int64_t time;
         unsigned char* pIn = &vchData[4];
         for (uint32_t i = 0; i < nBuckets; ++i, pIn += 8)
@@ -1542,7 +1542,7 @@ bool SecureMsgReceiveData(CNode* pfrom, std::string strCommand, CDataStream& vRe
     if (strCommand == "smsgHave")
     {
         // -- peer has these messages in bucket
-        std::vector<unsigned char> vchData;
+        valtype vchData;
         vRecv >> vchData;
         
         if (vchData.size() < 8)
@@ -1579,7 +1579,7 @@ bool SecureMsgReceiveData(CNode* pfrom, std::string strCommand, CDataStream& vRe
         if (fDebugSmsg)
             printf("Sifting through bucket %" PRId64 ".\n", time);
         
-        std::vector<unsigned char> vchDataOut;
+        valtype vchDataOut;
         vchDataOut.resize(8);
         memcpy(&vchDataOut[0], &vchData[0], 8);
         
@@ -1624,14 +1624,14 @@ bool SecureMsgReceiveData(CNode* pfrom, std::string strCommand, CDataStream& vRe
     } else
     if (strCommand == "smsgWant")
     {
-        std::vector<unsigned char> vchData;
+        valtype vchData;
         vRecv >> vchData;
         
         if (vchData.size() < 8)
             return false;
         
-        std::vector<unsigned char> vchOne;
-        std::vector<unsigned char> vchBunch;
+        valtype vchOne;
+        valtype vchBunch;
         
         vchBunch.resize(4+8); // nmessages + bucketTime
         
@@ -1703,7 +1703,7 @@ bool SecureMsgReceiveData(CNode* pfrom, std::string strCommand, CDataStream& vRe
     } else
     if (strCommand == "smsgMsg")
     {
-        std::vector<unsigned char> vchData;
+        valtype vchData;
         vRecv >> vchData;
         
         if (fDebugSmsg)
@@ -1713,7 +1713,7 @@ bool SecureMsgReceiveData(CNode* pfrom, std::string strCommand, CDataStream& vRe
     } else
     if (strCommand == "smsgMatch")
     {
-        std::vector<unsigned char> vchData;
+        valtype vchData;
         vRecv >> vchData;
         
         
@@ -1768,7 +1768,7 @@ bool SecureMsgReceiveData(CNode* pfrom, std::string strCommand, CDataStream& vRe
     {
         // -- peer is reporting that it will ignore this node until time.
         //    Ignore peer too
-        std::vector<unsigned char> vchData;
+        valtype vchData;
         vRecv >> vchData;
         
         if (vchData.size() < 8)
@@ -1844,7 +1844,7 @@ bool SecureMsgSendData(CNode* pto, bool fSendTrickle)
         uint32_t nBuckets = smsgBuckets.size();
         if (nBuckets > 0) // no need to send keep alive pkts, coin messages already do that
         {
-            std::vector<unsigned char> vchData;
+            valtype vchData;
             // should reserve?
             vchData.reserve(4 + nBuckets*16); // timestamp + size + hash
             
@@ -2204,7 +2204,7 @@ bool SecureMsgScanBuckets()
     };
     
     SecureMessage smsg;
-    std::vector<unsigned char> vchData;
+    valtype vchData;
     
     for (fs::directory_iterator itd(pathSmsgDir) ; itd != itend ; ++itd)
     {
@@ -2361,7 +2361,7 @@ int SecureMsgWalletUnlocked()
     };
     
     SecureMessage smsg;
-    std::vector<unsigned char> vchData;
+    valtype vchData;
     
     for (fs::directory_iterator itd(pathSmsgDir) ; itd != itend ; ++itd)
     {
@@ -2744,7 +2744,7 @@ int SecureMsgAddAddress(std::string& address, std::string& publicKey)
         return 5;
     };
     
-    std::vector<unsigned char> vchTest;
+    valtype vchTest;
     DecodeBase58(publicKey, vchTest);
     CPubKey pubKey(vchTest);
     
@@ -2770,7 +2770,7 @@ int SecureMsgAddAddress(std::string& address, std::string& publicKey)
     return SecureMsgInsertAddress(hashKey, pubKey);
 };
 
-int SecureMsgRetrieve(SecMsgToken &token, std::vector<unsigned char>& vchData)
+int SecureMsgRetrieve(SecMsgToken &token, valtype& vchData)
 {
     if (fDebugSmsg)
         printf("SecureMsgRetrieve() %" PRId64 ".\n", token.timestamp);
@@ -2835,7 +2835,7 @@ int SecureMsgRetrieve(SecMsgToken &token, std::vector<unsigned char>& vchData)
     return 0;
 };
 
-int SecureMsgReceive(CNode* pfrom, std::vector<unsigned char>& vchData)
+int SecureMsgReceive(CNode* pfrom, valtype& vchData)
 {
     if (fDebugSmsg)
         printf("SecureMsgReceive().\n");
@@ -3067,7 +3067,7 @@ int SecureMsgStore(unsigned char *pHeader, unsigned char *pPayload, uint32_t nPa
                 printf("bucket: %" PRId64 "\n", bucket);
                 
                 printf("message ts: %" PRId64, token.timestamp);
-                std::vector<unsigned char> vchShow;
+                valtype vchShow;
                 vchShow.resize(8);
                 memcpy(&vchShow[0], token.sample, 8);
                 printf(" sample %s\n", ValueString(vchShow).c_str());
@@ -3224,7 +3224,7 @@ int SecureMsgSetHash(unsigned char *pHeader, unsigned char *pPayload, uint32_t n
     unsigned char civ[32];
     unsigned char sha256Hash[32];
     
-    //std::vector<unsigned char> vchHash;
+    //valtype vchHash;
     //vchHash.resize(32);
     
     bool found = false;
@@ -3426,7 +3426,7 @@ int SecureMsgEncrypt(SecureMessage& smsg, std::string& addressFrom, std::string&
         return 4; // address to is invalid
     };
     
-    std::vector<unsigned char> vchP;
+    valtype vchP;
     vchP.resize(32);
     EC_KEY* pkeyr = keyR.GetECKey();
     EC_KEY* pkeyK = keyK.GetECKey();
@@ -3459,15 +3459,15 @@ int SecureMsgEncrypt(SecureMessage& smsg, std::string& addressFrom, std::string&
     
     // -- Use public key P and calculate the SHA512 hash H.
     //    The first 32 bytes of H are called key_e and the last 32 bytes are called key_m.
-    std::vector<unsigned char> vchHashed;
+    valtype vchHashed;
     vchHashed.resize(64); // 512
     SHA512(&vchP[0], vchP.size(), (unsigned char*)&vchHashed[0]);
-    std::vector<unsigned char> key_e(&vchHashed[0], &vchHashed[0]+32);
-    std::vector<unsigned char> key_m(&vchHashed[32], &vchHashed[32]+32);
+    valtype key_e(&vchHashed[0], &vchHashed[0]+32);
+    valtype key_m(&vchHashed[32], &vchHashed[32]+32);
     
     
-    std::vector<unsigned char> vchPayload;
-    std::vector<unsigned char> vchCompressed;
+    valtype vchPayload;
+    valtype vchCompressed;
     unsigned char* pMsgData;
     uint32_t lenMsgData;
     
@@ -3531,7 +3531,7 @@ int SecureMsgEncrypt(SecureMessage& smsg, std::string& addressFrom, std::string&
         };
         
         // -- sign the plaintext
-        std::vector<unsigned char> vchSignature;
+        valtype vchSignature;
         vchSignature.resize(65);
         keyFrom.SignCompact(Hash(message.begin(), message.end()), vchSignature);
         
@@ -3546,7 +3546,7 @@ int SecureMsgEncrypt(SecureMessage& smsg, std::string& addressFrom, std::string&
     
     SecMsgCrypter crypter;
     crypter.SetKey(key_e, smsg.iv);
-    std::vector<unsigned char> vchCiphertext;
+    valtype vchCiphertext;
     
     if (!crypter.Encrypt(&vchPayload[0], vchPayload.size(), vchCiphertext))
     {
@@ -3824,7 +3824,7 @@ int SecureMsgDecrypt(bool fTestOnly, std::string& address, unsigned char *pHeade
     
     
     CKey keyR;
-    std::vector<unsigned char> vchR(psmsg->cpkR, psmsg->cpkR+33); // would be neater to override CPubKey() instead
+    valtype vchR(psmsg->cpkR, psmsg->cpkR+33); // would be neater to override CPubKey() instead
     CPubKey cpkR(vchR);
     if (!cpkR.IsValid())
     {
@@ -3847,7 +3847,7 @@ int SecureMsgDecrypt(bool fTestOnly, std::string& address, unsigned char *pHeade
     
     
     // -- Do an EC point multiply with private key k and public key R. This gives you public key P.
-    std::vector<unsigned char> vchP;
+    valtype vchP;
     vchP.resize(32);
     EC_KEY* pkeyk = keyDest.GetECKey();
     EC_KEY* pkeyR = keyR.GetECKey();
@@ -3864,11 +3864,11 @@ int SecureMsgDecrypt(bool fTestOnly, std::string& address, unsigned char *pHeade
     
     // -- Use public key P to calculate the SHA512 hash H. 
     //    The first 32 bytes of H are called key_e and the last 32 bytes are called key_m. 
-    std::vector<unsigned char> vchHashedDec;
+    valtype vchHashedDec;
     vchHashedDec.resize(64);    // 512 bits
     SHA512(&vchP[0], vchP.size(), (unsigned char*)&vchHashedDec[0]);
-    std::vector<unsigned char> key_e(&vchHashedDec[0], &vchHashedDec[0]+32);
-    std::vector<unsigned char> key_m(&vchHashedDec[32], &vchHashedDec[32]+32);
+    valtype key_e(&vchHashedDec[0], &vchHashedDec[0]+32);
+    valtype key_m(&vchHashedDec[32], &vchHashedDec[32]+32);
     
     
     // -- Message authentication code, (hash of timestamp + destination + payload)
@@ -3906,7 +3906,7 @@ int SecureMsgDecrypt(bool fTestOnly, std::string& address, unsigned char *pHeade
     
     SecMsgCrypter crypter;
     crypter.SetKey(key_e, psmsg->iv);
-    std::vector<unsigned char> vchPayload;
+    valtype vchPayload;
     if (!crypter.Decrypt(pPayload, nPayload, vchPayload))
     {
         printf("Decrypt failed.\n");
@@ -3963,7 +3963,7 @@ int SecureMsgDecrypt(bool fTestOnly, std::string& address, unsigned char *pHeade
         msg.sFromAddress = "anon";
     } else
     {
-        std::vector<unsigned char> vchUint160;
+        valtype vchUint160;
         vchUint160.resize(20);
         
         memcpy(&vchUint160[0], &vchPayload[1], 20);
@@ -3979,7 +3979,7 @@ int SecureMsgDecrypt(bool fTestOnly, std::string& address, unsigned char *pHeade
             return 1;
         };
         
-        std::vector<unsigned char> vchSig;
+        valtype vchSig;
         vchSig.resize(65);
         
         memcpy(&vchSig[0], &vchPayload[1+20], 65);

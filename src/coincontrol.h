@@ -11,6 +11,11 @@ public:
     {
         SetNull();
     }
+
+    size_t Size()
+    {
+        return setSelected.size();
+    }
         
     void SetNull()
     {

@@ -54,12 +54,12 @@ SendCoinsDialog::SendCoinsDialog(QWidget *parent) :
     // selects the transaction currency
     ui->comboCurrency->setEnabled(true);
 
-    ui->comboCurrency->addItem(COLOR_NAME[BREAKOUT_COLOR_BROSTAKE],
-                               (int) BREAKOUT_COLOR_BROSTAKE);
-    ui->comboCurrency->addItem(COLOR_NAME[BREAKOUT_COLOR_BROCOIN],
-                               (int) BREAKOUT_COLOR_BROCOIN);
-    ui->comboCurrency->addItem(COLOR_NAME[BREAKOUT_COLOR_SISCOIN],
-                               (int) BREAKOUT_COLOR_SISCOIN);
+    ui->comboCurrency->addItem(COLOR_NAME[BREAKOUT_COLOR_BRX],
+                               (int) BREAKOUT_COLOR_BRX);
+    ui->comboCurrency->addItem(COLOR_NAME[BREAKOUT_COLOR_BRK],
+                               (int) BREAKOUT_COLOR_BRK);
+    ui->comboCurrency->addItem(COLOR_NAME[BREAKOUT_COLOR_SIS],
+                               (int) BREAKOUT_COLOR_SIS);
 
     ui->comboCurrency->setCurrentIndex(1);
 
@@ -115,38 +115,79 @@ SendCoinsDialog::SendCoinsDialog(QWidget *parent) :
 int sha256_file(const char *path, char outputBuffer[65])
 {
     FILE *file = fopen(path, "rb");
-    if(!file) return -534;
+    if (!file) return -534;
 
-    boost::uint8_t hash[SHA256_DIGEST_LENGTH];
-    SHA256_CTX sha256;
-    SHA256_Init(&sha256);
     const int bufSize = 32768;
-    boost::uint8_t *buffer = (boost::uint8_t *)malloc(bufSize);
+    uint8_t *buffer = (uint8_t *)malloc(bufSize);
+    if (!buffer)
+    {
+        fclose(file);
+        return ENOMEM;
+    }
+
+    EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+    if (!ctx)
+    {
+        free(buffer);
+        fclose(file);
+        return -1;
+    }
+
+    if (EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr) != 1)
+    {
+        EVP_MD_CTX_free(ctx);
+        free(buffer);
+        fclose(file);
+        return -1;
+    }
+
     int bytesRead = 0;
-    if(!buffer) return ENOMEM;
-    while((bytesRead = fread(buffer, 1, bufSize, file)))
+    while ((bytesRead = fread(buffer, 1, bufSize, file)))
     {
-        SHA256_Update(&sha256, buffer, bytesRead);
+        if (EVP_DigestUpdate(ctx, buffer, bytesRead) != 1)
+        {
+            EVP_MD_CTX_free(ctx);
+            free(buffer);
+            fclose(file);
+            return -1;
+        }
     }
-    SHA256_Final(hash, &sha256);
 
-    int i;
-    for(i = 0; i < SHA256_DIGEST_LENGTH; i++)
+    uint8_t hash[EVP_MAX_MD_SIZE];
+    unsigned int hashLen = 0;
+    if (EVP_DigestFinal_ex(ctx, hash, &hashLen) != 1)
     {
-        sprintf(outputBuffer + (i * 2), "%02x", hash[i]);
+        EVP_MD_CTX_free(ctx);
+        free(buffer);
+        fclose(file);
+        return -1;
     }
-    
-    outputBuffer[64] = 0;
 
-    fclose(file);
+    EVP_MD_CTX_free(ctx);
     free(buffer);
+    fclose(file);
+
+    if (hashLen > 32)
+    {
+        return -1; // digest too long for output buffer
+    }
+
+    for (unsigned int i = 0; i < hashLen; i++)
+    {
+        snprintf(outputBuffer + (i * 2), 3, "%02x", hash[i]);
+    }
+
+    outputBuffer[hashLen * 2] = '\0';
+
     return 0;
 }
 
 
 void SendCoinsDialog::openExist()
 {
-    QString filename = QFileDialog::getOpenFileName(this, tr("Choose a File"), tr("*.*"));
+    QString filename = QFileDialog::getOpenFileName(this,
+                                                    tr("Choose a File"),
+                                                    tr("*.*"));
     const char *path = filename.toUtf8().constData();
 
     static char hashBuffer[65];
@@ -156,8 +197,10 @@ void SendCoinsDialog::openExist()
     QString qUserFeedback;
     if (result == 0) {
         static char outputBuffer[76];
-
-        sprintf(outputBuffer, "{\"hash\":\"%s\"}", hashBuffer);
+        snprintf(outputBuffer,
+                 sizeof(outputBuffer),
+                 "{\"hash\":\"%s\"}",
+                 hashBuffer);
         qUserFeedback = QString(outputBuffer);
         nServiceTypeID = SERVICE_EXIST;
     } else {
@@ -184,31 +227,38 @@ void SendCoinsDialog::setModel(WalletModel *model)
     }
     if(model && model->getOptionsModel())
     {
-        std::map<int, qint64> mapBalance, mapStake, mapUnconfirmedBalance, mapImmatureBalance;
-        std::vector<int> vCards;
-        model->getBalance(GUI_OVERVIEW_COLORS, mapBalance);
-        model->getStake(GUI_OVERVIEW_COLORS, mapStake);
-        model->getUnconfirmedBalance(GUI_OVERVIEW_COLORS, mapUnconfirmedBalance);
-        model->getImmatureBalance(GUI_OVERVIEW_COLORS, mapImmatureBalance);
-        model->getHand(vCards);
-        setBalance(mapBalance, mapStake, mapUnconfirmedBalance, mapImmatureBalance, vCards);
-        connect(model, SIGNAL(balanceChanged(std::map<int, qint64>, std::map<int, qint64>,
-                                             std::map<int, qint64>, std::map<int, qint64>,
-                                             std::vector<int>)), this,
-                       SLOT(setBalance(std::map<int, qint64>, std::map<int, qint64>,
-                                       std::map<int, qint64>, std::map<int, qint64>,
-                                       std::vector<int>)));
+        setBalance();
+        connect(model, SIGNAL(balanceChanged(const ColorsMap&, const ColorsMap&,
+                                             const ColorsMap&, const ColorsMap&,
+                                             const ColorsMap&, const std::vector<int>&)), this,
+                       SLOT(setBalance()));
         connect(model->getOptionsModel(), SIGNAL(displayUnitChangedBrostake(int)), this, SLOT(updateDisplayUnit()));
         connect(model->getOptionsModel(), SIGNAL(displayUnitChangedBrocoin(int)), this, SLOT(updateDisplayUnit()));
         connect(model->getOptionsModel(), SIGNAL(defaultColorChanged(int)), this, SLOT(currencyChanged(int)));
 
         // Coin Control
-        connect(model->getOptionsModel(), SIGNAL(displayUnitChangedBrostake(int)), this, SLOT(coinControlUpdateLabels()));
-        connect(model->getOptionsModel(), SIGNAL(displayUnitChangedBrocoin(int)), this, SLOT(coinControlUpdateLabels()));
-        connect(model->getOptionsModel(), SIGNAL(coinControlFeaturesChanged(bool)), this, SLOT(coinControlFeatureChanged(bool)));
-        connect(model->getOptionsModel(), SIGNAL(transactionFeeChangedBrostake(qint64)), this, SLOT(coinControlUpdateLabels()));
-        connect(model->getOptionsModel(), SIGNAL(transactionFeeChangedBrocoin(qint64)), this, SLOT(coinControlUpdateLabels()));
-        ui->frameCoinControl->setVisible(model->getOptionsModel()->getCoinControlFeatures());
+        connect(model->getOptionsModel(),
+                SIGNAL(displayUnitChangedBrostake(int)),
+                this,
+                SLOT(coinControlUpdateLabels()));
+        connect(model->getOptionsModel(),
+                SIGNAL(displayUnitChangedBrocoin(int)),
+                this,
+                SLOT(coinControlUpdateLabels()));
+        connect(model->getOptionsModel(),
+                SIGNAL(coinControlFeaturesChanged(bool)),
+                this,
+                SLOT(coinControlFeatureChanged(bool)));
+        connect(model->getOptionsModel(),
+                SIGNAL(transactionFeeChangedBrostake(qint64)),
+                this,
+                SLOT(coinControlUpdateLabels()));
+        connect(model->getOptionsModel(),
+                SIGNAL(transactionFeeChangedBrocoin(qint64)),
+                this,
+                SLOT(coinControlUpdateLabels()));
+        ui->frameCoinControl->setVisible(
+            model->getOptionsModel()->getCoinControlFeatures());
 
         currencyChanged(nDefaultCurrency);
     }
@@ -487,47 +537,40 @@ int SendCoinsDialog::getColor()
                  ui->comboCurrency->currentIndex()).toInt();
 }
 
-void SendCoinsDialog::setBalance(std::map<int, qint64> mapBalance,
-                                 std::map<int, qint64> mapStake,
-                                 std::map<int, qint64> mapUnconfirmedBalance,
-                                 std::map<int, qint64> mapImmatureBalance,
-                                 std::vector<int> vCards)
+void SendCoinsDialog::setBalance()
 {
-    Q_UNUSED(mapStake);
-    Q_UNUSED(mapUnconfirmedBalance);
-    Q_UNUSED(mapImmatureBalance);
-    Q_UNUSED(vCards);
-
-    if(!model || !model->getOptionsModel())
+    if (!model || !model->getOptionsModel())
+    {
         return;
-
+    }
     int nColor = getColor();
-
+    int64_t nSpendable = model->getSpendable(nColor);
     int unit = model->getOptionsModel()->getDisplayUnit(nColor);
-
-    ui->labelBalance->setText(BitcoinUnits::formatWithUnitLocalized(unit,
-                                                        mapBalance[nColor], nColor));
+    ui->labelBalance->setText(BitcoinUnits::formatWithUnitLocalized(
+                                             unit,
+                                             nSpendable,
+                                             nColor));
 }
 
 void SendCoinsDialog::setChangeAddressPlaceholderText(int nColor)
 {
     switch(nColor)
     {
-    case BREAKOUT_COLOR_BROSTAKE:
+    case BREAKOUT_COLOR_BRX:
 #if QT_VERSION >= 0x040700
         /* Do not move this to the XML file, Qt before 4.7 will choke on it */
         ui->lineEditCoinControlChange->setPlaceholderText(
                     tr("Enter a Breakout Stake address (e.g. bxMpqqmeKUFfFeVYJn3iHK9UvjdhApUrcNq)"));
 #endif
         break;
-    case BREAKOUT_COLOR_BROCOIN:
+    case BREAKOUT_COLOR_BRK:
 #if QT_VERSION >= 0x040700
         /* Do not move this to the XML file, Qt before 4.7 will choke on it */
         ui->lineEditCoinControlChange->setPlaceholderText(
                     tr("Enter a Breakout Coin address (e.g. brj6Q4FUHXjAzCRb6SB3pXPfuva5xrfjgHY)"));
 #endif
         break;
-    case BREAKOUT_COLOR_SISCOIN:
+    case BREAKOUT_COLOR_SIS:
 #if QT_VERSION >= 0x040700
         /* Do not move this to the XML file, Qt before 4.7 will choke on it */
         ui->lineEditCoinControlChange->setPlaceholderText(
@@ -548,13 +591,14 @@ void SendCoinsDialog::updateDisplayUnit()
 {
     if(model && model->getOptionsModel())
     {
-         std::map<int, qint64> mapBalance;
-         model->getBalance(GUI_OVERVIEW_COLORS, mapBalance);
          int nColor = getColor();
+         int64_t nSpendable = model->getSpendable(nColor);
          int unit =  model->getOptionsModel()->getDisplayUnit(nColor);
          ui->labelBalance->setText(
-                   BitcoinUnits::formatWithUnitLocalized(unit,
-                                              mapBalance[nColor], nColor));
+                   BitcoinUnits::formatWithUnitLocalized(
+                                                       unit,
+                                                       nSpendable,
+                                                       nColor));
     }
 }
 

@@ -17,12 +17,12 @@ EditAddressDialog::EditAddressDialog(Mode mode, QWidget *parent) :
     GUIUtil::setupAddressWidget(ui->addressEdit, this);
 
     // selects the transaction currency
-    ui->currencySelector->addItem(COLOR_NAME[BREAKOUT_COLOR_BROSTAKE],
-                                  (int) BREAKOUT_COLOR_BROSTAKE);
-    ui->currencySelector->addItem(COLOR_NAME[BREAKOUT_COLOR_BROCOIN],
-                                  (int) BREAKOUT_COLOR_BROCOIN);
-    ui->currencySelector->addItem(COLOR_NAME[BREAKOUT_COLOR_SISCOIN],
-                                  (int) BREAKOUT_COLOR_SISCOIN);
+    ui->currencySelector->addItem(COLOR_NAME[BREAKOUT_COLOR_BRX],
+                                  (int) BREAKOUT_COLOR_BRX);
+    ui->currencySelector->addItem(COLOR_NAME[BREAKOUT_COLOR_BRK],
+                                  (int) BREAKOUT_COLOR_BRK);
+    ui->currencySelector->addItem(COLOR_NAME[BREAKOUT_COLOR_SIS],
+                                  (int) BREAKOUT_COLOR_SIS);
     ui->currencySelector->setCurrentIndex(
                 ui->currencySelector->findData(nDefaultCurrency));
 

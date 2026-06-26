@@ -1,4 +1,4 @@
-#include "ed25519-donna-portable-identify.h"
+#include "ext/ed25519/donna/ed25519-donna-portable-identify.h"
 
 #define mul32x32_64(a,b) (((uint64_t)(a))*(b))
 

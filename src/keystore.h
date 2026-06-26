@@ -83,6 +83,6 @@ public:
     bool HaveWatchOnly() const;
 };
 
-typedef std::map<CKeyID, std::pair<CPubKey, std::vector<unsigned char> > > CryptedKeyMap;
+typedef std::map<CKeyID, std::pair<CPubKey, valtype > > CryptedKeyMap;
 
 #endif  //BITCOIN_KEYSTORE_H

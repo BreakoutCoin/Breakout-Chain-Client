@@ -7,10 +7,10 @@
 #include "db.h"
 #include "net.h"
 #include "init.h"
-#include "strlcpy.h"
 #include "addrman.h"
 #include "ui_interface.h"
 #include "onionseed.h"
+#include "toradapter.h"
 
 #ifdef WIN32
 #include <string.h>
@@ -65,7 +65,7 @@ static CNode* pnodeLocalHost = NULL;
 CAddress addrSeenByPeer(CService("0.0.0.0", 0), nLocalServices);
 uint64_t nLocalHostNonce = 0;
 boost::array<int, THREAD_MAX> vnThreadsRunning;
-static std::vector<SOCKET> vhListenSocket;
+static vector<SOCKET> vhListenSocket;
 CAddrMan addrman;
 
 vector<CNode*> vNodes;
@@ -82,6 +82,12 @@ set<CNetAddr> setservAddNodeAddresses;
 CCriticalSection cs_setservAddNodeAddresses;
 
 static CSemaphore *semOutbound = NULL;
+
+unsigned int GetConnectionCount()
+{
+    LOCK(cs_vNodes);
+    return static_cast<unsigned int>(vNodes.size());
+}
 
 void AddOneShot(string strDest)
 {
@@ -465,7 +471,7 @@ CNode* FindNode(const CNetAddr& ip)
     return NULL;
 }
 
-CNode* FindNode(std::string addrName)
+CNode* FindNode(string addrName)
 {
     LOCK(cs_vNodes);
     BOOST_FOREACH(CNode* pnode, vNodes)
@@ -569,14 +575,14 @@ void CNode::PushVersion()
     RAND_bytes((unsigned char*)&nLocalHostNonce, sizeof(nLocalHostNonce));
     printf("send version message: version %d, blocks=%d, us=%s, them=%s, peer=%s\n", PROTOCOL_VERSION, nBestHeight, addrMe.ToString().c_str(), addrYou.ToString().c_str(), addr.ToString().c_str());
     PushMessage("version", PROTOCOL_VERSION, nLocalServices, nTime, addrYou, addrMe,
-                nLocalHostNonce, FormatSubVersion(CLIENT_NAME, CLIENT_VERSION, std::vector<string>()), nBestHeight);
+                nLocalHostNonce, FormatSubVersion(CLIENT_NAME, CLIENT_VERSION, vector<string>()), nBestHeight);
 }
 
 
 
 
 
-std::map<CNetAddr, int64_t> CNode::setBanned;
+map<CNetAddr, int64_t> CNode::setBanned;
 CCriticalSection CNode::cs_setBanned;
 
 void CNode::ClearBanned()
@@ -589,7 +595,7 @@ bool CNode::IsBanned(CNetAddr ip)
     bool fResult = false;
     {
         LOCK(cs_setBanned);
-        std::map<CNetAddr, int64_t>::iterator i = setBanned.find(ip);
+        map<CNetAddr, int64_t>::iterator i = setBanned.find(ip);
         if (i != setBanned.end())
         {
             int64_t t = (*i).second;
@@ -742,10 +748,12 @@ void ThreadSocketHandler2(void* parg)
                 }
             }
         }
-        if (vNodes.size() != nPrevNodeCount)
+
+        unsigned int nConnectionCount = GetConnectionCount();
+        if (nConnectionCount != nPrevNodeCount)
         {
-            nPrevNodeCount = vNodes.size();
-            uiInterface.NotifyNumConnectionsChanged(vNodes.size());
+            nPrevNodeCount = nConnectionCount;
+            uiInterface.NotifyNumConnectionsChanged(nConnectionCount);
         }
 
 
@@ -805,7 +813,7 @@ void ThreadSocketHandler2(void* parg)
             }
             FD_ZERO(&fdsetSend);
             FD_ZERO(&fdsetError);
-            MilliSleep(timeout.tv_usec/1000);
+            GranularMilliSleep(timeout.tv_usec/1000, 500);
         }
 
 
@@ -1012,7 +1020,7 @@ void ThreadMapPort(void* parg)
         ThreadMapPort2(parg);
         vnThreadsRunning[THREAD_UPNP]--;
     }
-    catch (std::exception& e) {
+    catch (exception& e) {
         vnThreadsRunning[THREAD_UPNP]--;
         PrintException(&e, "ThreadMapPort()");
     } catch (...) {
@@ -1026,7 +1034,7 @@ void ThreadMapPort2(void* parg)
 {
     printf("ThreadMapPort started\n");
 
-    std::string port = strprintf("%u", GetListenPort());
+    string port = strprintf("%u", GetListenPort());
     const char * multicastif = 0;
     const char * minissdpdpath = 0;
     struct UPNPDev * devlist = 0;
@@ -1110,7 +1118,7 @@ void ThreadMapPort2(void* parg)
                 else
                     printf("UPnP Port Mapping successful.\n");;
             }
-            MilliSleep(2000);
+            GranularMilliSleep(2000, 500);
             i++;
         }
     } else {
@@ -1122,7 +1130,7 @@ void ThreadMapPort2(void* parg)
         {
             if (fShutdown || !fUseUPnP)
                 return;
-            MilliSleep(2000);
+            GranularMilliSleep(2000, 500);
         }
     }
 }
@@ -1175,18 +1183,8 @@ void ThreadOnionSeed(void* parg)
 }
 
 
-
-unsigned int pnSeed[] =
-{
-    0xdf4bd379, 0x7934d29b, 0x26bc02ad, 0x7ab743ad, 0x0ab3a7bc,
-    0x375ab5bc, 0xc90b1617, 0x5352fd17, 0x5efc6c18, 0xccdc7d18,
-    0x443d9118, 0x84031b18, 0x347c1e18, 0x86512418, 0xfcfe9031,
-    0xdb5eb936, 0xef8d2e3a, 0xcf51f23c, 0x18ab663e, 0x36e0df40,
-    0xde48b641, 0xad3e4e41, 0xd0f32b44, 0x09733b44, 0x6a51f545,
-    0xe593ef48, 0xc5f5ef48, 0x96f4f148, 0xd354d34a, 0x36206f4c,
-    0xceefe953, 0x50468c55, 0x89d38d55, 0x65e61a5a, 0x16b1b95d,
-    0x702b135e, 0x0f57245e, 0xdaab5f5f, 0xba15ef63,
-};
+// Really hard hard coded seed nodes. 
+vector<unsigned int> vSeed;
 
 void DumpAddresses()
 {
@@ -1206,7 +1204,7 @@ void ThreadDumpAddress2(void* parg)
     {
         DumpAddresses();
         vnThreadsRunning[THREAD_DUMPADDRESS]--;
-        MilliSleep(600000);
+        GranularMilliSleep(600000, 500);
         vnThreadsRunning[THREAD_DUMPADDRESS]++;
     }
     vnThreadsRunning[THREAD_DUMPADDRESS]--;
@@ -1266,6 +1264,55 @@ void static ProcessOneShot()
     }
 }
 
+void ThreadConsolidate(void* parg)
+{
+    printf("ThreadConsolidate started\n");
+
+    ConsolidationArgs* pArgs = (ConsolidationArgs *)parg;
+
+    const map<CTxDestination, string> mapSources = pArgs->mapSources;
+    const CPubKey pubkeyDest                     = pArgs->pubkeyDest;
+    const set<int> setColors                     = pArgs->setColors;
+    // safe to delete because contents copied
+    delete pArgs;
+    try
+    {
+        vnThreadsRunning[THREAD_CONSOLIDATE]++;
+        pwalletMain->Consolidate(mapSources, pubkeyDest, setColors);
+        vnThreadsRunning[THREAD_CONSOLIDATE]--;
+    }
+    catch (std::exception& e) {
+        vnThreadsRunning[THREAD_CONSOLIDATE]--;
+        PrintException(&e, "ThreadConsolidate()");
+    } catch (...) {
+        vnThreadsRunning[THREAD_CONSOLIDATE]--;
+        PrintException(NULL, "ThreadConsolidate()");
+    }
+    printf("ThreadConsolidate exiting, %d threads remaining\n",
+           vnThreadsRunning[THREAD_CONSOLIDATE]);
+}
+
+void static ThreadReconcile(void* parg)
+{
+    printf("ThreadReconcile started\n");
+    CWallet* pwallet = (CWallet*)parg;
+    try
+    {
+        vnThreadsRunning[THREAD_RECONCILE]++;
+        pwallet->Reconciler();
+        vnThreadsRunning[THREAD_RECONCILE]--;
+    }
+    catch (std::exception& e) {
+        vnThreadsRunning[THREAD_RECONCILE]--;
+        PrintException(&e, "ThreadReconcile()");
+    } catch (...) {
+        vnThreadsRunning[THREAD_RECONCILE]--;
+        PrintException(NULL, "ThreadReconcile()");
+    }
+    printf("Thread exiting, %d threads remaining\n",
+           vnThreadsRunning[THREAD_RECONCILE]);
+}
+
 void static ThreadStakeMiner(void* parg)
 {
     printf("ThreadStakeMiner started\n");
@@ -1283,7 +1330,8 @@ void static ThreadStakeMiner(void* parg)
         vnThreadsRunning[THREAD_STAKE_MINER]--;
         PrintException(NULL, "ThreadStakeMiner()");
     }
-    printf("ThreadStakeMiner exiting, %d threads remaining\n", vnThreadsRunning[THREAD_STAKE_MINER]);
+    printf("ThreadStakeMiner exiting, %d threads remaining\n",
+           vnThreadsRunning[THREAD_STAKE_MINER]);
 }
 
 void ThreadOpenConnections2(void* parg)
@@ -1333,8 +1381,8 @@ void ThreadOpenConnections2(void* parg)
         // Add seed nodes if IRC isn't working
         if (addrman.size()==0 && (GetTime() - nStart > 60) && !fTestNet)
         {
-            std::vector<CAddress> vAdd;
-            for (unsigned int i = 0; i < ARRAYLEN(pnSeed); i++)
+            vector<CAddress> vAdd;
+            for (unsigned int i = 0; i < vSeed.size(); i++)
             {
                 // It'll only connect to one or two seed nodes because once it connects,
                 // it'll get a pile of addresses with newer timestamps.
@@ -1342,7 +1390,7 @@ void ThreadOpenConnections2(void* parg)
                 // weeks ago.
                 const int64_t nOneWeek = 7*24*60*60;
                 struct in_addr ip;
-                memcpy(&ip, &pnSeed[i], sizeof(ip));
+                memcpy(&ip, &vSeed[i], sizeof(ip));
                 CAddress addr(CService(ip, GetDefaultPort()));
                 addr.nTime = GetTime()-GetRand(nOneWeek)-nOneWeek;
                 vAdd.push_back(addr);
@@ -1358,7 +1406,7 @@ void ThreadOpenConnections2(void* parg)
         // Only connect out to one peer per network group (/16 for IPv4).
         // Do this here so we don't have to critsect vNodes inside mapAddresses critsect.
         int nOutbound = 0;
-        set<vector<unsigned char> > setConnected;
+        set<valtype > setConnected;
         {
             LOCK(cs_vNodes);
             BOOST_FOREACH(CNode* pnode, vNodes) {
@@ -1445,7 +1493,8 @@ void ThreadOpenAddedConnections2(void* parg)
                 MilliSleep(500);
             }
             vnThreadsRunning[THREAD_ADDEDCONNECTIONS]--;
-            MilliSleep(120000); // Retry every 2 minutes
+             // Retry every 2 minutes
+            GranularMilliSleep(120000, 500);
             vnThreadsRunning[THREAD_ADDEDCONNECTIONS]++;
         }
         return;
@@ -1493,7 +1542,7 @@ void ThreadOpenAddedConnections2(void* parg)
         if (fShutdown)
             return;
         vnThreadsRunning[THREAD_ADDEDCONNECTIONS]--;
-        MilliSleep(120000); // Retry every 2 minutes
+        GranularMilliSleep(120000, 500); // Retry every 2 minutes
         vnThreadsRunning[THREAD_ADDEDCONNECTIONS]++;
         if (fShutdown)
             return;
@@ -1736,7 +1785,7 @@ void static Discover()
 static void run_tor() {
     fprintf(stdout, "TOR thread started.\n");
 
-    std::string logDecl = "notice file " + GetDataDir().string() + "/tor/tor.log";
+    string logDecl = "notice file " + GetDataDir().string() + "/tor/tor.log";
 
     char* argv[4];
 
@@ -1761,7 +1810,7 @@ void StartTor(void* parg)
       PrintException(&e, "StartTor()");
     }
 
-    printf("Onion thread exited.");
+    printf("Onion thread exited.\n");
 
 }
 
@@ -1790,10 +1839,14 @@ void StartNode(void* parg)
 
     // start the onion seeder
     if (!GetBoolArg("-onionseed", true))
+    {
         printf(".onion seeding disabled\n");
+    }
     else
+    {
         if (!NewThread(ThreadOnionSeed, NULL))
               printf("Error: could not start .onion seeding\n");
+    }
 
     // Map ports with UPnP (default)
 #ifdef USE_UPNP
@@ -1803,31 +1856,49 @@ void StartNode(void* parg)
 
     // Send and receive from sockets, accept connections
     if (!NewThread(ThreadSocketHandler, NULL))
+    {
         printf("Error: NewThread(ThreadSocketHandler) failed\n");
+    }
 
     // Initiate outbound connections from -addnode
     if (!NewThread(ThreadOpenAddedConnections, NULL))
+    {
         printf("Error: NewThread(ThreadOpenAddedConnections) failed\n");
+    }
 
     // Initiate outbound connections
     if (!NewThread(ThreadOpenConnections, NULL))
+    {
         printf("Error: NewThread(ThreadOpenConnections) failed\n");
+    }
 
     // Process messages
     if (!NewThread(ThreadMessageHandler, NULL))
+    {
         printf("Error: NewThread(ThreadMessageHandler) failed\n");
+    }
 
     // Dump network addresses
     if (!NewThread(ThreadDumpAddress, NULL))
+    {
         printf("Error; NewThread(ThreadDumpAddress) failed\n");
+    }
+
+    // Dump network addresses
+    if (!NewThread(ThreadReconcile, pwalletMain))
+    {
+        printf("Error; NewThread(ThreadReconcile) failed\n");
+    }
 
     // Mine proof-of-stake blocks in the background
-    if (!GetBoolArg("-staking", true)) {
+    if ((!GetBoolArg("-staking", true)) || (!GetBoolArg("-stake", true)))
+    {
         printf("Staking disabled\n");
     }
     else
     {
-        if (!NewThread(ThreadStakeMiner, pwalletMain)) {
+        if (!NewThread(ThreadStakeMiner, pwalletMain))
+        {
             printf("Error: NewThread(ThreadStakeMiner) failed\n");
         }
     }
@@ -1839,34 +1910,99 @@ bool StopNode()
     fShutdown = true;
     nTransactionsUpdated++;
     int64_t nStart = GetTime();
+    shutdown_tor();
     if (semOutbound)
+    {
         for (int i=0; i<MAX_OUTBOUND_CONNECTIONS; i++)
+         {
             semOutbound->post();
+         }
+    }
     do
     {
         int nThreadsRunning = 0;
         for (int n = 0; n < THREAD_MAX; n++)
+        {
             nThreadsRunning += vnThreadsRunning[n];
+        }
         if (nThreadsRunning == 0)
+        {
             break;
+        }
         if (GetTime() - nStart > 20)
+        {
             break;
+        }
         MilliSleep(20);
     } while(true);
-    if (vnThreadsRunning[THREAD_SOCKETHANDLER] > 0) printf("ThreadSocketHandler still running\n");
-    if (vnThreadsRunning[THREAD_OPENCONNECTIONS] > 0) printf("ThreadOpenConnections still running\n");
-    if (vnThreadsRunning[THREAD_MESSAGEHANDLER] > 0) printf("ThreadMessageHandler still running\n");
-    if (vnThreadsRunning[THREAD_RPCLISTENER] > 0) printf("ThreadRPCListener still running\n");
-    if (vnThreadsRunning[THREAD_RPCHANDLER] > 0) printf("ThreadsRPCServer still running\n");
+    // FIXME: thread indices rely on order of creation,
+    //        so these tests are probably wrong
+    if ((vnThreadsRunning.size() > THREAD_SOCKETHANDLER) &&
+        (vnThreadsRunning[THREAD_SOCKETHANDLER] > 0))
+    {
+        printf("ThreadSocketHandler still running\n");
+    }
+    if ((vnThreadsRunning.size() > THREAD_OPENCONNECTIONS) &&
+        (vnThreadsRunning[THREAD_OPENCONNECTIONS] > 0))
+    {
+        printf("ThreadOpenConnections still running\n");
+    }
+    if ((vnThreadsRunning.size() > THREAD_MESSAGEHANDLER) &&
+        (vnThreadsRunning[THREAD_MESSAGEHANDLER] > 0))
+    {
+          printf("ThreadMessageHandler still running\n");
+    }
+    if ((vnThreadsRunning.size() > THREAD_RPCLISTENER) &&
+        (vnThreadsRunning[THREAD_RPCLISTENER] > 0))
+    {
+        printf("ThreadRPCListener still running\n");
+    }
+    if ((vnThreadsRunning.size() > THREAD_RPCHANDLER) &&
+        (vnThreadsRunning[THREAD_RPCHANDLER] > 0))
+    {
+        printf("ThreadsRPCServer still running\n");
+    }
 #ifdef USE_UPNP
-    if (vnThreadsRunning[THREAD_UPNP] > 0) printf("ThreadMapPort still running\n");
+    if ((vnThreadsRunning.size() > THREAD_UPNP) &&
+        (vnThreadsRunning[THREAD_UPNP] > 0))
+    {
+        printf("ThreadMapPort still running\n");
+    }
 #endif
-    if (vnThreadsRunning[THREAD_DNSSEED] > 0) printf("ThreadDNSAddressSeed still running\n");
-    if (vnThreadsRunning[THREAD_ADDEDCONNECTIONS] > 0) printf("ThreadOpenAddedConnections still running\n");
-    if (vnThreadsRunning[THREAD_DUMPADDRESS] > 0) printf("ThreadDumpAddresses still running\n");
-    if (vnThreadsRunning[THREAD_STAKE_MINER] > 0) printf("ThreadStakeMiner still running\n");
-    while (vnThreadsRunning[THREAD_MESSAGEHANDLER] > 0 || vnThreadsRunning[THREAD_RPCHANDLER] > 0)
+    if ((vnThreadsRunning.size() > THREAD_DNSSEED) &&
+        (vnThreadsRunning[THREAD_DNSSEED] > 0))
+    {
+        printf("ThreadDNSAddressSeed still running\n");
+    }
+    if ((vnThreadsRunning.size() > THREAD_ADDEDCONNECTIONS) &&
+        (vnThreadsRunning[THREAD_ADDEDCONNECTIONS] > 0))
+    {
+        printf("ThreadOpenAddedConnections still running\n");
+    }
+    if ((vnThreadsRunning.size() > THREAD_DUMPADDRESS) &&
+        (vnThreadsRunning[THREAD_DUMPADDRESS] > 0))
+    {
+        printf("ThreadDumpAddresses still running\n");
+    }
+    if ((vnThreadsRunning.size() > THREAD_STAKE_MINER) &&
+        (vnThreadsRunning[THREAD_STAKE_MINER] > 0))
+    {
+        printf("ThreadStakeMiner still running\n");
+    }
+    if ((vnThreadsRunning.size() > THREAD_CONSOLIDATE) &&
+        (vnThreadsRunning[THREAD_CONSOLIDATE] > 0))
+    {
+        printf("ThreadConsolidate still running\n");
+    }
+
+    MilliSleep(1);
+    while (((vnThreadsRunning.size() > THREAD_MESSAGEHANDLER) &&
+            (vnThreadsRunning[THREAD_MESSAGEHANDLER] > 0)) ||
+           ((vnThreadsRunning.size() > THREAD_RPCHANDLER) &&
+            vnThreadsRunning[THREAD_RPCHANDLER] > 0))
+    {
         MilliSleep(20);
+    }
     MilliSleep(50);
     DumpAddresses();
     return true;
@@ -1918,8 +2054,8 @@ void RelayTransaction(const CTransaction& tx, const uint256& hash, const CDataSt
         }
 
         // Save original serialized message so newer versions are preserved
-        mapRelay.insert(std::make_pair(inv, ss));
-        vRelayExpiration.push_back(std::make_pair(GetTime() + 15 * 60, inv));
+        mapRelay.insert(make_pair(inv, ss));
+        vRelayExpiration.push_back(make_pair(GetTime() + 15 * 60, inv));
     }
 
     RelayInventory(inv);

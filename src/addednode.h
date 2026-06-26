@@ -4,6 +4,10 @@
 
 // clear net seeds
 static const char *strMainNetAddedNodes[][1] = {
+    {"80.208.225.215"},
+    {"212.24.102.24"},
+    {"80.209.237.20"},
+    {"94.176.233.76"},
     {NULL}
 };
 

@@ -7,7 +7,7 @@
  */
 bool TransactionRecord::showTransaction(const CWalletTx &wtx, bool fShowGenerated)
 {
-    if (wtx.IsCoinBase() || wtx.IsCoinMint() || wtx.IsCoinStake())
+    if (wtx.DoesMature())
     {
         // Ensures we show generated coins / mined transactions at depth 1
         if (!(fShowGenerated && wtx.IsInMainChain()))
@@ -34,7 +34,7 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet *
     int nTxColor = wtx.vout[0].nColor;
     int nFeeColor = FEE_COLOR[nTxColor];
 
-    std::map<int, int64_t> mapDebit, mapCredit, mapChange, mapNet;
+    ColorsMap mapDebit, mapCredit, mapChange, mapNet;
     // debits
     wallet->FillDebits(wtx, mapDebit, fMultiSig);
     // credits
@@ -43,11 +43,11 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet *
     wallet->FillChange(wtx, mapChange);
 
     // nets
-    FillNets(mapDebit, mapCredit, mapNet);
+    mapCredit.Subtract(mapDebit, mapNet);
 
     char cbuf[256];
 
-    if (ValueMapAllPositive(mapNet) || wtx.IsCoinBase() || wtx.IsCoinStake())
+    if (mapNet.AllPositive() || wtx.DoesMature())
     {
         //
         // Credit
@@ -95,8 +95,8 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet *
 
                     sub.type = TransactionRecord::Generated;
 
-                    int64_t nDebit = mapDebit[nTxColor];
-                    int64_t nNet = mapNet[nTxColor];
+                    int64_t nDebit = mapDebit.Get(nTxColor);
+                    int64_t nNet = mapNet.Get(nTxColor);
 
                     // Normally this would be 0, but some stakers may want to move
                     //    part or even all of the stake to coinbase.
@@ -122,7 +122,7 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet *
         bool fAllFromMe = true;
         BOOST_FOREACH(const CTxIn& txin, wtx.vin)
         {
-            if (wallet->IsMine(txin, fMultiSig) & ISMINE_SPENDABLE)
+            if (wallet->IsMine(txin, fMultiSig) & ISMINE_SIGNABLE)
             {
                 continue;
             }
@@ -140,7 +140,7 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet *
             {
                 continue;
             }
-            if (wallet->IsMine(txout, fMultiSig) & ISMINE_SPENDABLE)
+            if (wallet->IsMine(txout, fMultiSig) & ISMINE_SIGNABLE)
             {
                 continue;
             }
@@ -166,10 +166,10 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet *
 
             if (nTxColor == nFeeColor)
             {
-                int64_t nCredit = mapCredit[nTxColor];
-                int64_t nDebit = mapDebit[nTxColor];
+                int64_t nCredit = mapCredit.Get(nTxColor);
+                int64_t nDebit = mapDebit.Get(nTxColor);
                 // Payment to self
-                int64_t nChange = mapChange[nTxColor];
+                int64_t nChange = mapChange.Get(nTxColor);
 
                 parts.append(TransactionRecord(hash, nTime, TransactionRecord::SendToSelf,
                              "", narration, -(nDebit - nChange), nCredit - nChange, nTxColor));
@@ -178,13 +178,13 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet *
             {
                 // tx currency
                 parts.append(TransactionRecord(hash, nTime, TransactionRecord::SendToSelf,
-                                  "", narration, -(mapDebit[nTxColor] - mapChange[nTxColor]),
-                                  mapCredit[nTxColor] - mapChange[nTxColor], nTxColor));
+                                  "", narration, -(mapDebit.Get(nTxColor) - mapChange.Get(nTxColor)),
+                                  mapCredit.Get(nTxColor) - mapChange.Get(nTxColor), nTxColor));
 
                 // fee currency
                 parts.append(TransactionRecord(hash, nTime, TransactionRecord::SendToSelf,
-                                  "", narration, -(mapDebit[nFeeColor] - mapChange[nFeeColor]),
-                                    mapCredit[nFeeColor] - mapChange[nFeeColor], nFeeColor));
+                                  "", narration, -(mapDebit.Get(nFeeColor) - mapChange.Get(nFeeColor)),
+                                    mapCredit.Get(nFeeColor) - mapChange.Get(nFeeColor), nFeeColor));
             }
         }
         else if (fAllFromMe)
@@ -194,10 +194,10 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet *
             //
 
             // values out
-            std::map<int, int64_t> mapValuesOut;
+            ColorsMap mapValuesOut;
             wtx.FillValuesOut(mapValuesOut);
 
-            int64_t nTxFee = mapDebit[nFeeColor] - mapValuesOut[nFeeColor];
+            int64_t nTxFee = mapDebit.Get(nFeeColor) - mapValuesOut.Get(nFeeColor);
 
             for (unsigned int nOut = 0; nOut < wtx.vout.size(); nOut++)
             {
@@ -212,7 +212,7 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet *
                     && firstOpCode == OP_RETURN)
                     continue;
 
-                if (wallet->IsMine(txout, fMultiSig) & ISMINE_SPENDABLE)
+                if (wallet->IsMine(txout, fMultiSig) & ISMINE_SIGNABLE)
                 {
                     // Ignore parts sent to self, as this is usually the change
                     // from a transaction sent back to our own address.
@@ -268,8 +268,8 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet *
             //
             // Mixed debit transaction, can't break down payees
             //
-            std::map<int, int64_t>::const_iterator itnet;
-            for (itnet = mapNet.begin(); itnet != mapNet.end(); ++itnet)
+            ColorsMapConstIter itnet;
+            for (itnet = mapNet.Begin(); itnet != mapNet.End(); ++itnet)
             {
                 if (itnet->second != 0)
                 {

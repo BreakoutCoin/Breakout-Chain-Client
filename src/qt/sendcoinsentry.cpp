@@ -123,7 +123,7 @@ void SendCoinsEntry::updateCurrency()
 
     switch(nColor)
     {
-    case BREAKOUT_COLOR_BROSTAKE:
+    case BREAKOUT_COLOR_BRX:
 #if QT_VERSION >= 0x040700
         /* Do not move this to the XML file, Qt before 4.7 will choke on it */
         ui->payTo->setPlaceholderText(
@@ -131,7 +131,7 @@ void SendCoinsEntry::updateCurrency()
 #endif
         ui->payTo->setToolTip(qstt.arg(COLOR_NAME[nColor]).arg("bxMpqqmeKUFfFeVYJn3iHK9UvjdhApUrcNq"));
         break;
-    case BREAKOUT_COLOR_BROCOIN:
+    case BREAKOUT_COLOR_BRK:
 #if QT_VERSION >= 0x040700
         /* Do not move this to the XML file, Qt before 4.7 will choke on it */
         ui->payTo->setPlaceholderText(
@@ -139,7 +139,7 @@ void SendCoinsEntry::updateCurrency()
 #endif
         ui->payTo->setToolTip(qstt.arg(COLOR_NAME[nColor]).arg("brj6Q4FUHXjAzCRb6SB3pXPfuva5xrfjgHY"));
         break;
-    case BREAKOUT_COLOR_SISCOIN:
+    case BREAKOUT_COLOR_SIS:
 #if QT_VERSION >= 0x040700
         /* Do not move this to the XML file, Qt before 4.7 will choke on it */
         ui->payTo->setPlaceholderText(

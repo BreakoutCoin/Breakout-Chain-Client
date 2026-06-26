@@ -1,11 +1,11 @@
-#include "ge.h"
+#include "ext/ed25519/ref10/ge.h"
 
 /*
 r = p
 */
 
 static const fe d2 = {
-#include "d2.h"
+#include "ext/ed25519/ref10/d2.h"
 } ;
 
 extern void ge_p3_to_cached(ge_cached *r,const ge_p3 *p)

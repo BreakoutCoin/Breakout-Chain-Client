@@ -50,7 +50,7 @@
         <widget class="QLabel" name="labelCoinControlQuantity">
          <property name="font">
           <font>
-           <family>Monospace</family>
+           <family>Courier New</family>
            <pointsize>10</pointsize>
           </font>
          </property>
@@ -82,7 +82,7 @@
         <widget class="QLabel" name="labelCoinControlBytes">
          <property name="font">
           <font>
-           <family>Monospace</family>
+           <family>Courier New</family>
            <pointsize>10</pointsize>
           </font>
          </property>
@@ -130,7 +130,7 @@
         <widget class="QLabel" name="labelCoinControlAmount">
          <property name="font">
           <font>
-           <family>Monospace</family>
+           <family>Courier New</family>
            <pointsize>10</pointsize>
           </font>
          </property>
@@ -141,7 +141,7 @@
           <enum>Qt::ActionsContextMenu</enum>
          </property>
          <property name="text">
-          <string notr="true">0.00 BRO</string>
+          <string notr="true">0.00 BRK</string>
          </property>
          <property name="textInteractionFlags">
           <set>Qt::LinksAccessibleByMouse|Qt::TextSelectableByKeyboard|Qt::TextSelectableByMouse</set>
@@ -162,7 +162,7 @@
         <widget class="QLabel" name="labelCoinControlPriority">
          <property name="font">
           <font>
-           <family>Monospace</family>
+           <family>Courier New</family>
            <pointsize>10</pointsize>
           </font>
          </property>
@@ -210,7 +210,7 @@
         <widget class="QLabel" name="labelCoinControlFee">
          <property name="font">
           <font>
-           <family>Monospace</family>
+           <family>Courier New</family>
            <pointsize>10</pointsize>
           </font>
          </property>
@@ -221,7 +221,7 @@
           <enum>Qt::ActionsContextMenu</enum>
          </property>
          <property name="text">
-          <string notr="true">0.00 BRO</string>
+          <string notr="true">0.00 BRK</string>
          </property>
          <property name="textInteractionFlags">
           <set>Qt::LinksAccessibleByMouse|Qt::TextSelectableByKeyboard|Qt::TextSelectableByMouse</set>
@@ -248,7 +248,7 @@
          </property>
          <property name="font">
           <font>
-           <family>Monospace</family>
+           <family>Courier New</family>
            <pointsize>10</pointsize>
           </font>
          </property>
@@ -296,7 +296,7 @@
         <widget class="QLabel" name="labelCoinControlAfterFee">
          <property name="font">
           <font>
-           <family>Monospace</family>
+           <family>Courier New</family>
            <pointsize>10</pointsize>
           </font>
          </property>
@@ -307,7 +307,7 @@
           <enum>Qt::ActionsContextMenu</enum>
          </property>
          <property name="text">
-          <string notr="true">0.00 BRO</string>
+          <string notr="true">0.00 BRK</string>
          </property>
          <property name="textInteractionFlags">
           <set>Qt::LinksAccessibleByMouse|Qt::TextSelectableByKeyboard|Qt::TextSelectableByMouse</set>
@@ -334,7 +334,7 @@
          </property>
          <property name="font">
           <font>
-           <family>Monospace</family>
+           <family>Courier New</family>
            <pointsize>10</pointsize>
           </font>
          </property>
@@ -345,7 +345,7 @@
           <enum>Qt::ActionsContextMenu</enum>
          </property>
          <property name="text">
-          <string notr="true">0.00 BRO</string>
+          <string notr="true">0.00 BRK</string>
          </property>
          <property name="textInteractionFlags">
           <set>Qt::LinksAccessibleByMouse|Qt::TextSelectableByKeyboard|Qt::TextSelectableByMouse</set>

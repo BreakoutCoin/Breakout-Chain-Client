@@ -350,7 +350,7 @@ This product includes software developed by the OpenSSL Project for use in the O
     </message>
     <message>
         <location line="-13"/>
-        <source>&amp;Receive BRO</source>
+        <source>&amp;Receive BRK</source>
         <translation>Coin &amp;al</translation>
     </message>
     <message>
@@ -360,7 +360,7 @@ This product includes software developed by the OpenSSL Project for use in the O
     </message>
     <message>
         <location line="-7"/>
-        <source>&amp;Send BRO</source>
+        <source>&amp;Send BRK</source>
         <translation>Coin &amp;gönder</translation>
     </message>
     <message>
@@ -425,7 +425,7 @@ This product includes software developed by the OpenSSL Project for use in the O
     </message>
     <message>
         <location line="-64"/>
-        <source>Send BRO to a breakout address</source>
+        <source>Send BRK to a breakout address</source>
         <translation>Bir breakout adresine coin gönder</translation>
     </message>
     <message>
@@ -627,7 +627,7 @@ This product includes software developed by the OpenSSL Project for use in the O
     </message>
     <message>
         <location line="+59"/>
-        <source>This transaction requires a fee based on the services it uses. You may send it for a fee of %1 BRO, which rewards all users of the Breakout network as a result of your usage. Do you want to pay this fee?</source>
+        <source>This transaction requires a fee based on the services it uses. You may send it for a fee of %1 BRK, which rewards all users of the Breakout network as a result of your usage. Do you want to pay this fee?</source>
         <translation>Bu işlem, büyüklük sınırının üzerindedir. İşleminizi gerçekleştirecek devrelere gidecek ve ağı desteklemeye yardımcı olacak %1 ücretle coin gönderebilirsiniz. Ücreti ödemek istiyor musunuz?</translation>
     </message>
     <message>

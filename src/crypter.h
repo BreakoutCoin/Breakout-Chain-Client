@@ -31,15 +31,15 @@ master key's key as the encryption key (see keystore.[ch]).
 class CMasterKey
 {
 public:
-    std::vector<unsigned char> vchCryptedKey;
-    std::vector<unsigned char> vchSalt;
+    valtype vchCryptedKey;
+    valtype vchSalt;
     // 0 = EVP_sha512()
     // 1 = scrypt()
     unsigned int nDerivationMethod;
     unsigned int nDeriveIterations;
     // Use this for more parameters to key derivation,
     // such as the various parameters to scrypt
-    std::vector<unsigned char> vchOtherDerivationParameters;
+    valtype vchOtherDerivationParameters;
 
     IMPLEMENT_SERIALIZE
     (
@@ -55,7 +55,7 @@ public:
         // ie slightly lower than the lowest hardware we need bother supporting
         nDeriveIterations = 25000;
         nDerivationMethod = 1;
-        vchOtherDerivationParameters = std::vector<unsigned char>(0);
+        vchOtherDerivationParameters = valtype(0);
     }
 
     CMasterKey(unsigned int nDerivationMethodIndex)
@@ -66,13 +66,13 @@ public:
             default:
                 nDeriveIterations = 25000;
                 nDerivationMethod = 0;
-                vchOtherDerivationParameters = std::vector<unsigned char>(0);
+                vchOtherDerivationParameters = valtype(0);
             break;
 
             case 1: // scrypt+sha512
                 nDeriveIterations = 10000;
                 nDerivationMethod = 1;
-                vchOtherDerivationParameters = std::vector<unsigned char>(0);
+                vchOtherDerivationParameters = valtype(0);
             break;
         }
     }
@@ -90,10 +90,10 @@ private:
     bool fKeySet;
 
 public:
-    bool SetKeyFromPassphrase(const SecureString &strKeyData, const std::vector<unsigned char>& chSalt, const unsigned int nRounds, const unsigned int nDerivationMethod);
-    bool Encrypt(const CKeyingMaterial& vchPlaintext, std::vector<unsigned char> &vchCiphertext);
-    bool Decrypt(const std::vector<unsigned char>& vchCiphertext, CKeyingMaterial& vchPlaintext);
-    bool SetKey(const CKeyingMaterial& chNewKey, const std::vector<unsigned char>& chNewIV);
+    bool SetKeyFromPassphrase(const SecureString &strKeyData, const valtype& chSalt, const unsigned int nRounds, const unsigned int nDerivationMethod);
+    bool Encrypt(const CKeyingMaterial& vchPlaintext, valtype &vchCiphertext);
+    bool Decrypt(const valtype& vchCiphertext, CKeyingMaterial& vchPlaintext);
+    bool SetKey(const CKeyingMaterial& chNewKey, const valtype& chNewIV);
 
     void CleanKey()
     {
@@ -122,8 +122,8 @@ public:
     }
 };
 
-bool EncryptSecret(CKeyingMaterial& vMasterKey, const CSecret &vchPlaintext, const uint256& nIV, std::vector<unsigned char> &vchCiphertext);
-bool DecryptSecret(const CKeyingMaterial& vMasterKey, const std::vector<unsigned char> &vchCiphertext, const uint256& nIV, CSecret &vchPlaintext);
+bool EncryptSecret(CKeyingMaterial& vMasterKey, const CSecret &vchPlaintext, const uint256& nIV, valtype &vchCiphertext);
+bool DecryptSecret(const CKeyingMaterial& vMasterKey, const valtype &vchCiphertext, const uint256& nIV, CSecret &vchPlaintext);
 /** Keystore which keeps the private keys encrypted.
  * It derives from the basic key store, which is used if no encryption is active.
  */
@@ -172,7 +172,7 @@ public:
 
     bool LockKeyStore();
 
-    virtual bool AddCryptedKey(const CPubKey &vchPubKey, const std::vector<unsigned char> &vchCryptedSecret);
+    virtual bool AddCryptedKey(const CPubKey &vchPubKey, const valtype &vchCryptedSecret);
     bool AddKeyPubKey(const CKey& key, const CPubKey &pubkey);
     bool HaveKey(const CKeyID &address) const
     {

@@ -1,5 +1,5 @@
-#include "ge.h"
-#include "crypto_uint32.h"
+#include "ext/ed25519/ref10/ge.h"
+#include "ext/ed25519/ref10/crypto_uint32.h"
 
 /* Rename this so as not to interfere with select() which torint.h apparently
  * grabs. :p */
@@ -32,7 +32,7 @@ static void cmov(ge_precomp *t,ge_precomp *u,unsigned char b)
 
 /* base[i][j] = (j+1)*256^i*B */
 static ge_precomp base[32][8] = {
-#include "base.h"
+#include "ext/ed25519/ref10/base.h"
 } ;
 
 static void select(ge_precomp *t,int pos,signed char b)

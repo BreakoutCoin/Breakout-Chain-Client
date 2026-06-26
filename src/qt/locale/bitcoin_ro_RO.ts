@@ -352,7 +352,7 @@ Acest produs include programe dezvoltate de către OpenSSL Project pentru a fi f
     </message>
     <message>
         <location line="-13"/>
-        <source>&amp;Receive BRO</source>
+        <source>&amp;Receive BRK</source>
         <translation>Primește monede</translation>
     </message>
     <message>
@@ -362,7 +362,7 @@ Acest produs include programe dezvoltate de către OpenSSL Project pentru a fi f
     </message>
     <message>
         <location line="-7"/>
-        <source>&amp;Send BRO</source>
+        <source>&amp;Send BRK</source>
         <translation>&amp;Trimite monede</translation>
     </message>
     <message>
@@ -427,7 +427,7 @@ Acest produs include programe dezvoltate de către OpenSSL Project pentru a fi f
     </message>
     <message>
         <location line="-64"/>
-        <source>Send BRO to a breakout address</source>
+        <source>Send BRK to a breakout address</source>
         <translation>Trimite monede către o adresă breakout</translation>
     </message>
     <message>
@@ -629,7 +629,7 @@ Acest produs include programe dezvoltate de către OpenSSL Project pentru a fi f
     </message>
     <message>
         <location line="+59"/>
-        <source>This transaction requires a fee based on the services it uses. You may send it for a fee of %1 BRO, which rewards all users of the Breakout network as a result of your usage. Do you want to pay this fee?</source>
+        <source>This transaction requires a fee based on the services it uses. You may send it for a fee of %1 BRK, which rewards all users of the Breakout network as a result of your usage. Do you want to pay this fee?</source>
         <translation>Această tranzactie este peste limita admisa. Puteți sa trimiteți pentru o taxa de 1%, care este pentru nodurile care proceseaza tranzactia si ajuta la sprijinirea retelei. Vrei să plătești taxa?</translation>
     </message>
     <message>

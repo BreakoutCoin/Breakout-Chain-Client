@@ -4,6 +4,8 @@
 #include <QWidget>
 #include <QLabel>
 
+#include "colors.h"
+
 QT_BEGIN_NAMESPACE
 class QModelIndex;
 QT_END_NAMESPACE
@@ -28,11 +30,12 @@ public:
     void showOutOfSyncWarning(bool fShow);
 
 public slots:
-    void setBalances(const std::map<int, qint64> &mapBalance,
-                     const std::map<int, qint64> &mapStake,
-                     const std::map<int, qint64> &mapUnconfirmedBalance,
-                     const std::map<int, qint64> &mapImmatureBalance,
-                     const std::vector<int> &vCards);
+    void setBalances(const ColorsMap &mapConfirmed,
+                     const ColorsMap &mapStake,
+                     const ColorsMap &mapCoinbase,
+                     const ColorsMap &mapReceived,
+                     const ColorsMap &mapSent,
+                     const std::vector<int>& vCards);
 
 signals:
     void transactionClicked(const QModelIndex &index);
@@ -40,10 +43,10 @@ signals:
 private:
     Ui::OverviewPage *ui;
     WalletModel *model;
-    std::map<int, qint64> mapCurrentBalance;
-    std::map<int, qint64> mapCurrentStake;
-    std::map<int, qint64> mapCurrentUnconfirmedBalance;
-    std::map<int, qint64> mapCurrentImmatureBalance;
+    ColorsMap mapCurrentBalance;
+    ColorsMap mapCurrentStake;
+    ColorsMap mapCurrentUnconfirmedBalance;
+    ColorsMap mapCurrentImmatureBalance;
     std::vector<int> vCurrentCards;
 
     std::vector<QLabel*> vCardLabels;

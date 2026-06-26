@@ -52,9 +52,9 @@ void OptionsModel::Init()
     fMinimizeToTray = settings.value("fMinimizeToTray", false).toBool();
     fMinimizeOnClose = settings.value("fMinimizeOnClose", false).toBool();
     fCoinControlFeatures = settings.value("fCoinControlFeatures", false).toBool();
-    vTransactionFee[BREAKOUT_COLOR_BROSTAKE] = settings.value("nTransactionFeeBrostake").toLongLong();
-    vTransactionFee[BREAKOUT_COLOR_BROCOIN] = settings.value("nTransactionFeeBrocoin").toLongLong();
-    vReserveBalance[BREAKOUT_COLOR_BROSTAKE] = settings.value("nReserveBalance").toLongLong();
+    vTransactionFee[BREAKOUT_COLOR_BRX] = settings.value("nTransactionFeeBrostake").toLongLong();
+    vTransactionFee[BREAKOUT_COLOR_BRK] = settings.value("nTransactionFeeBrocoin").toLongLong();
+    vReserveBalance[BREAKOUT_COLOR_BRX] = settings.value("nReserveBalance").toLongLong();
     language = settings.value("language", "").toString();
 
     // These are shared with core Bitcoin; we want
@@ -176,11 +176,11 @@ QVariant OptionsModel::data(const QModelIndex & index, int role) const
         case ProxySocksVersion:
             return settings.value("nSocksVersion", 5);
         case FeeBrostake:
-            return QVariant((qint64) vTransactionFee[BREAKOUT_COLOR_BROSTAKE]);
+            return QVariant((qint64) vTransactionFee[BREAKOUT_COLOR_BRX]);
         case FeeBrocoin:
-            return QVariant((qint64) vTransactionFee[BREAKOUT_COLOR_BROCOIN]);
+            return QVariant((qint64) vTransactionFee[BREAKOUT_COLOR_BRK]);
         case ReserveBalance:
-            return QVariant((qint64) vReserveBalance[BREAKOUT_COLOR_BROSTAKE]);
+            return QVariant((qint64) vReserveBalance[BREAKOUT_COLOR_BRX]);
         case DefaultColor:
             return QVariant(nDefaultCurrency);
         case DisplayUnitBrostake:
@@ -264,22 +264,22 @@ bool OptionsModel::setData(const QModelIndex & index, const QVariant & value, in
         }
         break;
         case FeeBrostake:
-            vTransactionFee[BREAKOUT_COLOR_BROSTAKE] = value.toLongLong();
+            vTransactionFee[BREAKOUT_COLOR_BRX] = value.toLongLong();
             settings.setValue("nTransactionFeeBrostake",
-                                   (qint64) vTransactionFee[BREAKOUT_COLOR_BROSTAKE]);
-            emit transactionFeeChangedBrostake(vTransactionFee[BREAKOUT_COLOR_BROSTAKE]);
+                                   (qint64) vTransactionFee[BREAKOUT_COLOR_BRX]);
+            emit transactionFeeChangedBrostake(vTransactionFee[BREAKOUT_COLOR_BRX]);
             break;
         case FeeBrocoin:
-            vTransactionFee[BREAKOUT_COLOR_BROCOIN] = value.toLongLong();
+            vTransactionFee[BREAKOUT_COLOR_BRK] = value.toLongLong();
             settings.setValue("nTransactionFeeBrocoin",
-                                   (qint64) vTransactionFee[BREAKOUT_COLOR_BROCOIN]);
-            emit transactionFeeChangedBrostake(vTransactionFee[BREAKOUT_COLOR_BROCOIN]);
+                                   (qint64) vTransactionFee[BREAKOUT_COLOR_BRK]);
+            emit transactionFeeChangedBrostake(vTransactionFee[BREAKOUT_COLOR_BRK]);
             break;
         case ReserveBalance:
-            vReserveBalance[BREAKOUT_COLOR_BROSTAKE] = value.toLongLong();
+            vReserveBalance[BREAKOUT_COLOR_BRX] = value.toLongLong();
             settings.setValue("nReserveBalance",
-                                  (qint64) vReserveBalance[BREAKOUT_COLOR_BROSTAKE]);
-            emit reserveBalanceChanged(vReserveBalance[BREAKOUT_COLOR_BROSTAKE]);
+                                  (qint64) vReserveBalance[BREAKOUT_COLOR_BRX]);
+            emit reserveBalanceChanged(vReserveBalance[BREAKOUT_COLOR_BRX]);
             break;
         case DefaultColor:
             nDefaultCurrency = value.toInt();
@@ -328,21 +328,24 @@ bool OptionsModel::setData(const QModelIndex & index, const QVariant & value, in
     return successful;
 }
 
-// brostake and brocoin are the only currencies that have fees
 qint64 OptionsModel::getTransactionFeeBrostake()
 {
-    return vTransactionFee[BREAKOUT_COLOR_BROSTAKE];
+    return vTransactionFee[BREAKOUT_COLOR_BRX];
 }
 qint64 OptionsModel::getTransactionFeeBrocoin()
 {
-    return vTransactionFee[BREAKOUT_COLOR_BROSTAKE];
+    return vTransactionFee[BREAKOUT_COLOR_BRX];
+}
+qint64 OptionsModel::getTransactionFeeSistercoin()
+{
+    return vTransactionFee[BREAKOUT_COLOR_SIS];
 }
 
 
-// Brostake is the only staking currency
+// Breakout Stake is the principle staking currency
 qint64 OptionsModel::getReserveBalance()
 {
-    return vReserveBalance[BREAKOUT_COLOR_BROSTAKE];
+    return vReserveBalance[BREAKOUT_COLOR_BRX];
 }
 
 bool OptionsModel::getCoinControlFeatures()
@@ -378,11 +381,11 @@ int OptionsModel::getDisplayUnit(int nColor)
 {
     switch (nColor)
     {
-    case BREAKOUT_COLOR_BROSTAKE:
+    case BREAKOUT_COLOR_BRX:
            return getDisplayUnitBrostake();
-    case BREAKOUT_COLOR_BROCOIN:
+    case BREAKOUT_COLOR_BRK:
            return getDisplayUnitBrocoin();
-    case BREAKOUT_COLOR_SISCOIN:
+    case BREAKOUT_COLOR_SIS:
            return BitcoinUnits::BTC;
     default:
            return BitcoinUnits::BTC;

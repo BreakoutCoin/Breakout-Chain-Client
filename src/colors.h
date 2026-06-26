@@ -17,9 +17,6 @@
 // breakout genesis block time
 #define BRK_GENESIS_TIME 1465544351
 
-// define to 1 for building testnet, 0 for main net
-#define TESTNET_BUILD 0
-
 // define to 1 to allow rpc to send multiple outputs to same address
 #define ALLOW_DUPLICATE_DESTINATIONS 0
 
@@ -52,6 +49,8 @@
 
 extern bool fTestNet;
 
+extern const int64_t nKAWPOWActivationTime;
+
 //////////////////////////////////////////////////////////////////////
 
 // forks
@@ -68,6 +67,7 @@ enum ForkNumbers
     BRK_FORK004,
     BRK_FORK005,
     BRK_FORK006,
+    BRK_FORK007,  // KawPow
     TOTAL_FORKS
 };
 
@@ -105,16 +105,21 @@ extern const int BASE_FEE_EXPONENT;
 // extern const bool COINAGE_DEPENDENT_POS;
 extern std::string ADDRESS_DELIMETER;
 
+typedef std::pair<int, int64_t> ColorAmount;
+typedef std::map<int, int64_t> AmountsMap;
+typedef AmountsMap::iterator ColorsMapIter;
+typedef AmountsMap::const_iterator ColorsMapConstIter;
+
 // Complete enum of currencies
 // These are the indices used throughout the code
 typedef enum {
         BREAKOUT_COLOR_NONE = 0,
         // BroStake: Staking currency
-        BREAKOUT_COLOR_BROSTAKE,         // BRX
+        BREAKOUT_COLOR_BRX,   // Breakout Coin
         // BroCoin: Principal currency
-        BREAKOUT_COLOR_BROCOIN,          // BRO
+        BREAKOUT_COLOR_BRK,   // Breakout Stake
         // Atomic currency
-        BREAKOUT_COLOR_ATOMIC,           // BAM
+        BREAKOUT_COLOR_BAM,   // Atomic
         // Deck
         JOKER,                // Joker
         ACE_OF_SPADES,        // Spades
@@ -169,8 +174,7 @@ typedef enum {
         JACK_OF_HEARTS,
         QUEEN_OF_HEARTS,
         KING_OF_HEARTS,
-        // Sistercoin: Mining Currency
-        BREAKOUT_COLOR_SISCOIN,  // SIS
+        BREAKOUT_COLOR_SIS,  // Sistercoin: Mining Currency
         BREAKOUT_COLOR_END
 } BREAKOUT_COLOR ;
 
@@ -226,7 +230,7 @@ extern std::vector<int> GUI_DECK_COLORS;
 
 extern const int64_t COIN[N_COLORS];
 extern const int64_t CENT[N_COLORS];
- 
+
 extern const int DIGITS[N_COLORS];
 extern const int DECIMALS[N_COLORS];
 
@@ -262,7 +266,7 @@ extern const char *COLOR_NAME[N_COLORS];
 
 extern const unsigned char aColorID[N_VERSIONS][N_COLORS][N_COLOR_BYTES];
 
-extern std::vector<std::vector<std::vector<unsigned char> > > COLOR_ID;
+extern std::vector<std::vector<valtype> > COLOR_ID;
 
 extern const int64_t PRIORITY_MULTIPLIER[N_COLORS];
 
@@ -270,7 +274,7 @@ extern const int64_t WEIGHT_MULTIPLIER[N_COLORS];
 
 extern const int64_t POW_SUBSIDY[N_COLORS];
 
-extern std::vector<std::map <std::vector <unsigned char>, int > > MAPS_COLOR_ID;
+extern std::vector<std::map<valtype, int> > MAPS_COLOR_ID;
 
 int GetFork(int64_t nTime);
 
@@ -301,19 +305,11 @@ bool SplitQualifiedAddress(const std::string &qualAddress,
                               std::string &address, int &nColor, bool fDebug);
 
 // add b58 compatible bytes of n to end of vch, little byte first
-bool AppendColorBytes(int n, std::vector<unsigned char> &vch);
+bool AppendColorBytes(int n, valtype &vch);
 
-bool ValueMapAllPositive(const std::map<int, int64_t> &mapNet);
-bool ValueMapAllZero(const std::map<int, int64_t> &mapNet);
-
-// Returns effectively mapCredit - mapDebit
-//   much like vectors would be subtracted.
-void FillNets(const std::map<int, int64_t> &mapDebit,
-              const std::map<int, int64_t> &mapCredit,
-              std::map<int, int64_t> &mapNet);
 
 // minting
-CBigNum GetTargetLimit(bool fProofOfStake);
+CBigNum GetTargetLimit(bool fProofOfStake, unsigned int nTime);
 int64_t GetTargetSpacing(bool fProofOfStake, int64_t nTime);
 int GetCoinbaseMaturity();
 int GetStakeTimestampMask();
@@ -345,6 +341,281 @@ struct CardSorter
 };
 
 extern struct CardSorter cardSorter;
+
+inline double RealFromAmount(int64_t amount, int nColor)
+{
+    // None currency has no value ever.
+    if (nColor == BREAKOUT_COLOR_NONE)
+    {
+        return 0;
+    }
+    if (nColor < 0 || nColor > N_COLORS)
+    {
+        char pchMsg[64];
+        snprintf(pchMsg, sizeof(pchMsg), "Invalid currency: %d", nColor);
+        throw std::runtime_error(pchMsg);
+    }
+    return (double)amount / (double)COIN[nColor];
+}
+
+// wrapper for mapAmounts, a map of colors (int) to amounts (int64_t)
+// provides high level operations like Add and Subtract
+class ColorsMap
+{
+public:
+    AmountsMap mapAmounts;
+    ColorsMap()
+    {
+        mapAmounts.clear();
+    }
+    ColorsMap(const AmountsMap mapAmountsIn)
+    {
+       mapAmounts = mapAmountsIn;
+    }
+    ColorsMap(const ColorsMap& other)
+    {
+       mapAmounts = other.mapAmounts;
+    }
+    ColorsMap& operator=(const ColorsMap& other)
+    {
+        if (this != &other)
+        {
+            mapAmounts = other.mapAmounts;
+        }
+        return *this;
+    }
+    bool operator==(const ColorsMap& other) const
+    {
+        // Check all entries in A against B
+        for (ColorsMapConstIter it = mapAmounts.begin();
+             it != mapAmounts.end(); ++it)
+        {
+            if (it->second != other.Get(it->first))
+                return false;
+        }
+        // Check all entries in B not in A (A treats missing as 0)
+        for (ColorsMapConstIter it = other.Begin();
+             it != other.End(); ++it)
+        {
+            if (mapAmounts.find(it->first) == mapAmounts.end()
+                    && it->second != 0)
+                return false;
+        }
+        return true;
+    }
+
+    bool operator!=(const ColorsMap& other) const
+    {
+        return !(*this == other);
+    }
+
+    bool StrictEquals(const ColorsMap& other) const
+    {
+        if (Size() != other.Size())
+            return false;
+
+        std::set<int> setColors, setOtherColors;
+        GetColors(setColors);
+        other.GetColors(setOtherColors);
+        if (setColors != setOtherColors)
+            return false;
+
+        for (ColorsMapConstIter it = mapAmounts.begin();
+             it != mapAmounts.end(); ++it)
+        {
+            if (other.Get(it->first) != it->second)
+                return false;
+        }
+        return true;
+    }
+
+    void Clear()
+    {
+        mapAmounts.clear();
+    }
+    bool Empty() const
+    {
+        return mapAmounts.empty();
+    }
+    size_t Size() const
+    {
+        return mapAmounts.size();
+    }
+    void Set(int nColor, int64_t nValue)
+    {
+        mapAmounts[nColor] = nValue;
+    }
+    size_t GetColors(std::set<int>& setColorsRet) const
+    {
+        setColorsRet.clear();
+        ColorsMapConstIter it;
+        for (it = mapAmounts.begin(); it != mapAmounts.end(); ++it)
+        {
+            setColorsRet.insert(it->first);
+        }
+        return setColorsRet.size();
+    }
+    int64_t GetDefault(int nColor, int64_t nDefault) const
+    {
+        ColorsMapConstIter it = mapAmounts.find(nColor);
+        if (it == mapAmounts.end())
+        {
+            return nDefault;
+        }
+        return it->second;
+    }
+    int64_t SetDefault(int nColor, int64_t nDefault)
+    {
+        ColorsMapConstIter it = mapAmounts.find(nColor);
+        if (it == mapAmounts.end())
+        {
+            mapAmounts[nColor] = nDefault;
+            return nDefault;
+        }
+        return it->second;
+    }
+    bool Get(int nColor, int64_t& nAmountRet) const
+    {
+        ColorsMapConstIter it = mapAmounts.find(nColor);
+        if (it == mapAmounts.end())
+        {
+            nAmountRet = 0;
+            return false;
+        }
+        nAmountRet = it->second;
+        return true;
+    }
+    int64_t Get(int nColor) const
+    {
+        return GetDefault(nColor, 0);
+    }
+    ColorsMapConstIter Begin() const
+    {
+        return mapAmounts.begin();
+    }
+    ColorsMapConstIter End() const
+    {
+        return mapAmounts.end();
+    }
+    ColorsMapIter Find(int nColor)
+    {
+        return mapAmounts.find(nColor);
+    }
+    int64_t Add(int nColor, int64_t nAmount)
+    {
+        ColorsMapIter it = mapAmounts.find(nColor);
+        if (it == mapAmounts.end())
+        {
+            mapAmounts[nColor] = nAmount;
+            return nAmount;
+        }
+        it->second += nAmount;
+        return it->second;
+    }
+    int64_t Add(const ColorAmount& ca)
+    {
+        return Add(ca.first, ca.second);
+    }
+    ColorsMap& Add(const ColorsMap& other)
+    {
+        ColorsMapConstIter it;
+        for (it = other.Begin(); it != other.End(); ++it)
+        {
+            Add(it->first, it->second);
+        }
+        return *this;
+    }
+    void Add(const ColorsMap& other, ColorsMap& ret)
+    {
+        ret = *this;
+        ret.Add(other);
+    }
+    int64_t Subtract(int nColor, int64_t nAmount)
+    {
+        return Add(nColor, -nAmount);
+    }
+    ColorsMap& Subtract(const ColorsMap& other)
+    {
+        ColorsMapConstIter it;
+        for (it = other.Begin(); it != other.End(); ++it)
+        {
+            Add(it->first, -(it->second));
+        }
+        return *this;
+    }
+    void Subtract(const ColorsMap& other, ColorsMap& ret)
+    {
+        ret = *this;
+        ret.Subtract(other);
+    }
+    bool AllPositive() const
+    {
+        if (mapAmounts.empty())
+        {
+           return false;
+        }
+        ColorsMapConstIter it;
+        for (it = mapAmounts.begin(); it != mapAmounts.end(); ++it)
+        {
+            if (it->second <= 0)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+    bool AllNegative() const
+    {
+        if (mapAmounts.empty())
+        {
+           return false;
+        }
+        ColorsMapConstIter it;
+        for (it = mapAmounts.begin(); it != mapAmounts.end(); ++it)
+        {
+            if (it->second >= 0)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+    bool AllZero() const
+    {
+        ColorsMapConstIter it;
+        for (it = mapAmounts.begin(); it != mapAmounts.end(); ++it)
+        {
+            if (it->second != 0)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+    std::string ToString() const
+    {
+        std::string strBalances = "ColorsMap(";
+        ColorsMapConstIter i;
+        for (i = mapAmounts.begin(); i != mapAmounts.end(); ++i)
+        {
+            int nColor = i->first;
+            int64_t nAmount = i->second;
+            if ((nAmount == 0) && (IsDeck(nColor)))
+            {
+                continue;
+            }
+            char pchBal[64];
+            snprintf(pchBal,
+                     sizeof(pchBal),
+                     "\n  %s : %f",
+                     COLOR_TICKER[nColor],
+                     RealFromAmount(nAmount, nColor));
+            strBalances += pchBal;
+        }
+        strBalances += ")";
+        return strBalances;
+    }
+};
 
 
 #endif  // BREAKOUT_COLORS_H
