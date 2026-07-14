@@ -3,6 +3,8 @@
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 #include "txdb-leveldb.h"
+#include "exploredb-leveldb.h"
+#include "explore/explore.hpp"
 #include "walletdb.h"
 #include "bitcoinrpc.h"
 #include "net.h"
@@ -384,6 +386,9 @@ string HelpMessage()
 
         "  -permitdirtybootstrap  " + _("Allow duplicate stake for bootstrap from block***.dat file") + "\n" +
         "  -maxheight             " + _("For testing, don't allow more blocks than height (default -1 => no max") + "\n" +
+        "  -exploreapi            " + _("Maintain the Breakout Explore address/tx index and RPCs (default: 0)") + "\n" +
+        "  -debugexplore          " + _("Output extra Breakout Explore debugging information") + "\n" +
+        "  -reindexexplore        " + _("Rebuild the Breakout Explore index from the block chain, then continue") + "\n" +
 
         "  -burnkey=<key>         " + _("Random string") + "\n" +
 
@@ -610,6 +615,10 @@ bool AppInit2()
     }
 
     fNoSmsg = GetBoolArg("-nosmsg");
+
+    // Breakout Explore address/tx index
+    fWithExploreAPI = GetBoolArg("-exploreapi", false);
+    fDebugExplore = fWithExploreAPI && (fDebug || GetBoolArg("-debugexplore", false));
 
     bitdb.SetDetach(GetBoolArg("-detachdb", false));
 
@@ -1615,6 +1624,75 @@ bool AppInit2()
             boost::filesystem::path pathBootstrapOld = GetDataDir() / "bootstrap.dat.old";
             LoadExternalBlockFile(file);
             RenameOver(pathBootstrap, pathBootstrapOld);
+        }
+    }
+
+    // ***** Breakout Explore: build / reindex / auto-heal the explore index *****
+    // The explore index lives in its own database (exploredb), separate from
+    // the transaction index, so it can be cleared and rebuilt independently.
+    // Rebuild it whenever it is missing or out of sync with the chain tip, or
+    // when -reindexexplore is given.
+    if (fWithExploreAPI)
+    {
+        CExploreDB exploredb("cr+");   // create if missing
+
+        bool fReindex = GetBoolArg("-reindexexplore", false);
+
+        uint256 hashExploreBest = 0;
+        int nExploreBestHeight = -1;
+        bool fHaveExploreBest = exploredb.ReadExploreBest(hashExploreBest,
+                                                          nExploreBestHeight);
+        uint256 hashChainBest = pindexBest ? pindexBest->GetBlockHash()
+                                           : uint256(0);
+
+        if (!fReindex &&
+            (!fHaveExploreBest || (hashExploreBest != hashChainBest)))
+        {
+            printf("Breakout Explore index out of sync "
+                   "(explore best %s, chain best %s); rebuilding.\n",
+                   hashExploreBest.ToString().c_str(),
+                   hashChainBest.ToString().c_str());
+            fReindex = true;
+        }
+
+        if (fReindex)
+        {
+            uiInterface.InitMessage(_("Clearing the Breakout Explore index."));
+            printf("Clearing the Breakout Explore index.\n");
+            exploredb.ClearAll();
+            mapAddressBalances.clear();
+
+            uiInterface.InitMessage(_("Reindexing the Breakout Explore index."));
+            printf("Reindexing the Breakout Explore index.\n");
+
+            // suppress the per-record explore debug spam during the bulk rebuild
+            fReindexExplore = true;
+
+            CTxDB txdb("r");
+            CBlockIndex* pindex = pindexGenesisBlock;
+            int count = 0;
+            while (pindex && !fRequestShutdown)
+            {
+                if ((count > 0) && ((count % 10000) == 0))
+                {
+                    printf("Reindexed %d blocks for Breakout Explore\n", count);
+                }
+                CBlock block;
+                if (!block.ReadFromDisk(pindex, true))
+                {
+                    return InitError(_("Breakout Explore reindex: "
+                                       "failed to read a block from disk."));
+                }
+                if (!ExploreConnectBlock(txdb, exploredb, &block))
+                {
+                    return InitError(_("Breakout Explore reindex: "
+                                       "ExploreConnectBlock failed."));
+                }
+                count += 1;
+                pindex = pindex->pnext;
+            }
+            fReindexExplore = false;
+            printf("Reindexed %d blocks for Breakout Explore.\n", count);
         }
     }
 

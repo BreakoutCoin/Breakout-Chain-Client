@@ -132,6 +132,27 @@ void RPCTypeCheck(const json_spirit::Object& o,
 
 typedef json_spirit::Value(*rpcfn_type)(const json_spirit::Array& params, bool fHelp);
 
+
+//
+// Pagination (used by the Breakout Explore paged RPCs)
+//
+typedef struct pagination_t
+{
+    int page;
+    int per_page;
+    bool forward;
+    int start;
+    int finish;
+    int max;
+    int last_page;
+} pagination_t;
+
+void GetPagination(const json_spirit::Array& params,
+                   const unsigned int nLeadingParams,
+                   const int nTotal,
+                   pagination_t& pgRet);
+
+
 class CRPCCommand
 {
 public:
@@ -292,5 +313,33 @@ extern json_spirit::Value sendtostealthaddress(const json_spirit::Array& params,
 extern json_spirit::Value clearwallettransactions(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value scanforalltxns(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value scanforstealthtxns(const json_spirit::Array& params, bool fHelp);
+
+// Breakout Explore
+extern json_spirit::Value getaddressbalance(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value getaddressinfo(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value getaddressinputs(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value getaddressoutputs(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value getaddresstxspg(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value getaddressinouts(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value getaddressinoutspg(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value getrichlistsize(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value getrichlist(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value getrichlistpg(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value gettxvolume(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value getblockinterval(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value getblockintervalmean(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value getblockintervalrmsd(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value getaddressutxos(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value getaddressutxospg(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value gethdaccountutxos(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value gethdaccountutxospg(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value getchildkey(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value gethdaddresses(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value gethdaccountbalance(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value gethdaccountinfo(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value gethdaccountinputs(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value gethdaccountoutputs(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value gethdaccountinouts(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value gethdaccountinoutspg(const json_spirit::Array& params, bool fHelp);
 
 #endif

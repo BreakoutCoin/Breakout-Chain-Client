@@ -9,6 +9,8 @@
 #include "checkpoints.h"
 #include "db.h"
 #include "txdb-leveldb.h"
+#include "exploredb-leveldb.h"
+#include "explore/explore.hpp"
 #include "net.h"
 #include "init.h"
 #include "ui_interface.h"
@@ -2493,6 +2495,15 @@ bool CBlock::DisconnectBlock(CTxDB& txdb, CBlockIndex* pindex)
         SyncWithWallets(tx, this, false, false);
     }
 
+    if (fWithExploreAPI)
+    {
+        CExploreDB exploredb;
+        if (!ExploreDisconnectBlock(txdb, exploredb, this))
+        {
+            return error("DisconnectBlock() : ExploreDisconnectBlock failed");
+        }
+    }
+
     return true;
 }
 
@@ -2983,6 +2994,16 @@ bool CBlock::ConnectBlock(CTxDB& txdb, CBlockIndex* pindex, bool fJustCheck)
     BOOST_FOREACH(CTransaction& tx, vtx)
     {
         SyncWithWallets(tx, this, true);
+    }
+
+    // fJustCheck is a validation-only pass, so it must not write the index.
+    if (fWithExploreAPI && !fJustCheck)
+    {
+        CExploreDB exploredb;
+        if (!ExploreConnectBlock(txdb, exploredb, this))
+        {
+            return error("ConnectBlock() : ExploreConnectBlock failed");
+        }
     }
 
     return true;

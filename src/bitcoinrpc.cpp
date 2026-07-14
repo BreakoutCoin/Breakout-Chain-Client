@@ -153,6 +153,55 @@ Value ValueFromAmount(int64_t amount, int nColor)
     return (double)amount / (double)COIN[nColor];
 }
 
+void GetPagination(const Array& params, const unsigned int nLeadingParams,
+                   const int nTotal, pagination_t& pgRet)
+{
+    pgRet.page = params[nLeadingParams].get_int();
+    if (pgRet.page < 1)
+    {
+         throw runtime_error("Number of pages must be greater than 1.");
+    }
+
+    pgRet.per_page = params[1 + nLeadingParams].get_int();
+    if (pgRet.per_page < 1)
+    {
+         throw runtime_error("Number per page must be greater than 1.");
+    }
+
+    pgRet.forward = true;
+    if (params.size() > (2 + nLeadingParams))
+    {
+        pgRet.forward = params[2 + nLeadingParams].get_bool();
+    }
+
+    int nFinish;
+    if (pgRet.forward)
+    {
+        pgRet.start = 1 + ((pgRet.page - 1) * pgRet.per_page);
+        if (pgRet.start > nTotal)
+        {
+             throw runtime_error("Start exceeds total number of records.");
+        }
+        nFinish = min(pgRet.start + pgRet.per_page - 1, nTotal);
+    }
+    else
+    {
+        // calculate as if the sequence is reversed
+        int nFirst_r = 1 + ((pgRet.page - 1) * pgRet.per_page);
+        if (nFirst_r > nTotal)
+        {
+             throw runtime_error("Start exceeds total number of records.");
+        }
+        int nLast_r = pgRet.page * pgRet.per_page;
+        // now reverse those calculations
+        int nFirst = 1 + (nTotal - nLast_r);
+        pgRet.start = max(1, nFirst);
+        nFinish = 1 + (nTotal - nFirst_r);
+    }
+    pgRet.max = min(nFinish - pgRet.start + 1, pgRet.per_page);
+    pgRet.last_page = 1 + (nTotal - 1) / pgRet.per_page;
+}
+
 void ColorsMapToJSON(const ColorsMap& map, Object& objRet, bool fShowZero)
 {
     for (ColorsMapConstIter i = map.Begin(); i != map.End(); ++i)
@@ -396,7 +445,34 @@ static const CRPCCommand vRPCCommands[] =
     { "sendtostealthaddress",      &sendtostealthaddress,      false,  false },
     { "clearwallettransactions",   &clearwallettransactions,   false,  false },
     { "scanforalltxns",            &scanforalltxns,            false,  false },
-    { "scanforstealthtxns",        &scanforstealthtxns,        false,  false }
+    { "scanforstealthtxns",        &scanforstealthtxns,        false,  false },
+    // Breakout Explore
+    { "getaddressbalance",         &getaddressbalance,         false,  false },
+    { "getaddressinfo",            &getaddressinfo,            false,  false },
+    { "getaddressinputs",          &getaddressinputs,          false,  false },
+    { "getaddressoutputs",         &getaddressoutputs,         false,  false },
+    { "getaddressutxos",           &getaddressutxos,           false,  false },
+    { "getaddressutxospg",         &getaddressutxospg,         false,  false },
+    { "getaddresstxspg",           &getaddresstxspg,           false,  false },
+    { "getaddressinouts",          &getaddressinouts,          false,  false },
+    { "getaddressinoutspg",        &getaddressinoutspg,        false,  false },
+    { "getrichlistsize",           &getrichlistsize,           false,  false },
+    { "getrichlist",               &getrichlist,               false,  false },
+    { "getrichlistpg",             &getrichlistpg,             false,  false },
+    { "gettxvolume",               &gettxvolume,               false,  false },
+    { "getblockinterval",          &getblockinterval,          false,  false },
+    { "getblockintervalmean",      &getblockintervalmean,      false,  false },
+    { "getblockintervalrmsd",      &getblockintervalrmsd,      false,  false },
+    { "getchildkey",               &getchildkey,               false,  false },
+    { "gethdaddresses",            &gethdaddresses,            false,  false },
+    { "gethdaccountbalance",       &gethdaccountbalance,       false,  false },
+    { "gethdaccountinfo",          &gethdaccountinfo,          false,  false },
+    { "gethdaccountinputs",        &gethdaccountinputs,        false,  false },
+    { "gethdaccountoutputs",       &gethdaccountoutputs,       false,  false },
+    { "gethdaccountutxos",         &gethdaccountutxos,         false,  false },
+    { "gethdaccountutxospg",       &gethdaccountutxospg,       false,  false },
+    { "gethdaccountinouts",        &gethdaccountinouts,        false,  false },
+    { "gethdaccountinoutspg",      &gethdaccountinoutspg,      false,  false }
 };
 
 CRPCTable::CRPCTable()
@@ -1384,6 +1460,71 @@ Array RPCConvertValues(const string &strMethod, const vector<string> &strParams)
     if (strMethod == "pbkdf2"                       && n > 2) ConvertTo<boost::int64_t>(params[2]);
     if (strMethod == "pbkdf2"                       && n > 3) ConvertTo<boost::int64_t>(params[3]);
     if (strMethod == "importaddress"                && n > 2) ConvertTo<bool>(params[2]);
+
+    // Breakout Explore
+    if (strMethod == "getaddressinputs"             && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "getaddressinputs"             && n > 2) ConvertTo<boost::int64_t>(params[2]);
+    if (strMethod == "getaddressoutputs"            && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "getaddressoutputs"            && n > 2) ConvertTo<boost::int64_t>(params[2]);
+    if (strMethod == "getaddressutxos"              && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "getaddressutxos"              && n > 2) ConvertTo<boost::int64_t>(params[2]);
+    if (strMethod == "getaddressutxospg"            && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "getaddressutxospg"            && n > 2) ConvertTo<boost::int64_t>(params[2]);
+    if (strMethod == "getaddressutxospg"            && n > 3) ConvertTo<bool>(params[3]);
+    if (strMethod == "getaddresstxspg"              && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "getaddresstxspg"              && n > 2) ConvertTo<boost::int64_t>(params[2]);
+    if (strMethod == "getaddresstxspg"              && n > 3) ConvertTo<bool>(params[3]);
+    if (strMethod == "getaddressinouts"             && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "getaddressinouts"             && n > 2) ConvertTo<boost::int64_t>(params[2]);
+    if (strMethod == "getaddressinoutspg"           && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "getaddressinoutspg"           && n > 2) ConvertTo<boost::int64_t>(params[2]);
+    if (strMethod == "getaddressinoutspg"           && n > 3) ConvertTo<bool>(params[3]);
+    if (strMethod == "getrichlistsize"              && n > 0) ConvertTo<boost::int64_t>(params[0]);
+    if (strMethod == "getrichlistsize"              && n > 1) ConvertTo<double>(params[1]);
+    if (strMethod == "getrichlist"                  && n > 0) ConvertTo<boost::int64_t>(params[0]);
+    if (strMethod == "getrichlist"                  && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "getrichlist"                  && n > 2) ConvertTo<boost::int64_t>(params[2]);
+    if (strMethod == "getrichlistpg"                && n > 0) ConvertTo<boost::int64_t>(params[0]);
+    if (strMethod == "getrichlistpg"                && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "getrichlistpg"                && n > 2) ConvertTo<boost::int64_t>(params[2]);
+    if (strMethod == "getrichlistpg"                && n > 3) ConvertTo<bool>(params[3]);
+    if (strMethod == "gettxvolume"                  && n > 0) ConvertTo<boost::int64_t>(params[0]);
+    if (strMethod == "gettxvolume"                  && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "gettxvolume"                  && n > 2) ConvertTo<boost::int64_t>(params[2]);
+    if (strMethod == "getblockinterval"             && n > 0) ConvertTo<boost::int64_t>(params[0]);
+    if (strMethod == "getblockinterval"             && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "getblockinterval"             && n > 2) ConvertTo<boost::int64_t>(params[2]);
+    if (strMethod == "getblockintervalmean"         && n > 0) ConvertTo<boost::int64_t>(params[0]);
+    if (strMethod == "getblockintervalmean"         && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "getblockintervalmean"         && n > 2) ConvertTo<boost::int64_t>(params[2]);
+    if (strMethod == "getblockintervalrmsd"         && n > 0) ConvertTo<boost::int64_t>(params[0]);
+    if (strMethod == "getblockintervalrmsd"         && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "getblockintervalrmsd"         && n > 2) ConvertTo<boost::int64_t>(params[2]);
+    if (strMethod == "getchildkey"                  && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "getchildkey"                  && n > 2) ConvertTo<boost::int64_t>(params[2]);
+    if (strMethod == "gethdaddresses"               && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "gethdaccountbalance"          && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "gethdaccountinfo"             && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "gethdaccountinputs"           && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "gethdaccountinputs"           && n > 2) ConvertTo<boost::int64_t>(params[2]);
+    if (strMethod == "gethdaccountinputs"           && n > 3) ConvertTo<boost::int64_t>(params[3]);
+    if (strMethod == "gethdaccountoutputs"          && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "gethdaccountoutputs"          && n > 2) ConvertTo<boost::int64_t>(params[2]);
+    if (strMethod == "gethdaccountoutputs"          && n > 3) ConvertTo<boost::int64_t>(params[3]);
+    if (strMethod == "gethdaccountutxos"            && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "gethdaccountutxos"            && n > 2) ConvertTo<boost::int64_t>(params[2]);
+    if (strMethod == "gethdaccountutxos"            && n > 3) ConvertTo<boost::int64_t>(params[3]);
+    if (strMethod == "gethdaccountutxospg"          && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "gethdaccountutxospg"          && n > 2) ConvertTo<boost::int64_t>(params[2]);
+    if (strMethod == "gethdaccountutxospg"          && n > 3) ConvertTo<bool>(params[3]);
+    if (strMethod == "gethdaccountutxospg"          && n > 4) ConvertTo<boost::int64_t>(params[4]);
+    if (strMethod == "gethdaccountinouts"           && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "gethdaccountinouts"           && n > 2) ConvertTo<boost::int64_t>(params[2]);
+    if (strMethod == "gethdaccountinouts"           && n > 3) ConvertTo<boost::int64_t>(params[3]);
+    if (strMethod == "gethdaccountinoutspg"         && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "gethdaccountinoutspg"         && n > 2) ConvertTo<boost::int64_t>(params[2]);
+    if (strMethod == "gethdaccountinoutspg"         && n > 3) ConvertTo<bool>(params[3]);
+    if (strMethod == "gethdaccountinoutspg"         && n > 4) ConvertTo<boost::int64_t>(params[4]);
 
     return params;
 }

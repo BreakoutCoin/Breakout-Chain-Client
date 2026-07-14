@@ -35,7 +35,7 @@ win32 {
     message("x86_64 64-bit build (MXE cross-compile)")
 }
 
-INCLUDEPATH += src src/json src/qt
+INCLUDEPATH += src src/json src/qt src/explore src/bip32
 INCLUDEPATH += src/ethash src/ethash/include src/ethash/lib
 
 
@@ -547,6 +547,25 @@ HEADERS += \
     src/sync.h \
     src/threadsafety.h \
     src/txdb-leveldb.h \
+    src/exploredb-leveldb.h \
+    src/explore/explore.hpp \
+    src/explore/ExploreConstants.hpp \
+    src/explore/ExploreDestination.hpp \
+    src/explore/ExploreInput.hpp \
+    src/explore/ExploreOutput.hpp \
+    src/explore/ExploreInOutLookup.hpp \
+    src/explore/ExploreInOutList.hpp \
+    src/explore/ExploreTx.hpp \
+    src/explore/InOutInfo.hpp \
+    src/explore/AddrTxInfo.hpp \
+    src/explore/AddrInOutInfo.hpp \
+    src/explore/HDTxInfo.hpp \
+    src/bip32/hdkeys.h \
+    src/bip32/secp256k1_openssl.h \
+    src/bip32/BigInt.h \
+    src/bip32/uchar_vector.h \
+    src/bip32/bip32-hash.h \
+    src/bip32/typedefs.h \
     src/ui_interface.h \
     src/uint256.h \
     src/util.h \
@@ -660,6 +679,21 @@ SOURCES += \
     src/stealth.cpp \
     src/sync.cpp \
     src/txdb-leveldb.cpp \
+    src/exploredb-leveldb.cpp \
+    src/rpcexplore.cpp \
+    src/explore/explore.cpp \
+    src/explore/ExploreDestination.cpp \
+    src/explore/ExploreInput.cpp \
+    src/explore/ExploreOutput.cpp \
+    src/explore/ExploreInOutLookup.cpp \
+    src/explore/ExploreInOutList.cpp \
+    src/explore/ExploreTx.cpp \
+    src/explore/InOutInfo.cpp \
+    src/explore/AddrTxInfo.cpp \
+    src/explore/AddrInOutInfo.cpp \
+    src/explore/HDTxInfo.cpp \
+    src/bip32/hdkeys.cpp \
+    src/bip32/secp256k1_openssl.cpp \
     src/util.cpp \
     src/version.cpp \
     src/wallet.cpp \
