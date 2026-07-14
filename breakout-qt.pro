@@ -4,7 +4,7 @@
 
 TEMPLATE = app
 TARGET = "Breakout-Chain"
-VERSION = 1.7.2.0
+VERSION = 1.8.0.0
 
 macx {
     QMAKE_MACOSX_DEPLOYMENT_TARGET = 11
