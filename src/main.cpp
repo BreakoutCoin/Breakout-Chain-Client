@@ -1830,6 +1830,102 @@ bool CheckSHA256ProofOfWork(uint256 hash, unsigned int nBits)
 }
 
 
+// G01 fix support (validation-side epoch context): a dedicated, mutex-guarded
+// cache -- deliberately NOT KAWPOWHash()'s function-local static. Pre-fix,
+// that static was reached only from the local miner's CheckWork() path
+// (single-threaded by construction); this fix newly reaches equivalent DAG
+// work from block *validation*, which can race the RPC getwork/CheckWork
+// path (rpcmining.cpp carries its own "// FIXME: thread safety" note and
+// takes no cs_main) -- sharing KAWPOWHash's static is a proven data race /
+// heap-use-after-free (re-audit finding G01-N3, reproduced under TSan+ASan).
+// Mirrors the already-guarded mining_epoch_cache / epoch_cache pattern used
+// in miner.cpp / rpcmining.cpp.
+static std::map<int, std::shared_ptr<ethash_epoch_context> > mapValidationEpochCache;
+static CCriticalSection cs_ValidationEpochCache;
+
+// How far a candidate block's wire nHeight may plausibly sit from the node's
+// current best height before it is treated as bogus. CheckKawpowProofOfWork()
+// is reached from context-free CBlock::CheckBlock() (no pindexPrev), so this
+// is a coarse sanity bound, not an exact contextual check -- it exists solely
+// to stop an attacker-chosen nHeight (arbitrarily large, or negative once the
+// signed/unsigned wire field is reinterpreted) from driving ethash's
+// epoch/light-cache sizing into signed-overflow UB, a modulo-by-zero, or a
+// null-context dereference, all BEFORE any proof-of-work has been done
+// (re-audit finding G01-N2, reproduced as SIGFPE / SIGSEGV). 100,000 blocks
+// is far beyond any plausible reorg lead or orphan chain (capped at 750
+// blocks) and far short of the height deltas (100,000,000+) that trigger the
+// crash.
+static const int64_t KAWPOW_VALIDATION_HEIGHT_WINDOW = 100000;
+
+// Recomputes the genuine ProgPoW mix for a block from the epoch DAG, for use
+// by CheckKawpowProofOfWork()'s post-BRK_FORK009 branch. Returns false (never
+// throws, never dereferences a null context) if the block's height is outside
+// the plausible window or the epoch context could not be created -- callers
+// must treat that as "reject the block", exactly like any other failed
+// consensus check.
+static bool KAWPOWRecomputeMixForValidation(const CBlock& block, uint256& mix_hash)
+{
+    int64_t nHeight = (int64_t) block.nHeight;
+    int64_t nBest = (int64_t) nBestHeight;
+    if (nBest < 0)
+    {
+        nBest = 0;
+    }
+    if ((nHeight < 0) ||
+        (nHeight > nBest + KAWPOW_VALIDATION_HEIGHT_WINDOW) ||
+        (nHeight < nBest - KAWPOW_VALIDATION_HEIGHT_WINDOW))
+    {
+        return false;
+    }
+
+    const int nEpoch = ethash::get_epoch_number((int) nHeight);
+    if (nEpoch < 0)
+    {
+        return false;
+    }
+
+    std::shared_ptr<ethash_epoch_context> context;
+    {
+        LOCK(cs_ValidationEpochCache);
+        std::map<int, std::shared_ptr<ethash_epoch_context> >::iterator it =
+            mapValidationEpochCache.find(nEpoch);
+        if (it != mapValidationEpochCache.end())
+        {
+            context = it->second;
+        }
+        else
+        {
+            ethash::epoch_context_ptr uniqueContext = ethash::create_epoch_context(nEpoch);
+            if (!uniqueContext)
+            {
+                return false;
+            }
+            context = std::shared_ptr<ethash_epoch_context>(
+                uniqueContext.release(), ethash_destroy_epoch_context);
+            mapValidationEpochCache[nEpoch] = context;
+            // Keep 2 latest epochs, same bound as mining_epoch_cache /
+            // epoch_cache -- bounds context churn under an adversarial
+            // cross-epoch reorg replay (re-audit finding G01-N2 remedy 4).
+            if (mapValidationEpochCache.size() > 2)
+            {
+                mapValidationEpochCache.erase(mapValidationEpochCache.begin());
+            }
+        }
+    }
+    // context is a local shared_ptr copy taken while holding the lock, so it
+    // keeps the epoch context alive for the whole of progpow::hash() below
+    // even if another thread concurrently evicts it from the map.
+
+    uint256 nHeaderHash = block.GetKAWPOWHeaderHash();
+    const ethash::hash256 hashHeader = to_hash256(nHeaderHash);
+    const ethash::result resultProgPoW = progpow::hash(*context,
+                                                       (int) nHeight,
+                                                       hashHeader,
+                                                       block.nNonce64);
+    mix_hash = to_uint256(resultProgPoW.mix_hash);
+    return true;
+}
+
 bool CheckKawpowProofOfWork(const CBlock* pblock)
 {
     if (!pblock)
@@ -1856,12 +1952,42 @@ bool CheckKawpowProofOfWork(const CBlock* pblock)
     }
 
     // mix_hash is set by miner or deserialized from network.
-    // KAWPOWHash_OnlyMix() incorporates mix_hash into the final hash,
-    // so we only need to verify it meets the target.
+    // KAWPOWHash_OnlyMix() incorporates mix_hash into the final hash, so this
+    // is a necessary (cheap) target check either way. Doing it first -- before
+    // any DAG/epoch-context work -- means a block whose mix doesn't even meet
+    // target is rejected up front, same ordering as progpow::verify() itself
+    // (re-audit finding G01-N4: the original draft did the expensive mix
+    // recomputation before the cheap target check).
     uint256 calculatedHash = KAWPOWHash_OnlyMix(*pblock);
     if (calculatedHash > bnTarget.getuint256())
     {
         return error("CheckKawpowProofOfWork() : hash doesn't meet target");
+    }
+
+    // G01 fix (BRK_FORK009+, fork-gated consensus change): KAWPOWHash_OnlyMix()
+    // above is not sufficient on its own -- it folds the attacker-supplied
+    // mix_hash into two keccak rounds and trusts it, rather than rebuilding it
+    // from the epoch DAG, so proof-of-work was forgeable at keccak/CPU cost
+    // with no DAG (see Breakout-F1-KawPoW-Verification.md and the fix
+    // re-audit). From KawpowMixVerificationIsActive() on, recompute the
+    // genuine mix and require it to equal the block-supplied one. Gated on
+    // the block's OWN time, so every already-accepted historical KawPoW block
+    // still validates unchanged on reindex/replay.
+    if (KawpowMixVerificationIsActive((int64_t) pblock->nTime))
+    {
+        uint256 recomputedMix;
+        if (!KAWPOWRecomputeMixForValidation(*pblock, recomputedMix))
+        {
+            return error("CheckKawpowProofOfWork() : could not recompute the "
+                         "ProgPoW mix for this block (implausible height or "
+                         "epoch-context allocation failure)");
+        }
+        if (recomputedMix != pblock->mix_hash)
+        {
+            return error("CheckKawpowProofOfWork() : mix_hash does not match "
+                         "the ProgPoW mix recomputed from the DAG (forged "
+                         "proof-of-work)");
+        }
     }
 
     return true;
@@ -1874,11 +2000,32 @@ bool CheckProofOfWork(uint256 hash, unsigned int nBits, const CBlock* pblock)
         // Validate KAWPoW
         return CheckKawpowProofOfWork(pblock);
     }
-    else
+
+    // G15 fix (BRK_FORK010+, fork-gated consensus change): IsKawpowBlock() is
+    // a pure nVersion==KAWPOW_VERSION check with no time gate at all, so
+    // pre-fix, ANY block declaring a non-KawPoW nVersion falls through to the
+    // legacy CheckSHA256ProofOfWork() path below regardless of the block's
+    // own nTime -- including deep in the KawPoW era, where a genuine PoW
+    // block declaring nVersion != KAWPOW_VERSION is not "an old-style block"
+    // but an attempt to validate cheap SHA256/scrypt work as if it were
+    // costly KawPoW work, completely bypassing CheckKawpowProofOfWork() (and
+    // therefore G01's mix-verification hardening too). From
+    // KawpowVersionEnforcementIsActive() on, reject such a block outright
+    // instead of silently falling back. Gated on the block's OWN time, same
+    // discipline as G01's own fix, so every already-accepted historical
+    // block (all correctly-versioned, per mainnet chain scan) still
+    // validates unchanged on reindex/replay.
+    if (pblock && KawpowVersionEnforcementIsActive((int64_t) pblock->nTime))
     {
-        // Use existing SHA256 validation
-        return CheckSHA256ProofOfWork(hash, nBits);
+        return error("CheckProofOfWork() : block claims proof-of-work with "
+                     "nVersion=%d at nTime=%u, past KawPoW version "
+                     "enforcement -- non-KawPoW-versioned PoW is no longer "
+                     "accepted this late (G15 fix)",
+                     pblock->nVersion, pblock->nTime);
     }
+
+    // Use existing SHA256 validation
+    return CheckSHA256ProofOfWork(hash, nBits);
 }
 
 
@@ -1943,6 +2090,46 @@ uint256 CBlock::GetKAWPOWHeaderHash() const
     return SerializeHash(input);
 }
 
+// G13 fix (local-safety, non-consensus): KAWPOWHash()'s epoch context used to
+// be a bare function-local "static ethash::epoch_context_ptr pcontext" with
+// no synchronization at all. epoch_context_ptr is a
+// std::unique_ptr<epoch_context, decltype(&ethash_destroy_epoch_context)>
+// (src/ethash/include/ethash/ethash.hpp) -- reassigning it on an epoch
+// change frees the old context out from under any other thread still
+// reading through *pcontext, and two threads can each decide to
+// create_epoch_context()/free() concurrently. This is directly reachable
+// from ordinary multi-threaded local mining: StartKawpowMining() (miner.cpp)
+// spawns nThreads concurrent mining threads, where nThreads defaults to
+// GetNumCores() -- i.e. multi-threaded mining is the *default* configuration
+// for any multi-core node operator who enables KawPoW mining, not an
+// adversarial edge case. (An earlier code comment on this function claimed
+// it was "single-threaded by construction" -- that assumption was wrong
+// given this default multi-threaded mining path; this fix comment
+// supersedes it.) It is also reachable from getwork()'s unconditional
+// CheckWork() call, and can race the block-validation path's own epoch
+// lookup (see mapValidationEpochCache above, added by the G01 fix for
+// exactly this class of hazard on the validation side -- this static was
+// deliberately left alone by that fix, so it kept the hazard on the mining
+// side).
+//
+// Fix: give KAWPOWHash() its own mutex-guarded cache, mirroring
+// mapValidationEpochCache/cs_ValidationEpochCache above (and the
+// already-guarded mining_epoch_cache/epoch_cache patterns in
+// miner.cpp/rpcmining.cpp) exactly -- a std::map<epoch, shared_ptr<...>>
+// keyed by epoch number, guarded by a dedicated CCriticalSection, capped at
+// the same 2-latest-epochs bound, with the unique_ptr's raw pointer
+// re-wrapped in a shared_ptr using the same custom deleter
+// (ethash_destroy_epoch_context) so ownership semantics are preserved. A
+// local shared_ptr copy is taken while holding the lock and kept alive for
+// the whole progpow::hash() call below, so a concurrent evicting thread can
+// never free a context another thread is still using. This is a pure
+// synchronization fix: for any single-threaded caller, the epoch selected
+// and the context contents used are identical to before, so the returned
+// mix_hash/final_hash pair is unchanged (verified below and in the repro
+// evidence in g13-g18-fix-repro/).
+static std::map<int, std::shared_ptr<ethash_epoch_context> > mapKAWPOWHashEpochCache;
+static CCriticalSection cs_KAWPOWHashEpochCache;
+
 uint256 KAWPOWHash(const CBlock& block, uint256& mix_hash)
 {
     // context is used to create the mix_hash, and is created
@@ -1951,16 +2138,37 @@ uint256 KAWPOWHash(const CBlock& block, uint256& mix_hash)
     // if the mix_hash is known, then context is not necessary,
     //    using hash_no_verify() in KAWPOWHash_OnlyMix(), however
     //    nHeight is still used in the hash for the mix_hash
-    static ethash::epoch_context_ptr pcontext{nullptr, nullptr};
-
     int nHeight = block.nHeight;
 
     const int nEpoch = ethash::get_epoch_number(nHeight);
 
-    if (!pcontext || (pcontext->epoch_number != nEpoch))
+    std::shared_ptr<ethash_epoch_context> pcontext;
     {
-        pcontext = ethash::create_epoch_context(nEpoch);
+        LOCK(cs_KAWPOWHashEpochCache);
+        std::map<int, std::shared_ptr<ethash_epoch_context> >::iterator it =
+            mapKAWPOWHashEpochCache.find(nEpoch);
+        if (it != mapKAWPOWHashEpochCache.end())
+        {
+            pcontext = it->second;
+        }
+        else
+        {
+            ethash::epoch_context_ptr uniqueContext = ethash::create_epoch_context(nEpoch);
+            pcontext = std::shared_ptr<ethash_epoch_context>(
+                uniqueContext.release(), ethash_destroy_epoch_context);
+            mapKAWPOWHashEpochCache[nEpoch] = pcontext;
+            // Keep 2 latest epochs, same bound as mapValidationEpochCache /
+            // mining_epoch_cache / epoch_cache.
+            if (mapKAWPOWHashEpochCache.size() > 2)
+            {
+                mapKAWPOWHashEpochCache.erase(mapKAWPOWHashEpochCache.begin());
+            }
+        }
     }
+    // pcontext is a local shared_ptr copy taken while holding the lock, so
+    // it keeps the epoch context alive for the whole of progpow::hash()
+    // below even if another thread concurrently evicts/replaces it in the
+    // map.
 
     uint256 nHeaderHash = block.GetKAWPOWHeaderHash();
     const ethash::hash256 hashHeader = to_hash256(nHeaderHash);
@@ -4927,9 +5135,110 @@ bool CBlock::SignBlock(CWallet& wallet, int64_t nFees[])
     // vtx[0];
     CTransaction txCoinStake;
 
-    // ADVISORY: note static
-    static int nNotStakeTimestampMask = ~GetStakeTimestampMask();
-    txCoinStake.nTime &= nNotStakeTimestampMask;
+    // K2 fix: the mask is fork-era dependent, so it must be derived from the
+    // timestamp the VALIDATOR will judge -- that is, the FINAL rounded-down value,
+    // not the pre-round-down clock. (It was a one-time `static` cache, which froze
+    // the pre-fork mask forever; keying it on the raw clock instead was also wrong,
+    // see below.)
+    //
+    // Why two passes -- and the PRECONDITION that makes two of them enough.
+    //
+    // PRECONDITION: GetStakeTimestampMask is a two-valued step function with
+    // exactly ONE threshold, i.e. there is exactly ONE mask-changing fork
+    // (BRK_FORK008). Two passes suffice BECAUSE of that, together with the fact
+    // that `x &= ~m` is IDEMPOTENT for a fixed m. Writing P for the pre-fork mask,
+    // M for the post-fork mask, A for the activation, and t1/t2 for the results of
+    // passes 1 and 2:
+    //   n <  A : mask is P; t1 = n & ~P <= n < A, so era(t1) == era(n), t2 == t1.
+    //   n >= A : mask is M; t1 = n & ~M already has every bit of M clear, so
+    //            if t1 >= A, the era is still post-fork and t2 == t1 by idempotence;
+    //            if t1 <  A, then t2 = t1 & ~P <= t1 < A and t2 & P == 0.
+    // In every branch era(t2) == era(t1), which is precisely what makes pass 2's
+    // mask the one the validator will apply. No loop is needed.
+    //
+    // What does NOT establish this, though both statements are true and both are
+    // used above: that rounding down only moves a timestamp EARLIER, and that
+    // GetFork() is monotonic non-decreasing. Those two permit era(t2) < era(t1) and
+    // so do not on their own entail that two passes are a fixed point. It is the
+    // single threshold plus idempotence that close it. A cold re-audit constructed a
+    // monotone THREE-era ladder with non-nested masks, satisfying both of those
+    // statements, on which two passes leave an INVALID timestamp and a third pass is
+    // required.
+    //
+    // THEREFORE, IF ANY FURTHER MASK-CHANGING FORK IS EVER ADDED, the precondition
+    // lapses and two passes are no longer sufficient in general.
+    //
+    // DO NOT reason about that case in prose. Three consecutive revisions of this
+    // comment tried to describe the safe and unsafe classes in words and got it wrong
+    // three times, in both directions -- once naming the unsafe class as safe, once
+    // calling safe classes broken, once calling a rule an accident. Evaluate the
+    // condition instead.
+    //
+    // EXACT CONDITION. Write P for the pre-BRK_FORK008 mask, M for the mask this fork
+    // introduces, and N for the mask a LATER mask-changing fork would introduce. Two
+    // passes remain sufficient for EVERY representable timestamp IF AND ONLY IF
+    //
+    //     (N & M) == M   ||   ((N | M) & P) == P   ||   N == 0
+    //
+    // This is exact -- an iff, not a sufficient-condition heuristic. Verified against
+    // a brute-force search over every (P, M, N) triple for 5-bit and 6-bit masks with
+    // ZERO mismatches, and derived independently. The derivation is the part worth
+    // remembering if the formula is ever in doubt: the ONLY way two passes can fail
+    // is a clock at or after the newest activation whose PASS-1 result lands in the
+    // MIDDLE era, and whose PASS-2 result then falls below the FIRST activation while
+    // still carrying a bit that P tests. The three clauses are exactly the three ways
+    // to block that path -- clause 1 leaves pass 2 nothing to do (pass 1 already
+    // cleared every bit of M), clause 2 makes the two passes between them clear every
+    // bit of P, and clause 3 makes pass 1 a no-op so the value never leaves its era.
+    //
+    // If the condition does NOT hold, these two lines must become a loop to a fixed
+    // point. Do not substitute an intuition about "tightening" or "coarsening" for the
+    // formula: with the P = 17 and M = 3 this fork actually ships, N = 7 qualifies
+    // under clause 1; N = 16 qualifies under clause 2 despite being neither a superset
+    // nor a subset of M; and N = 2 does not qualify at all. Classifying by eye is what
+    // failed three times. The formula is one line -- evaluate it.
+    //
+    // Worked failing example -- a ladder P -> M -> N stacked on this fork, whose N does
+    // NOT satisfy the condition. N = 1: (1 & 3) != 3, ((1 | 3) & 17) == 1 != 17,
+    // and N != 0, so all three clauses fail:
+    //   eras: 17 -> 3 at A1 -> 1 at A2, with A1 = 1800000017 and A2 = 1800000019
+    //   n = 1800000019 -> pass 1 (mask 1) -> 1800000018 -> pass 2 (mask 3) -> 1800000016
+    //   the validator judges that in the PRE-FORK era, under mask P = 17:
+    //   1800000016 & 17 == 16 -> REJECT.
+    //   A third pass gives 1800000000, which IS valid there (& 17 == 0).
+    //
+    // SCOPE -- READ THIS BEFORE REUSING THE CONDITION. It covers exactly ONE future
+    // mask-changing fork, i.e. THREE eras in total (P, M, N). It does NOT generalise
+    // to a FOURTH ERA by inspection, and checking only SOME of the triples is NOT
+    // sufficient:
+    // a failure can SKIP the middle era, so the triple that decides it may be one
+    // nobody thought to evaluate. Worked instance -- P = 17, M = 3 at A1, N = 19 at
+    // A2, Q = 2 at A3 = A1 + 2, and A1 == 17 (mod 32): (P,M,N) and (P,N,Q) both
+    // satisfy the condition -- and so does (M,N,Q), so the witness does not depend on
+    // which cheaper subset you pick -- while (P,M,Q) does not, and a
+    // clock of A3 rounds to A1 and then below it, to a value P rejects. The residue
+    // matters -- this path needs A1 == 17, 21, 25 or 29 (mod 32), 4 of the 32. It is
+    // a WITNESS that the cheaper check is unsound, not a claim about every A1.
+    //
+    // So if a FOURTH ERA is ever added -- P, M, N and then Q -- DO NOT extend the
+    // formula.
+    // Replace these two lines with a LOOP to a fixed point. That is unconditionally
+    // safe and needs no case analysis: each pass is non-increasing and bounded below,
+    // so it terminates, and at the fixed point the timestamp satisfies its own era's
+    // mask by definition.
+    //
+    // Without pass 2 the staker emits coinstakes its OWN network rejects, in a
+    // 1-3 s window at the boundary, for 12 of the 32 possible values of
+    // FORK_008_TIME mod 32. Worked example: with activation at 1800032017 a clock
+    // of 1800032017 rounds under the post-fork mask to 1800032016, which the
+    // validator then judges PRE-fork, where 1800032016 & 17 == 16 != 0 -> reject.
+    //
+    // Choosing an activation time with FORK_008_TIME % 4 == 0 also closes that
+    // window, but is NOT relied on here: it cannot be asserted at compile time
+    // because the inert sentinel i64::MAX is itself == 3 (mod 4). The code fix is
+    // unconditional and does not depend on how the activation time is chosen.
+    txCoinStake.nTime &= ~GetStakeTimestampMask(txCoinStake.nTime);
+    txCoinStake.nTime &= ~GetStakeTimestampMask(txCoinStake.nTime);
 
     int64_t nSearchTime = vtx[0].nTime = txCoinStake
                                              .nTime;  // search to current time

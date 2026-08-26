@@ -68,6 +68,12 @@ enum ForkNumbers
     BRK_FORK005,
     BRK_FORK006,
     BRK_FORK007,  // KawPow
+    BRK_FORK008,  // PoS kernel hardening: K1 target clamp + K2 timestamp mask
+    BRK_FORK009,  // KawPoW hardening (G01): verify ProgPoW mix_hash against DAG
+    BRK_FORK010,  // KawPoW version-dispatch enforcement (G15): reject a PoW
+                  // block whose own nTime is past FORK007 but which does not
+                  // declare nVersion == KAWPOW_VERSION, instead of silently
+                  // falling back to the legacy SHA256/scrypt PoW check
     TOTAL_FORKS
 };
 
@@ -278,6 +284,30 @@ extern std::vector<std::map<valtype, int> > MAPS_COLOR_ID;
 
 int GetFork(int64_t nTime);
 
+// G01 fix (KawPoW mix verification): whether a block with this own nTime must
+// have its ProgPoW mix_hash checked against the epoch DAG rather than trusted
+// from the wire. Deliberately NOT expressed as GetFork(nTime) >= BRK_FORK009:
+// GetFork()'s ladder stops at the first fork whose time exceeds nTime, so
+// while FORK_008_TIME remains unscheduled (i64::MAX) the ladder can never
+// reach BRK_FORK009 regardless of FORK_009_TIME -- re-audit finding G01-N1.
+// This predicate tests FORK_009_TIME directly so the PoW fix can be scheduled
+// independently of the unrelated PoS kernel fork.
+bool KawpowMixVerificationIsActive(int64_t nTime);
+
+// G15 fix (KawPoW version-dispatch bypass): whether a proof-of-work block
+// with this own nTime MUST declare nVersion == KAWPOW_VERSION to be accepted
+// at all. Pre-fix, CBlock::IsKawpowBlock() (the switch CheckProofOfWork() uses
+// to choose the strong KawPoW check vs. the legacy SHA256/scrypt check) is a
+// pure nVersion==KAWPOW_VERSION comparison with no time gate whatsoever -- a
+// block can declare any earlier nVersion, at any nTime including deep in the
+// KawPoW era, and validate via the legacy path instead, completely bypassing
+// CheckKawpowProofOfWork() (and therefore G01's mix-verification hardening
+// too). Same reasoning as KawpowMixVerificationIsActive() above: expressed
+// as its own directly-tested time boundary, NOT as GetFork(nTime) >=
+// BRK_FORK010, so it can be scheduled independently of the ladder (and of
+// FORK_009_TIME/FORK_008_TIME's status).
+bool KawpowVersionEnforcementIsActive(int64_t nTime);
+
 int GetMinPeerProtoVersion(int64_t nTime);
 
 bool GetColorFromTicker(const std::string &ticker, int &nColorIn);
@@ -312,7 +342,13 @@ bool AppendColorBytes(int n, valtype &vch);
 CBigNum GetTargetLimit(bool fProofOfStake, unsigned int nTime);
 int64_t GetTargetSpacing(bool fProofOfStake, int64_t nTime);
 int GetCoinbaseMaturity();
-int GetStakeTimestampMask();
+int GetStakeTimestampMask(int64_t nTime);
+// PoS-K1 (BRK_FORK008): ceiling exponent for the weighted kernel target so
+// staking never becomes deterministic. 2^255 => max per-slot win prob = 1/2.
+// OWNER-TUNABLE (lower => stronger anti-grinding, less card dominance).
+// It bounds determinism only; it does NOT restore proportionality -- see the K1
+// comment in CheckStakeKernelHash for what that means for large holders.
+static const unsigned int KERNEL_TARGET_CEILING_BITS = 255;
 
 #if PROOF_MODEL == PURE_POS
 int GetLastPoWBlock();

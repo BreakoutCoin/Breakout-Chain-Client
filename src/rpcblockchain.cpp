@@ -72,7 +72,9 @@ double GetPoSKernelPS()
     if (nStakesTime)
         result = dStakeKernelsTriedAvg / nStakesTime;
 
-    result *= GetStakeTimestampMask() + 1;
+    // Display/stats only (PoS kernels-per-second). Use the tip's fork era.
+    result *= GetStakeTimestampMask(pindexBest ? pindexBest->nTime
+                                               : GetAdjustedTime()) + 1;
 
     return result;
 }

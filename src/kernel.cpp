@@ -319,6 +319,49 @@ bool CheckStakeKernelHash(CBlockIndex* pindexPrev, unsigned int nBits, const CBl
 
     bnTarget *= GetWeightMultiplier(nColor, pindexPrev->nTime);
 
+    // K1 fix (BRK_FORK008+, fork-gated consensus change): keep staking a lottery.
+    // Without this, a high-weight input (notably a deck card: value*nCW) can push
+    // the weighted target at/above the 256-bit hash space, so hashProofOfStake >
+    // bnTarget is ALWAYS false and the input wins EVERY masked timestamp
+    // (deterministic block production). Cap the effective target strictly below
+    // the hash space. This does NOT rescale card weight (nCW is untouched).
+    //
+    // THIS IS NOT A NO-OP IN NORMAL OPERATION. An earlier revision of this comment
+    // claimed it only bounds a degenerate low-difficulty regime; that claim was
+    // checked against live mainnet data and is FALSE. Measured: at height 1,200,000
+    // a single deck card's weighted target was ~2^280 -- i.e. always-win, on the
+    // real chain, not a hypothetical. At the tip as of h=1,468,360 the margin was
+    // only about 1-2 bits, and a single BRX output of ~2.57M coins is clamped by
+    // this ceiling TODAY. Activating BRK_FORK008 therefore CHANGES LIVE STAKING OUTCOMES for
+    // large holders: it converts deterministic winning back into a lottery capped
+    // at p = 1/2 per eligible slot. That is the intended effect, but it must be
+    // stated in the activation's impact assessment rather than described as
+    // behaviour-neutral.
+    //
+    // WHAT 2^255 DOES AND DOES NOT BUY. It BOUNDS DETERMINISM; it does NOT restore
+    // proportionality. Once a holder's weighted target reaches the ceiling it still
+    // wins ~1/2 of its eligible slots no matter how far above the ceiling its raw
+    // weighted target would have gone -- weight above the cap is DISCARDED, not
+    // rescaled -- and if several such holders exist they each win ~1/2 and the race
+    // between them is settled by propagation rather than by stake. That is a choice
+    // of semantics the owner should sign off on knowingly, not a property that falls
+    // out of the value: KERNEL_TARGET_CEILING_BITS is tunable, and a lower ceiling
+    // gives a proportionally lower per-slot cap.
+    //
+    // The tip margin quoted above is a TIME-VARYING quantity: it moves with the PoS
+    // retarget, and a modest swing puts deck cards back into the always-win regime.
+    // Re-measure it against the then-current tip when scheduling; do not cite this
+    // note as though it were a standing figure.
+    if (GetFork(nTimeTx) >= BRK_FORK008)
+    {
+        static const CBigNum bnKernelTargetCeiling =
+            (CBigNum(1) << KERNEL_TARGET_CEILING_BITS);
+        if (bnTarget > bnKernelTargetCeiling)
+        {
+            bnTarget = bnKernelTargetCeiling;
+        }
+    }
+
     // Now check if proof-of-stake hash meets target protocol
     if (CBigNum(hashProofOfStake) > bnTarget)
     {
@@ -379,7 +422,8 @@ bool CheckProofOfStake(CBlockIndex* pindexPrev, const CTransaction& tx, unsigned
 // Check whether the coinstake timestamp meets protocol
 bool CheckCoinStakeTimestamp(int64_t nTimeBlock, int64_t nTimeTx)
 {
-    int nStakeTimestampMask = GetStakeTimestampMask();
+    // K2 fix: mask is fork-gated on the block's own time (BRK_FORK008+ => 0x03).
+    int nStakeTimestampMask = GetStakeTimestampMask(nTimeBlock);
     return (nTimeBlock == nTimeTx) && ((nTimeTx & nStakeTimestampMask) == 0);
 }
 

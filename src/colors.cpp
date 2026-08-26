@@ -1,5 +1,7 @@
 // Copyright 2015-2017 James C. Stroud
 
+#include <stdlib.h>
+
 #include "colors.h"
 
 using namespace std;
@@ -40,6 +42,57 @@ static const int64_t FORK_006_TIME = 1526619600;
 // New KawPow proof-of-work (from Raven & Ethereum)
 const int64_t nKAWPOWActivationTime = 1777836782;  // asdf
 static const int64_t FORK_007_TIME = nKAWPOWActivationTime;
+
+// PoS kernel hardening (K1 weighted-target clamp + K2 contiguous timestamp mask).
+// UNSCHEDULED / INERT: activation time is i64::MAX, so behavior is byte-for-byte
+// unchanged as shipped. Precisely: GetFork(nTime) returns BRK_FORK008 only for
+// nTime == i64::MAX exactly -- it is NOT true that GetFork() can never return it.
+// The gate is unreachable, by whichever of two bounds applies to a given caller.
+// Where the argument is a block or transaction timestamp -- serialised as
+// `unsigned int` -- the bound is the argument TYPE, which cannot represent i64::MAX.
+// Where the argument is a wall clock -- an int64_t -- the bound is instead that
+// GetAdjustedTime() returns GetTime() plus an offset util.cpp clamps to under 70
+// minutes; that is WEAKER, because it rests on the clock rather than on the type.
+// DO NOT restate either bound as though it covered every caller, and DO NOT try to
+// enumerate the callers in this comment. A version of this sentence saying "every"
+// stood here through seven re-audits, one of which graded it true; its replacement,
+// which named a single exception, was itself incomplete. Derive the caller set from
+// the source when you need it, and follow INDIRECT paths as well as direct ones:
+// the accessor below and KawpowIsActive() are two functions that each forward a
+// caller's argument into GetFork(), and this list is illustrative, not complete.
+// The guarantee rests on the CALLERS' argument range, not on
+// the fork table. The owner sets a real
+// activation time ONLY AFTER a cold fix-diff re-audit. Do NOT ship scheduled.
+static const int64_t FORK_008_TIME = 9223372036854775807LL;  // i64::MAX (inert)
+
+// KawPoW mix-verification hardening (G01): make consensus recompute the
+// ProgPoW mix from the epoch DAG and require it to equal the block-supplied
+// mix_hash, so proof-of-work can no longer be forged at keccak cost.
+// UNSCHEDULED / INERT: activation time is i64::MAX. Activation is gated by
+// KawpowMixVerificationIsActive(), NOT by GetFork() >= BRK_FORK009 (see that
+// function's comment / re-audit finding G01-N1), so this can be scheduled
+// independently of FORK_008_TIME. The owner sets a real activation time ONLY
+// AFTER a cold fix-diff re-audit and an armed-testnet forged-reorg test.
+// Do NOT ship scheduled.
+static const int64_t FORK_009_TIME = 9223372036854775807LL;  // i64::MAX (inert)
+
+// KawPoW version-dispatch enforcement (G15): CBlock::IsKawpowBlock() (which
+// CheckProofOfWork() uses to pick the strong KawPoW check vs. the legacy
+// SHA256/scrypt check) is a pure nVersion==KAWPOW_VERSION test with no time
+// gate at all -- pre-fix, a PoW block can declare any earlier nVersion, at
+// any nTime including deep in the KawPoW era, and validate via the legacy
+// path, bypassing CheckKawpowProofOfWork() (and G01's fix) entirely. This is
+// a DIFFERENT, PRE-EXISTING gap from G01 (which is about mix_hash not being
+// verified once the strong path IS entered) -- G15 is about the strong path
+// never being entered at all for a block that simply lies about its version.
+// UNSCHEDULED / INERT: activation time is i64::MAX. Activation is gated by
+// KawpowVersionEnforcementIsActive(), NOT by GetFork() >= BRK_FORK010, for
+// the same reason as BRK_FORK009 (re-audit finding G01-N1): the ladder below
+// stalls behind FORK_008_TIME while it remains unscheduled, so this must be
+// schedulable independently. The owner sets a real activation time ONLY
+// AFTER a cold fix-diff re-audit and an armed-testnet forged/downgraded-PoW
+// test. Do NOT ship scheduled.
+static const int64_t FORK_010_TIME = 9223372036854775807LL;  // i64::MAX (inert)
 
 
 //////////////////////////////////////////////////////////////////////
@@ -115,8 +168,37 @@ static const int FIRST_POS_BLOCK_TESTNET = 1;
 
 // To decrease granularity of timestamp
 // Relative prime to block spacing target
+// NOTE (K2): 17 = 0b10001 is NOT a contiguous low-bit mask. (nTimeTx & 17)==0 pins
+// only bits 0 and 4, admitting residues {0,2,4,6,8,10,12,14} mod 32 -- 8 slots per
+// 32s (1024 per 4096s) at NON-UNIFORM spacing: seven 2s steps, then an 18s gap.
+// An earlier revision of this note claimed the non-contiguity costs "~4x weaker
+// stake-grinding resistance". That claim was MEASURED (cold pass, 2026-08-21) and
+// is FALSE: reachable stake modifiers are 2^(64*f) for attacker block share f, and
+// are FLAT across a 128x span of timestamp granularity -- the 64 is the modifier
+// ROUND COUNT in ComputeNextStakeModifier, not a time quantity. Grinding capacity
+// is governed by f, which this mask does not touch. Kept for pre-BRK_FORK008
+// consensus.
 static const int STAKE_TIMESTAMP_MASK = 17;
 static const int STAKE_TIMESTAMP_MASK_TESTNET = 1;
+// K2 fix (BRK_FORK008+): contiguous 2-bit mask => uniform 4s spacing, residues
+// {0,4,8,12,16,20,24,28} mod 32. 1024 slots per 4096s -- the SAME slot count as
+// the shipped mask 17, so equilibrium PoS block trust and chain-trust accrual rate
+// are UNCHANGED. The rationale is NOT anti-grinding (see above); it is that the
+// uniform mask removes the 2s burst / 18s dead-zone structure at zero cost to
+// chain trust.
+// A coarser 0xf was drafted and REJECTED on measurement: 4x fewer slots => 4.0x
+// lower PoS block trust => 4.0x cheaper to reorg, bought only a 1.12x reduction in
+// grinding advantage. Note that is not in tension with "this mask does not touch
+// grinding capacity" above: CAPACITY (the reachable modifier count, 2^(64*f)) is
+// flat in timestamp granularity, while the residual ADVANTAGE carries a weak
+// dependence on it. The 1.12x is that residual, not a change in capacity.
+// Do not reintroduce 0xf without new evidence.
+// SCOPE -- this value replaces the mask on BOTH NETWORKS from BRK_FORK008 onward:
+// mainnet 17 -> 3 and TESTNET 1 -> 3 (see GetStakeTimestampMask). Post-activation
+// testnet PoS therefore goes from 16 slots per 32s to 8, halving testnet PoS block
+// trust and chain-trust accrual rate. That is a consensus change to testnet, and it
+// is deliberate. Pre-activation behaviour on both networks is unchanged.
+static const int STAKE_TIMESTAMP_MASK_NEW = 0x03;
 
 // MODIFIER_INTERVAL_RATIO:
 // ratio of group interval length between the last group and the first group
@@ -925,7 +1007,22 @@ vector<int> GUI_DECK_COLORS;
 int GetFork(int64_t nTime)
 {
     // Make sure Heights are ascending!
-    const int64_t aForks[TOTAL_FORKS][2] = {
+    //
+    // BRK_FORK009 (G01 KawPoW mix verification) and BRK_FORK010 (G15 KawPoW
+    // version-dispatch enforcement) are DELIBERATELY NOT rows in this table
+    // -- see KawpowMixVerificationIsActive() / KawpowVersionEnforcementIsActive()
+    // below and re-audit finding G01-N1. This ladder assumes each fork is
+    // scheduled only after every earlier one, which is wrong for either of
+    // them: both must be activatable independently of the still-unscheduled
+    // BRK_FORK008 (an unrelated PoS-kernel change) and of each other. Folding
+    // either in here (even bypassing the *lookup*) would still poison an
+    // ascending-order self-check across the whole table, since scheduling
+    // one alone is supposed to produce exactly the "later fork earlier than
+    // an unscheduled earlier one" pattern that self-check exists to catch
+    // elsewhere. So both have their own gate, entirely outside this ladder
+    // and this table.
+    const int nForksInLadder = TOTAL_FORKS - 2; // excludes BRK_FORK009, BRK_FORK010
+    const int64_t aForks[9][2] = {
     //                                   Time,         Fork Number
                                {    BRK_GENESIS_TIME,  BRK_GENESIS},
                                {       FORK_001_TIME,  BRK_FORK001},
@@ -934,18 +1031,90 @@ int GetFork(int64_t nTime)
                                {       FORK_004_TIME,  BRK_FORK004},
                                {       FORK_005_TIME,  BRK_FORK005},
                                {       FORK_006_TIME,  BRK_FORK006},
-                               {       FORK_007_TIME,  BRK_FORK007}
+                               {       FORK_007_TIME,  BRK_FORK007},
+                               {       FORK_008_TIME,  BRK_FORK008}
                                            };
+    static_assert(sizeof(aForks) / sizeof(aForks[0]) == 9,
+                  "aForks must have exactly TOTAL_FORKS - 2 rows "
+                  "(BRK_FORK009 and BRK_FORK010 are deliberately excluded)");
 
     // if (fTestNet)
     // {
     //     return (int) TOTAL_FORKS;
     // }
 
+    // Re-audit finding G01-N1: the "Make sure Heights are ascending!" comment
+    // above was unenforced. A later fork scheduled behind an earlier,
+    // still-unscheduled (i64::MAX) fork can never be reached by the loop
+    // below, silently. Check once per process and abort loudly rather than
+    // let a fork silently fail to activate. (Scoped to this ladder only --
+    // BRK_FORK009 and BRK_FORK010 are intentionally exempt, see above.)
+    static const bool fForksAscendingChecked = [&aForks, nForksInLadder]() -> bool
+    {
+        for (int i = 1; i < nForksInLadder; ++i)
+        {
+            if (aForks[i][0] < aForks[i-1][0])
+            {
+                fprintf(stderr, "FATAL: fork activation times are not "
+                                "ascending (aForks[%d]=%lld < "
+                                "aForks[%d]=%lld)\n",
+                                i, (long long) aForks[i][0],
+                                i - 1, (long long) aForks[i-1][0]);
+                abort();
+            }
+        }
+        return true;
+    }();
+    (void) fForksAscendingChecked;
+
+    // G18 fix (local startup-safety, non-consensus): BRK_FORK009 (G01,
+    // KawPoW mix-hash verification) and BRK_FORK010 (G15, KawPoW
+    // version-dispatch enforcement) are deliberately excluded from the
+    // aForks ladder above and independently schedulable via
+    // KawpowMixVerificationIsActive()/KawpowVersionEnforcementIsActive() --
+    // see those functions and the FORK_009_TIME/FORK_010_TIME comments.
+    // But activating G15 (FORK_010_TIME) alone, while G01 (FORK_009_TIME)
+    // remains unscheduled or is scheduled LATER, provides ZERO protection
+    // against G01's own bug: a KawPoW-*declared* block never reaches G15's
+    // check at all (G15 only fires for legacy-declared blocks), so its
+    // mix_hash is never recomputed/verified unless FORK_009_TIME has also
+    // activated by the time FORK_010_TIME does. The reverse composition
+    // (G01 first, or both together) is safe. This mirrors the exact same
+    // "silently misordered gates" hazard the ascending-ladder self-check
+    // above exists to catch -- same remedy: check once per process and
+    // abort loudly rather than let the owner accidentally ship a
+    // false-sense-of-security configuration. Valid states: both still
+    // i64::MAX (today's shipped, fully inert state); both scheduled with
+    // FORK_009_TIME <= FORK_010_TIME (G01 first, or activated together).
+    // Invalid: FORK_010_TIME scheduled to a real time while FORK_009_TIME
+    // remains i64::MAX, or FORK_009_TIME scheduled later than
+    // FORK_010_TIME. Does not change GetFork()'s return value or any
+    // consensus decision -- it only aborts an obviously-misconfigured
+    // build before it can run.
+    static const bool fKawpowActivationOrderChecked = []() -> bool
+    {
+        if (FORK_010_TIME < FORK_009_TIME)
+        {
+            fprintf(stderr, "FATAL: KawPoW activation gates are "
+                            "misordered -- FORK_010_TIME (G15, version-"
+                            "dispatch enforcement) = %lld is scheduled "
+                            "before FORK_009_TIME (G01, mix-hash "
+                            "verification) = %lld. Activating G15 alone "
+                            "provides zero protection against G01's bug. "
+                            "FORK_009_TIME must be <= FORK_010_TIME "
+                            "(G01 first, or both together).\n",
+                            (long long) FORK_010_TIME,
+                            (long long) FORK_009_TIME);
+            abort();
+        }
+        return true;
+    }();
+    (void) fKawpowActivationOrderChecked;
+
     // loop has strange logic, but if fork i time is greater than
     // nTime then you are on fork i-1
     int nFork = aForks[0][1];
-    for (int i = 1; i < TOTAL_FORKS; ++i)
+    for (int i = 1; i < nForksInLadder; ++i)
     {
        if (aForks[i][0] > nTime)
        {
@@ -954,6 +1123,16 @@ int GetFork(int64_t nTime)
        nFork = aForks[i][1];
     }
     return (int) nFork;
+}
+
+bool KawpowMixVerificationIsActive(int64_t nTime)
+{
+    return nTime >= FORK_009_TIME;
+}
+
+bool KawpowVersionEnforcementIsActive(int64_t nTime)
+{
+    return nTime >= FORK_010_TIME;
 }
 
 
@@ -1268,8 +1447,72 @@ int GetCoinbaseMaturity()
     return fTestNet ? nCoinbaseMaturityTestNet : nCoinbaseMaturity;
 }
 
-int GetStakeTimestampMask()
+int GetStakeTimestampMask(int64_t nTime)
 {
+   // K2 fix: contiguous mask from BRK_FORK008 onward (fork-gated consensus change).
+   //
+   // ACTIVATION IS NOT A PURE TIGHTENING -- it is LATERAL. Mask 17 admits residues
+   // {0,2,4,6,8,10,12,14} mod 32; mask 0x03 admits {0,4,8,12,16,20,24,28}. Only
+   // {0,4,8,12} are common. At activation {16,20,24,28} become NEWLY VALID and
+   // {2,6,10,14} become NEWLY INVALID, with the slot count identical (8 per 32s)
+   // on both sides. Half the lattice is discarded and replaced at constant
+   // cardinality.
+   //
+   // CONSEQUENCE FOR A NODE THAT HAS NOT UPGRADED -- it diverges BOTH ways: it
+   // rejects roughly half of the upgraded network's PoS blocks, AND it accepts (and
+   // produces) blocks the upgraded network rejects. Both directions matter; do not
+   // describe this as failing in only one of them.
+   // The rejection is not silent, but neither is it harmless: it runs through
+   // CheckBlock -> DoS(50), and the default -banscore is 100, so TWO offending
+   // blocks ban the peer. The practical outcome is mutual banning and a clean
+   // partition of the network along the upgrade line, not a slow drift.
+   // EVERY node must upgrade before FORK_008_TIME. Do not schedule without an
+   // upgrade window sufficient for that.
+   //
+   // The fork gate is deliberately tested BEFORE the testnet short-circuit, so that
+   // both halves of BRK_FORK008 (K1 in CheckStakeKernelHash and K2 here) have the
+   // SAME testnet semantics. If the testnet check came first, K2 could never
+   // activate on testnet while K1 -- which has no testnet short-circuit, and whose
+   // GetFork() has no testnet branch either -- still would, leaving the two halves
+   // of one fork gate diverging by network.
+   //
+   // Pre-activation testnet behaviour is UNCHANGED (still mask 1). Post-activation,
+   // testnet uses 3 rather than 1. That is a CONSENSUS CHANGE TO TESTNET (see the
+   // STAKE_TIMESTAMP_MASK_NEW note); it is intended, and it is the owner's call to
+   // make explicitly rather than something this comment can settle.
+   //
+   // THE TESTNET REHEARSAL IS PARTIAL -- do not read the above as "the activation
+   // can be rehearsed on testnet" without that qualification. Testnet's transition
+   // is 1 -> 3, a PURE TIGHTENING: every post-fork slot (multiples of 4) was already
+   // a valid pre-fork slot (evens). Mainnet's is 17 -> 3, the LATERAL half-swap
+   // described above. So a testnet rehearsal does exercise the gate, the fork
+   // plumbing, and K1's CODE PATH -- though NOT the magnitude of K1's live-staking
+   // impact, which is a function of the network's own nBits and so differs on
+   // testnet. And it CANNOT exercise K2's actual hazard, because a tightening
+   // diverges in only ONE direction: the both-ways divergence and the MUTUAL
+   // DoS(50) partition cannot arise on testnet at all.
+   //
+   // That is not the same as "no ban hazard on testnet", and do not read it as such.
+   // A ONE-WAY hazard remains: post-activation an upgraded testnet node rejects the
+   // roughly half of a straggler's PoS blocks that land on odd multiples of 2, and
+   // DoS(50) against the default -banscore of 100 still bans the straggler after
+   // two of them. What testnet cannot show you is the straggler doing the same thing
+   // back -- which on mainnet is exactly what turns divergence into a clean
+   // partition rather than a one-sided disconnect.
+   // Nor can testnet exercise the staker's boundary defect that the two round-down
+   // passes in SignBlock exist to fix; under a tightening the second pass never
+   // differs from the first, and a testnet boundary sweep shows zero self-rejections
+   // whether the staker makes ONE round-down pass or TWO. Read that narrowly: it
+   // compares one pass against two, and says nothing about the ORIGINAL one-time
+   // `static` mask cache this code replaced, which is a third and worse behaviour --
+   // it freezes the pre-fork mask, so post-activation on testnet it stamps even
+   // timestamps that the mask-3 rule rejects, self-rejecting about half of its
+   // attempts. A green testnet rehearsal is NECESSARY evidence for scheduling
+   // FORK_008_TIME on mainnet, not SUFFICIENT evidence.
+   if (GetFork(nTime) >= BRK_FORK008)
+   {
+       return STAKE_TIMESTAMP_MASK_NEW;
+   }
    return fTestNet ? STAKE_TIMESTAMP_MASK_TESTNET : STAKE_TIMESTAMP_MASK;
 }
 
