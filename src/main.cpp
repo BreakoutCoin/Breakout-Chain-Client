@@ -1815,12 +1815,81 @@ bool CheckSHA256ProofOfWork(uint256 hash, unsigned int nBits)
     CBigNum bnTarget;
     bnTarget.SetCompact(nBits);
 
-    // ADVISORY: static is an optimization, may not be desired for forks
-    static CBigNum bnTargetLimit = GetTargetLimit(false, BRK_GENESIS_TIME);
+    // G19 fix (local correctness, NON-consensus-changing, deliberately NOT
+    // fork-gated). This was:
+    //
+    //     // ADVISORY: static is an optimization, may not be desired for forks
+    //     static CBigNum bnTargetLimit = GetTargetLimit(false, BRK_GENESIS_TIME);
+    //
+    // The `static` caches the ceiling for the life of the process, computed on
+    // the first call. GetTargetLimit() reads the global fTestNet and the
+    // bnProofOfWorkLimit* globals, so the cached value is only correct if all
+    // of those are already in their final state at the moment of that first
+    // call. That holds in today's daemon (fTestNet is assigned during
+    // AppInit2, well before any block validation), but it is a silent,
+    // order-dependent invariant that nothing enforces -- exactly what the
+    // original ADVISORY comment was warning about. For every reachable state of
+    // today's daemon the value computed is identical to the value the static
+    // held, so this changes no consensus decision. Note the SCOPE of that
+    // guarantee: it is a property of the CALLERS' initialisation order, not of
+    // this computation. Where that order does not hold -- a test binary, a
+    // tool, any future entry point that validates before fTestNet settles --
+    // cached and recomputed differ by a factor of 4 in either direction
+    // (mainnet bnProofOfWorkLimit is ~uint256(0)>>26, testnet >>24). Dropping
+    // the `static` removes the order dependence, and its C++11 guard variable
+    // with it, at the cost of one recomputation per call -- dominated by the
+    // proof-of-work hash performed on that same call.
+    //
+    // That cost is acceptable, which is NOT the same claim as this path being
+    // cold; an earlier revision of this comment asserted the latter and was
+    // wrong. It is reachable from block acceptance via P2P, from
+    // getblock/getwork RPC, from wallet rescan, from reorg, and from startup
+    // verification. Do not restate "cheap enough" as "rarely called."
+    //
+    // This fixes THIS call site only -- the hazard CLASS remains, and an
+    // earlier revision claiming it "removes the hazard entirely" was wrong.
+    // The same pattern, a function-local static initialised from an
+    // fTestNet-dependent helper, occurs at six other sites:
+    // CMerkleTx::GetBlocksToMaturity, CTransaction::ConnectInputs, Reorganize,
+    // CBlock::SetBestChain (twice), and CWallet::GetStakeWeightByColor in
+    // wallet.cpp. Three of those still carry the sibling of the ADVISORY
+    // comment removed above.
+    //
+    // The BRK_GENESIS_TIME argument is CORRECT, is deliberately retained, and
+    // is LOAD-BEARING RIGHT NOW. An earlier revision of this comment said the
+    // tight ceiling mattered only "once G15's version-dispatch enforcement is
+    // active"; that was wrong about this tree. G15's gate is FORK_010_TIME,
+    // which ships INERT (i64::MAX), so that enforcement is NOT active here.
+    // Per G15's own comment in CheckProofOfWork above, while it is inert ANY
+    // block declaring a non-KawPoW nVersion falls through to this function
+    // REGARDLESS of the block's own nTime -- including blocks deep in the
+    // KawPoW era. So this is not a historical corner case sitting behind a
+    // future gate: for a KawPoW-era block declaring a legacy nVersion, the
+    // ceiling checked here is what stands between cheap SHA256/scrypt work and
+    // acceptance. Passing BRK_GENESIS_TIME selects the pre-KawPoW ceiling
+    // (bnProofOfWorkLimit, ~2^230) explicitly and unconditionally. Do not
+    // weaken it while FORK_010_TIME is unscheduled.
+    //
+    // DO NOT "fix" this into an era-aware GetTargetLimit(false, <block nTime>).
+    // That change LOOSENS validation and is a consensus change: the KawPoW-era
+    // ceiling (bnProofOfWorkLimitKawpow, ~2^244) is 2^14 times LOOSER than the
+    // pre-KawPoW one, so an era-aware ceiling would ACCEPT a legacy-declared,
+    // KawPoW-era block whose nBits falls between the two ceilings -- a block
+    // the shipped code rejects today. Demonstrated against these real compiled
+    // functions in g19-repro/ (nBits=0x1f010000, target 2^240: shipped code
+    // returns false, era-aware equivalent returns true). Whether the network's
+    // present difficulty sits in that band is TIME-VARYING: re-measure it, do
+    // not read it from this comment. Worse, that is
+    // precisely the G15 attack shape -- it would grant KawPoW-era difficulty
+    // looseness to work being validated on the cheap SHA256 path. The tight
+    // ceiling here is a backstop, not a bug. If an era-aware rule is ever
+    // genuinely wanted it must be drafted as a fork-gated consensus change on
+    // its own gate and laddered like G01/G15, not folded in here.
+    CBigNum bnTargetLimit = GetTargetLimit(false, BRK_GENESIS_TIME);
 
     // Check range
     if (bnTarget <= 0 || bnTarget > bnTargetLimit)
-        return error("ChecSHA256kProofOfWork() : nBits below minimum work");
+        return error("CheckSHA256ProofOfWork() : nBits below minimum work");
 
     // Check proof of work matches claimed amount
     if (hash > bnTarget.getuint256())
