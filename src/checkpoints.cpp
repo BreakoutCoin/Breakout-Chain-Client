@@ -28,7 +28,6 @@ namespace Checkpoints
     static MapCheckpoints mapCheckpoints =
         boost::assign::map_list_of
         (           0, hashGenesisBlock )
-/*
         (       13300, uint256("0x62d199c756a0f19a0fc1f9e895190b29cb7b7683d284bfcabacbe906df530ff9"))
         (       37500, uint256("0x0000000000312775281468709d39faf0eb1c099ea35f1a39fe4ba0847658bfe0"))
         (       87000, uint256("0x56fe7fe10f4e8a17d752ce743f5cca1c10e4c6a8eeeabfacd235962148441fb5"))
@@ -119,7 +118,102 @@ namespace Checkpoints
         (      940000, uint256("0xc440fb38dfb7b84ef05f747f9cceb27c14d9cdd72ec6cf613204ef0104a10869"))
         (      950000, uint256("0x338ae2fdf7d4c5d946960406b6f79e434ca5a4189432a6097447f40f0c03d44a"))
         (      960000, uint256("0xb97a873fb2334cd87428a7ca64959f55f2cf5bb0438101500ef4a397a51a84b8"))
-*/
+        // ---- G12 fix -----------------------------------------------------
+        // Everything from 13300 to 960000 above was disabled inside a /* */
+        // block and has been RESTORED. Everything from 970000 down is NEW.
+        //
+        // EVERY hash here -- restored and new alike -- was verified against a
+        // fully-synced mainnet node's own block index, walked main-chain-only
+        // from the tip back to genesis: 90/90 restored matched with 0
+        // mismatches, and all 52 new entries were emitted from that same walk,
+        // so each is on the main chain by construction. A checkpoint is a
+        // CONSENSUS PARAMETER; none of these hashes came from a block explorer.
+        //
+        // WHAT THIS MAP ACTUALLY DOES -- read this before reasoning about it.
+        // It is enforced by ONE automatic mechanism, not by anything social:
+        //
+        //   CheckHardened() has exactly one caller, AcceptBlock()
+        //   (main.cpp), and a block at a checkpointed height whose hash does
+        //   not match is rejected with DoS(100). There is no advisory or
+        //   soft path. The same call produces BOTH effects people describe
+        //   separately: a syncing node cannot follow a wrong chain, AND no
+        //   node running this release can reorganise below its highest
+        //   checkpoint. The second is a hard protocol bound, not a policy
+        //   preference -- do not describe it as merely social. What IS social
+        //   is DISTRIBUTION: whether an operator runs a release carrying
+        //   these entries at all. Enforcement, once running, is absolute.
+        //
+        // SECOND-ORDER EFFECT, and it raises the stakes of every hash below.
+        // GetTotalBlocksEstimate() returns checkpoints.rbegin()->first -- the
+        // HIGHEST checkpoint height. ConnectInputs() (main.cpp) skips
+        // per-transaction ECDSA VerifySignature() whenever
+        //     fBlock && nBestHeight < GetTotalBlocksEstimate()
+        // With only genesis in this map that threshold was effectively 0 and
+        // the skip never engaged. Restoring these entries raises it to the
+        // last checkpoint height, which TURNS THAT SKIP ON for essentially the
+        // whole chain during initial sync. That is the long-standing
+        // Bitcoin-lineage design and is safe on its own terms -- each block is
+        // transitively secured into the next by PoW/PoS and the checkpoint
+        // pins the exact hash at its height -- but it means these hashes gate
+        // how much of an initial sync skips real signature checking, not only
+        // whether a chain split can occur. A wrong hash here is therefore
+        // costlier than "one block gets rejected" suggests.
+        //
+        // FRESHNESS. A checkpoint bounds a rewrite only back to its own
+        // height, and only for nodes running the release that carries it.
+        // REFRESH THE LAST ENTRY EVERY RELEASE.
+        (      970000, uint256("0x56ba0ca169754cc499565845432e256dbbb883fbba5dcfb8f8e5b79551b265a1"))
+        (      980000, uint256("0x52d1ace0c6aac51c335ac3649492e46d168df1392bc62d8227fbf8b9f0bda8b0"))
+        (      990000, uint256("0x1d9423c078f5c3d7daca0f38aca8cd20f32d31ade0fa131bb88712732396f4e1"))
+        (     1000000, uint256("0xfffb7edf143df7ae78e6cb333804376c38f7b3a292c58a59289b718d065712dd"))
+        (     1010000, uint256("0xc34773a9fe390ca18b5bd572783540f815f6c6779c9ef6bb570d09c417326197"))
+        (     1020000, uint256("0x047c3ed8eed61759fad4ed4cf731c3e3adf5c4d1c571063d83afd839d5cdd596"))
+        (     1030000, uint256("0x61f5f7d2f10c2187f090d455a6449839405774814ad65c2c2ebd3fbad772be5b"))
+        (     1040000, uint256("0x5bec0c68d6460dc1a678ea3417d61440b80a6026ff74a67b1dac38ed46ce6a95"))
+        (     1050000, uint256("0xb876ab202de0b4edcfd8e62d263269f206ea859648365007376bb974d14771b4"))
+        (     1060000, uint256("0xb2c82fa45e9d938567f854850186b0e7624d1d6bfb93064fdf78cd1cddf2e553"))
+        (     1070000, uint256("0x52b789eb14d378ff7162961be682e8f2087bde96f3559ae6f748777407740039"))
+        (     1080000, uint256("0xb6943478375a1e6e0c4f84eecc5b526ef10fe828e0a2865d4f8e475d8c5cd213"))
+        (     1090000, uint256("0x22b4a21c37e4c3058cb914235615f8c1b46bdd1a4149575544f6222a958feb7e"))
+        (     1100000, uint256("0x67a1c82dd1b29f9a7c0d06c7cbc8c105692047a317950183bf729167d624c7a3"))
+        (     1110000, uint256("0x7aa10eb326e4b21d9aeefce0aa53c6dda5aa0d319f083c1c3fdcc01eee1421a7"))
+        (     1120000, uint256("0xad631fe84bed011adcc5d5b3f055ecfafe01bfc4d3090a121fe4a57573a293f3"))
+        (     1130000, uint256("0x695808302bc8f90fdb7335bdb1522812c3a371e84d75a860040d4d1880f000f0"))
+        (     1140000, uint256("0xbdffe77082228b02113e96280e06cdc443492d898105241fdd6105403a2fe683"))
+        (     1150000, uint256("0xeb51b84a479d5490dadaac56fd868edf57a7e0c558e5a7b317dc1acd53d2a109"))
+        (     1160000, uint256("0x0d6fa7fc161a2504690deb24bf0b5f0744584de7c037e0b443ab0efc79dbf2c6"))
+        (     1170000, uint256("0xbd95a6395e2e91dd22cfda5952222fdb39b7ca7e91e9bbe59a1dd14bc055588e"))
+        (     1180000, uint256("0x6a5ef128aa574d878736239f6b77c81b8f5ab8152fea6013634ae9dfac7a64e4"))
+        (     1190000, uint256("0xf5e7dd419d3b6a30e98d06ca9d238b6b407e36ac26e4e210c820546d6defcd93"))
+        (     1200000, uint256("0x238c4bdd6e3c55b2ba755f63e6828872e68c3bfd2b187a11ae0fb98be6d1269d"))
+        (     1210000, uint256("0xb805b68742f891b2c7e2a072bab7fbefe4028322a248161b306c30a4e1e44137"))
+        (     1220000, uint256("0x0291a24e760e004b479ff97e8c957928fb00c48bc763a0ef54f38897a8babfee"))
+        (     1230000, uint256("0x0d83dd5b229ea0830b32ede2a74e12098947b7e721e4104127c9079957cdd0e7"))
+        (     1240000, uint256("0x7f18658074d9e75d043456337b39d4737217af2b6294c366727ee6cc756abb09"))
+        (     1250000, uint256("0xd1735bbf83fa7e0a1d235ad4493ba0db4e04b5b83c299545470c78e0b18e1af9"))
+        (     1260000, uint256("0xd345a361cba92e646be8abe5781c56ce6929600d80df9e703e8628eb19917394"))
+        (     1270000, uint256("0x79f85703f48ad98700f6d1b4272aad5017f57297a940151c62d362c7a5debf49"))
+        (     1280000, uint256("0xa9309eb6fb829416def8710ff6f9049d0aa58b814ffd90c2f4685e622292c91d"))
+        (     1290000, uint256("0x772d80bf9edecf542a963e8ae5dd9485e0fa8e7147b970211d55017c8e52e755"))
+        (     1300000, uint256("0x2226422d4a78a9a9831c287b87c4137291b1506c624b3acc8a09bfb12d1c927e"))
+        (     1310000, uint256("0x17d4a960adccd938079d0f15cf31694871cf631a6d3f783b52c0ea7697e12a14"))
+        (     1320000, uint256("0x855b84ba49d7217042a7563c273e5e97a9940af8c8a40cad8bd8c9b0f5902c6e"))
+        (     1330000, uint256("0x2d2857aed0ed4aebcdd0a4d1e6ac69b4d68c579ce43e001208b259d6b74c3f8a"))
+        (     1340000, uint256("0xeac3ef6788b7cf2b3b9fa250dd415362ee3c9e6a4ee6622ac25a55af6cace9fa"))
+        (     1350000, uint256("0x4e5ed2229e0908fd05999aa838f7ea311840933f38fc712c7f7ac93d14a37ed9"))
+        (     1360000, uint256("0x962ed7943bba53b1a3359a2f8e8319eb8ba209cafe04bdbf34f76fcbd75d4de0"))
+        (     1370000, uint256("0xade9e91207b15f20dd586f23af6bcb1cc1169ab1cc9fa9f6cc4d902d8cf776ed"))
+        (     1380000, uint256("0xa0ba0c6be4a2bb6280999071df3bb7fda199facb0e26265fe3342f53e7e7a8ad"))
+        (     1390000, uint256("0x64b5a38605c43a7a5dec70eeaf0e83d2d0296d3a011aabcaf50802b247b9b757"))
+        (     1400000, uint256("0x0004f0bf7769823225f1c380706a709cbff216b7b1e3d63afa516f0abe3838e6"))
+        (     1410000, uint256("0x87ee13a37609febc87a01331f78c237cd5c68f91be4d7937a10a6d3d85696a58"))
+        (     1420000, uint256("0x0004d450a50e4d7c62cbd1971d942238b7476e86127433b557a3ed02b9f19762"))
+        (     1430000, uint256("0xda73388ec64fb2fd97149db8b36fe7185e7267133125eeb5a03dbd8981e07a7a"))
+        (     1440000, uint256("0x0000c2b18e7138285d722de79679c087b3660a0bd2832d1f3f816d4196e1b30b"))
+        (     1450000, uint256("0xaf9ed416e10d1f98277c457ce4208d52a2ca1887f29e407c76768c2af4ed4390"))
+        (     1460000, uint256("0xd0c37e95bb663ea8fbe25dd8e742b9300ddaf3ead9ffc6c97f4bd053497fe5ea"))
+        (     1470000, uint256("0x00096927657a1d10477c8e941062fb9f000181b6a029d0bc4cbc16121499dfd2"))
+        (     1475000, uint256("0x000329067f381ac30c67a2510ab9822dd4e73c312f58d9a55190ee001d6c0744"))
     ;
 
     // TestNet has no checkpoints
