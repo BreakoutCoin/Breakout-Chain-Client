@@ -1163,16 +1163,31 @@ bool KawpowVersionEnforcementIsActive(int64_t nTime)
 int GetMinPeerProtoVersion(int64_t nTime)
 {
     // helps to prevent buffer overrun
-    static const int nVersions = 5;
+    static const int nVersions = 6;
 
     // Make sure forks are ascending!
+    //
+    // NEVER DELETE A ROW to add a new one. The loop below returns the version
+    // of the HIGHEST row whose fork is <= the current fork, so removing an era
+    // silently LOWERS the requirement for that era rather than removing it --
+    // dropping BRK_FORK007 here would take the KawPoW era from 61014 back down
+    // to BRK_FORK006's 61013, admitting older peers than before. Append only.
+    //
+    // BRK_FORK009 and BRK_FORK010 are deliberately ABSENT and must not be
+    // added. GetFork() iterates only the aForks ladder, which is sized
+    // TOTAL_FORKS - 2 precisely to exclude them (they are gated independently
+    // via KawpowMixVerificationIsActive()/KawpowVersionEnforcementIsActive()),
+    // so GetFork() can never return either value and such rows would be dead.
+    // They activate at the same instant as BRK_FORK008 anyway, so the 61030
+    // row below already covers them.
     const int aVersions[nVersions][2] = {
     //                                    Fork, Proto Version
                    {               BRK_FORK003,         61010 },
                    {               BRK_FORK004,         61011 },
                    {               BRK_FORK005,         61012 },
                    {               BRK_FORK006,         61013 },
-                   {               BRK_FORK007,         61014 }
+                   {               BRK_FORK007,         61014 },
+                   {               BRK_FORK008,         61030 }
                                           };
 
     int nFork = GetFork(nTime);

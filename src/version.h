@@ -78,14 +78,20 @@ static const int DATABASE_VERSION = 70508;
 //        removed sync checkpoints
 // 61020
 //    (1.7.1.0)
-// asdf
 //        removed txid from sighash
 //        tor update to v0.4.8.1-alpha
 //        moved libcrypto++ to an external dependency
 //        updated leveldb to 1.23
 //        balances tracked for main wallet to save cpus
 //        mining algo
-static const int PROTOCOL_VERSION = 61020;
+//    (1.8.0.0)
+//        Most of the Explore API
+// 61030
+//    (1.9.0.0)
+//        BRK_FORK008: PoS kernel hardening (ceiling on weighted kernel target)
+//        BRK_FORK009: KawPoW mix-hash verification against the DAG
+//        BRK_FORK010: KawPoW version-dispatch enforcement (block versioning)
+static const int PROTOCOL_VERSION = 61030;
 
 
 // intial proto version, to be increased after version/verack negotiation
