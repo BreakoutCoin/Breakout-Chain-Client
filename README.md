@@ -1,5 +1,25 @@
 # Breakout Chain cryptocurrency [BRK/BRX/SIS/BAM/Deck].
 
+## Releases
+
+Release notes live in [`doc/release-notes/`](doc/release-notes/). The current release is
+**v1.9.0.0** — [release notes](doc/release-notes/release-notes-1.9.0.0.md).
+
+<!-- BEGIN TEMPORARY UPGRADE NOTICE -- remove after 2026-09-06 -->
+> ### ⚠ Mandatory upgrade before Sun Sep 6 02:00:00 2026 UTC
+>
+> v1.9.0.0 schedules three consensus changes (`BRK_FORK008`, `BRK_FORK009`, `BRK_FORK010`) to
+> activate at **Sun Sep 6 02:00:00 2026 UTC** (epoch `1788660000`).
+>
+> **Every node must be upgraded before that instant.** A node still running v1.8.0.0 afterwards will
+> lose its peers and stop following the network — it will not degrade gracefully. If you cannot
+> upgrade in time, stop the node rather than let it run past activation; nothing is damaged by
+> stopping, and it will resume normally once upgraded.
+>
+> See the [v1.9.0.0 release notes](doc/release-notes/release-notes-1.9.0.0.md) for what changes, why
+> the deadline is hard, and which build you need.
+<!-- END TEMPORARY UPGRADE NOTICE -->
+
 ## Overview
 
 Breakout Chain is a peer-to-peer decentralized cryptocurrency that employs two types of blockchain security. The first is Proof-of-Work, where miners race to solve computationally difficult mathematical puzzles. The winner for each block of transactions is allowed to certify the block for the network and claim the signing fee. The second type of security is Proof-of-Stake, where stakers participate in a lottery to win the privilege to certify the block. A staker's chance of winning is proportional to how much stake they have.

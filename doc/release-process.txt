@@ -10,7 +10,9 @@
 
    git tag -a v0.5.1
 
-* write release notes.  git shortlog helps a lot:
+* write release notes into doc/release-notes/release-notes-<version>.md, and
+  update the "Releases" link in the top-level README.md to point at it.
+  git shortlog helps a lot:
 
    git shortlog --no-merges v0.5.0..
 
