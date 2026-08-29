@@ -44,9 +44,24 @@ const int64_t nKAWPOWActivationTime = 1777836782;  // asdf
 static const int64_t FORK_007_TIME = nKAWPOWActivationTime;
 
 // PoS kernel hardening (K1 weighted-target clamp + K2 contiguous timestamp mask).
-// UNSCHEDULED / INERT: activation time is i64::MAX, so behavior is byte-for-byte
-// unchanged as shipped. Precisely: GetFork(nTime) returns BRK_FORK008 only for
-// nTime == i64::MAX exactly -- it is NOT true that GetFork() can never return it.
+// SCHEDULED: 1788660000 = Sun Sep  6 02:00:00 2026 UTC.
+// The epoch value is authoritative; the UTC rendering above is derived from
+// it. Block timestamps are UTC, so this constant is compared against UTC.
+//
+// K2 IS A LATERAL CHANGE, NOT A TIGHTENING. At activation the stake-timestamp
+// mask goes 17 -> 3 on mainnet: residues {16,20,24,28} mod 32 become NEWLY
+// VALID and {2,6,10,14} become NEWLY INVALID, at identical slot count. A node
+// that has not upgraded therefore diverges BOTH ways -- it rejects about half
+// the upgraded network's PoS blocks AND produces blocks the upgraded network
+// rejects -- through CheckBlock -> DoS(50) against a default -banscore of 100,
+// so two blocks are enough for either side to ban the other. EVERY node must be
+// upgraded before this timestamp; the result otherwise is a clean partition
+// along the upgrade line, not a slow drift.
+//
+// Below is the reasoning from when this gate shipped inert, retained because it
+// documents WHY the constant is safe to reason about. It is no longer i64::MAX.
+// Historically: GetFork(nTime) returned BRK_FORK008 only for nTime == i64::MAX
+// exactly -- it was NOT true that GetFork() could never return it.
 // The gate is unreachable, by whichever of two bounds applies to a given caller.
 // Where the argument is a block or transaction timestamp -- serialised as
 // `unsigned int` -- the bound is the argument TYPE, which cannot represent i64::MAX.
@@ -60,21 +75,22 @@ static const int64_t FORK_007_TIME = nKAWPOWActivationTime;
 // the source when you need it, and follow INDIRECT paths as well as direct ones:
 // the accessor below and KawpowIsActive() are two functions that each forward a
 // caller's argument into GetFork(), and this list is illustrative, not complete.
-// The guarantee rests on the CALLERS' argument range, not on
-// the fork table. The owner sets a real
-// activation time ONLY AFTER a cold fix-diff re-audit. Do NOT ship scheduled.
-static const int64_t FORK_008_TIME = 9223372036854775807LL;  // i64::MAX (inert)
+// The guarantee rested on the CALLERS' argument range, not on the fork table.
+// The precondition for scheduling -- a cold fix-diff re-audit -- was met: the
+// v12 narrow re-audit returned GO on 2026-08-27.
+static const int64_t FORK_008_TIME = 1788660000;  // Sun Sep  6 02:00:00 2026 UTC
 
 // KawPoW mix-verification hardening (G01): make consensus recompute the
 // ProgPoW mix from the epoch DAG and require it to equal the block-supplied
 // mix_hash, so proof-of-work can no longer be forged at keccak cost.
-// UNSCHEDULED / INERT: activation time is i64::MAX. Activation is gated by
+// SCHEDULED: 1788660000 = Sun Sep  6 02:00:00 2026 UTC. Activation is gated by
 // KawpowMixVerificationIsActive(), NOT by GetFork() >= BRK_FORK009 (see that
 // function's comment / re-audit finding G01-N1), so this can be scheduled
 // independently of FORK_008_TIME. The owner sets a real activation time ONLY
 // AFTER a cold fix-diff re-audit and an armed-testnet forged-reorg test.
-// Do NOT ship scheduled.
-static const int64_t FORK_009_TIME = 9223372036854775807LL;  // i64::MAX (inert)
+// Scheduled together with FORK_008 and FORK_009/010 -- one activation, one
+// upgrade window. FORK_009_TIME <= FORK_010_TIME is required and holds (equal).
+static const int64_t FORK_009_TIME = 1788660000;  // Sun Sep  6 02:00:00 2026 UTC
 
 // KawPoW version-dispatch enforcement (G15): CBlock::IsKawpowBlock() (which
 // CheckProofOfWork() uses to pick the strong KawPoW check vs. the legacy
@@ -85,14 +101,14 @@ static const int64_t FORK_009_TIME = 9223372036854775807LL;  // i64::MAX (inert)
 // a DIFFERENT, PRE-EXISTING gap from G01 (which is about mix_hash not being
 // verified once the strong path IS entered) -- G15 is about the strong path
 // never being entered at all for a block that simply lies about its version.
-// UNSCHEDULED / INERT: activation time is i64::MAX. Activation is gated by
+// SCHEDULED: 1788660000 = Sun Sep  6 02:00:00 2026 UTC. Activation is gated by
 // KawpowVersionEnforcementIsActive(), NOT by GetFork() >= BRK_FORK010, for
 // the same reason as BRK_FORK009 (re-audit finding G01-N1): the ladder below
 // stalls behind FORK_008_TIME while it remains unscheduled, so this must be
 // schedulable independently. The owner sets a real activation time ONLY
 // AFTER a cold fix-diff re-audit and an armed-testnet forged/downgraded-PoW
-// test. Do NOT ship scheduled.
-static const int64_t FORK_010_TIME = 9223372036854775807LL;  // i64::MAX (inert)
+// test. Scheduled together with the other gates -- one activation, one window.
+static const int64_t FORK_010_TIME = 1788660000;  // Sun Sep  6 02:00:00 2026 UTC
 
 
 //////////////////////////////////////////////////////////////////////
