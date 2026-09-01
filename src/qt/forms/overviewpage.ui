@@ -131,7 +131,7 @@
             <item row="2" column="0">
              <widget class="QLabel" name="lblBroUn">
               <property name="text">
-               <string>Unconfirmed:</string>
+               <string>Pending:</string>
               </property>
              </widget>
             </item>
@@ -314,7 +314,7 @@
             <item row="3" column="0">
              <widget class="QLabel" name="lblBrxUn">
               <property name="text">
-               <string>Unconfirmed:</string>
+               <string>Pending:</string>
               </property>
              </widget>
             </item>
@@ -442,7 +442,7 @@
             <item row="2" column="0">
              <widget class="QLabel" name="lblSisUn">
               <property name="text">
-               <string>Unconfirmed:</string>
+               <string>Pending:</string>
               </property>
              </widget>
             </item>

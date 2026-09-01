@@ -93,6 +93,8 @@ static const int DATABASE_VERSION = 70508;
 //        BRK_FORK010: KawPoW version-dispatch enforcement (block versioning)
 //    (1.9.1.0)
 //        Explore API: track per-card provenance (mint + transfer history)
+//    (1.9.1.1)
+//        Using "Pending" instead of "Unconfirmed" in GUI
 static const int PROTOCOL_VERSION = 61030;
 
 
