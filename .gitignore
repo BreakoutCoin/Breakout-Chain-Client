@@ -190,3 +190,8 @@ breakoutd
 src/leveldb/out-*
 
 src/leveldb/build_config.mk
+
+# qt
+Breakout-Chain.app
+qrc_bitcoin.cpp
+

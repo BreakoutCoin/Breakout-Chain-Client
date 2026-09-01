@@ -95,6 +95,8 @@ static const int DATABASE_VERSION = 70508;
 //        Explore API: track per-card provenance (mint + transfer history)
 //    (1.9.1.1)
 //        Using "Pending" instead of "Unconfirmed" in GUI
+//    (1.9.1.2)
+//        Restore legacy background color of key panels in the GUI
 static const int PROTOCOL_VERSION = 61030;
 
 

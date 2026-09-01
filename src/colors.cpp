@@ -38,9 +38,8 @@ static const int64_t FORK_005_TIME = 1524632400;
 // Fix minimum BRX PoS reward
 static const int64_t FORK_006_TIME = 1526619600;
 
-//
 // New KawPow proof-of-work (from Raven & Ethereum)
-const int64_t nKAWPOWActivationTime = 1777836782;  // asdf
+const int64_t nKAWPOWActivationTime = 1777836782;
 static const int64_t FORK_007_TIME = nKAWPOWActivationTime;
 
 // PoS kernel hardening (K1 weighted-target clamp + K2 contiguous timestamp mask).
