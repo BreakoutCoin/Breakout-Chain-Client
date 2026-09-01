@@ -3,21 +3,25 @@
 ## Releases
 
 Release notes live in [`doc/release-notes/`](doc/release-notes/). The current release is
-**v1.9.0.0** — [release notes](doc/release-notes/release-notes-1.9.0.0.md).
+**v1.9.1.0** — [release notes](doc/release-notes/release-notes-1.9.1.0.md). v1.9.1.0 adds Explore
+API functionality on top of v1.9.0.0 and changes no consensus rule or protocol requirement; see the
+[v1.9.0.0 release notes](doc/release-notes/release-notes-1.9.0.0.md) for the fork activation below.
 
 <!-- BEGIN TEMPORARY UPGRADE NOTICE -- remove after 2026-09-06 -->
 > ### ⚠ Mandatory upgrade before Sun Sep 6 02:00:00 2026 UTC
 >
 > v1.9.0.0 schedules three consensus changes (`BRK_FORK008`, `BRK_FORK009`, `BRK_FORK010`) to
-> activate at **Sun Sep 6 02:00:00 2026 UTC** (epoch `1788660000`).
+> activate at **Sun Sep 6 02:00:00 2026 UTC** (epoch `1788660000`). v1.9.1.0 carries the same
+> schedule forward unchanged.
 >
 > **Every node must be upgraded before that instant.** A node still running v1.8.0.0 afterwards will
 > lose its peers and stop following the network — it will not degrade gracefully. If you cannot
 > upgrade in time, stop the node rather than let it run past activation; nothing is damaged by
 > stopping, and it will resume normally once upgraded.
 >
-> See the [v1.9.0.0 release notes](doc/release-notes/release-notes-1.9.0.0.md) for what changes, why
-> the deadline is hard, and which build you need.
+> Either **v1.9.0.0 or v1.9.1.0** satisfies the fork. See the
+> [v1.9.0.0 release notes](doc/release-notes/release-notes-1.9.0.0.md) for what changes, why the
+> deadline is hard, and which build you need.
 <!-- END TEMPORARY UPGRADE NOTICE -->
 
 ## Overview

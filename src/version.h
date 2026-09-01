@@ -91,6 +91,8 @@ static const int DATABASE_VERSION = 70508;
 //        BRK_FORK008: PoS kernel hardening (ceiling on weighted kernel target)
 //        BRK_FORK009: KawPoW mix-hash verification against the DAG
 //        BRK_FORK010: KawPoW version-dispatch enforcement (block versioning)
+//    (1.9.1.0)
+//        Explore API: track per-card provenance (mint + transfer history)
 static const int PROTOCOL_VERSION = 61030;
 
 
