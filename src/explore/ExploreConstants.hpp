@@ -91,5 +91,9 @@ const exploreKey_t ADDR_SET_BAL(EXPLORE_KEY, ADDR_SET_BAL_LABEL);
 const std::string EXPLORE_TX_LABEL = "ETX";
 const exploreKey_t EXPLORE_TX(EXPLORE_KEY, EXPLORE_TX_LABEL);
 
+// Card (deck NFT) provenance, keyed by color
+const std::string CARD_INFO_LABEL = "CI";
+const exploreKey_t CARD_INFO(EXPLORE_KEY, CARD_INFO_LABEL);
+
 
 #endif  // _EXPLORECONSTANTS_H_

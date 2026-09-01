@@ -556,6 +556,8 @@ HEADERS += \
     src/explore/ExploreInOutLookup.hpp \
     src/explore/ExploreInOutList.hpp \
     src/explore/ExploreTx.hpp \
+    src/explore/ExploreCardTransfer.hpp \
+    src/explore/ExploreCardInfo.hpp \
     src/explore/InOutInfo.hpp \
     src/explore/AddrTxInfo.hpp \
     src/explore/AddrInOutInfo.hpp \
@@ -688,6 +690,8 @@ SOURCES += \
     src/explore/ExploreInOutLookup.cpp \
     src/explore/ExploreInOutList.cpp \
     src/explore/ExploreTx.cpp \
+    src/explore/ExploreCardTransfer.cpp \
+    src/explore/ExploreCardInfo.cpp \
     src/explore/InOutInfo.cpp \
     src/explore/AddrTxInfo.cpp \
     src/explore/AddrInOutInfo.cpp \

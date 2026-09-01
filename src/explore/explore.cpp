@@ -7,6 +7,7 @@
 #include "base58.h"
 #include "main.h"
 #include "explore.hpp"
+#include "ExploreCardInfo.hpp"
 
 using namespace std;
 
@@ -1007,6 +1008,98 @@ bool ExploreConnectOutput(CExploreDB& exploredb,
     return true;
 }
 
+// Card (deck NFT) provenance. Hooked from ExploreConnectTx once inputs are
+// fetched. A card's total circulation is exactly 1 indivisible unit, so at
+// most one vout per tx can carry a given card color, and (when the card is
+// being spent) exactly one vin carries that same color -- there is never
+// ambiguity about the holder or the prior holder.
+//
+// fEconomicEvents is the same self-stake-wash decision ExploreConnectTx
+// already made for this tx (see there): for a coinstake, it is true only
+// when the card's output address differs from its input address, i.e. a
+// "-staketo" that actually moves the card. Plain same-address staking still
+// counts toward "stakes" but is not recorded as a transfer of the holder.
+bool ExploreConnectCard(CExploreDB& exploredb,
+                        const CTransaction& tx,
+                        const uint256& txid,
+                        const unsigned int nBlockTime,
+                        const int nHeight,
+                        const MapPrevTx& mapInputs,
+                        const bool fEconomicEvents)
+{
+    for (unsigned int n = 0; n < tx.vout.size(); ++n)
+    {
+        const CTxOut& txOut = tx.vout[n];
+        if ((txOut.nValue <= 0) || !IsDeck(txOut.nColor))
+        {
+            continue;
+        }
+        const int nColor = txOut.nColor;
+
+        string strTo;
+        if (!ExploreScriptToAddress(txOut.scriptPubKey, nColor, strTo))
+        {
+            // non-standard destination -- nothing to attribute the card to
+            continue;
+        }
+
+        ExploreCardInfo card;
+        exploredb.ReadCardInfo(nColor, card);  // leaves card null if not yet minted
+
+        if (tx.IsCoinBase())
+        {
+            card.holder = strTo;
+            card.mintBlock = nHeight;
+            card.transfers.push_back(ExploreCardTransfer(nHeight, txid, strTo,
+                strprintf("coinbase-%s", COLOR_TICKER[nColor]), true, nBlockTime));
+        }
+        else
+        {
+            string strFrom;
+            bool fFoundFrom = false;
+            for (unsigned int i = 0; i < tx.vin.size(); ++i)
+            {
+                const CTxOut& prevOut = ExploreGetOutputFor(tx.vin[i], mapInputs);
+                if (prevOut.nColor == nColor)
+                {
+                    fFoundFrom = ExploreScriptToAddress(prevOut.scriptPubKey, nColor, strFrom);
+                    break;
+                }
+            }
+            if (!fFoundFrom)
+            {
+                // This should never happen: a card output must always be
+                // backed by a same-color card input (circulation is 1).
+                return error("ExploreConnectCard() : TSNH no card input for color %d in %s",
+                             nColor, txid.ToString().c_str());
+            }
+
+            if (tx.IsCoinStake())
+            {
+                card.stakes += 1;
+                if (fEconomicEvents)
+                {
+                    card.holder = strTo;
+                    card.transfers.push_back(
+                        ExploreCardTransfer(nHeight, txid, strTo, strFrom, false, nBlockTime));
+                }
+            }
+            else
+            {
+                card.holder = strTo;
+                card.transfers.push_back(
+                    ExploreCardTransfer(nHeight, txid, strTo, strFrom, false, nBlockTime));
+            }
+        }
+
+        if (!exploredb.WriteCardInfo(nColor, card))
+        {
+            return error("ExploreConnectCard() : can't write card info for color %d", nColor);
+        }
+    }
+    return true;
+}
+
 
 bool ExploreConnectTx(CTxDB& txdb,
                       CExploreDB& exploredb,
@@ -1084,6 +1177,12 @@ bool ExploreConnectTx(CTxDB& txdb,
                              mapAddressBalancesAdd,
                              setAddressBalancesRemove,
                              fEconomicEvents);
+    }
+
+    if (!ExploreConnectCard(exploredb, tx, txid, nBlockTime, nHeight,
+                            mapInputs, fEconomicEvents))
+    {
+        return false;
     }
 
     VecDest vFrom;
@@ -1962,6 +2061,70 @@ bool ExploreDisconnectInput(CExploreDB& exploredb,
     return true;
 }
 
+// Reverses ExploreConnectCard for one disconnecting tx. fEconomicEvents is
+// the same self-stake-wash decision ExploreDisconnectTx already computed
+// (mirroring the connect-time decision -- see ExploreConnectCard).
+bool ExploreDisconnectCard(CExploreDB& exploredb,
+                           const CTransaction& tx,
+                           const uint256& txid,
+                           const bool fEconomicEvents)
+{
+    for (int n = (int)tx.vout.size() - 1; n >= 0; --n)
+    {
+        const CTxOut& txOut = tx.vout[n];
+        if ((txOut.nValue <= 0) || !IsDeck(txOut.nColor))
+        {
+            continue;
+        }
+        const int nColor = txOut.nColor;
+
+        ExploreCardInfo card;
+        if (!exploredb.ReadCardInfo(nColor, card))
+        {
+            // This should never happen: connecting this tx must have written
+            // (or already had) a card record for this color.
+            return error("ExploreDisconnectCard() : TSNH no card info for color %d", nColor);
+        }
+
+        if (tx.IsCoinStake())
+        {
+            card.stakes -= 1;
+        }
+
+        // Mirrors ExploreConnectCard's decision of whether this tx pushed a
+        // transfer: always for coinbase/plain sends, only for a real
+        // -staketo (fEconomicEvents) in the coinstake case.
+        bool fHadTransfer = tx.IsCoinBase() ||
+                            (tx.IsCoinStake() ? fEconomicEvents : true);
+
+        if (fHadTransfer)
+        {
+            if (card.transfers.empty() || card.transfers.back().txid != txid)
+            {
+                return error("ExploreDisconnectCard() : TSNH last transfer doesn't match for color %d", nColor);
+            }
+            ExploreCardTransfer last = card.transfers.back();
+            card.transfers.pop_back();
+            if (last.mint)
+            {
+                // Undoing the mint itself -- the card no longer exists.
+                if (!exploredb.RemoveCardInfo(nColor))
+                {
+                    return error("ExploreDisconnectCard() : can't remove card info for color %d", nColor);
+                }
+                continue;
+            }
+            card.holder = last.from;
+        }
+
+        if (!exploredb.WriteCardInfo(nColor, card))
+        {
+            return error("ExploreDisconnectCard() : can't write card info for color %d", nColor);
+        }
+    }
+    return true;
+}
+
 bool ExploreDisconnectTx(CTxDB& txdb, CExploreDB& exploredb, const CTransaction &tx)
 {
     MapColorBalances mapAddressBalancesAdd;
@@ -2014,6 +2177,11 @@ bool ExploreDisconnectTx(CTxDB& txdb, CExploreDB& exploredb, const CTransaction 
                                    setAddressBalancesRemove,
                                    fEconomicEvents);
         }
+    }
+
+    if (!ExploreDisconnectCard(exploredb, tx, txid, fEconomicEvents))
+    {
+        return false;
     }
 
     exploredb.RemoveExploreTx(txid);

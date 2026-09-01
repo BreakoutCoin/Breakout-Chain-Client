@@ -25,6 +25,21 @@ static CCriticalSection cs_nWalletUnlockTime;
 
 extern void TxToJSON(const CTransaction& tx, const uint256 hashBlock, Object& entry);
 
+// Remove a key from a json_spirit Object (used to drop a soon-to-be-replaced
+// "time" entry before pushing the corrected one -- json_spirit Objects don't
+// dedupe on push_back, so a stale duplicate would otherwise linger).
+static void EraseKey(Object& obj, const string& key)
+{
+    for (Object::iterator it = obj.begin(); it != obj.end(); ++it)
+    {
+        if (it->name_ == key)
+        {
+            obj.erase(it);
+            return;
+        }
+    }
+}
+
 
 static void accountingDeprecationCheck()
 {
@@ -2379,6 +2394,10 @@ Value gettransaction(const Array& params, bool fHelp)
         const CWalletTx& wtx = pwalletMain->mapWallet[hash];
 
         TxToJSON(wtx, 0, entry);
+        // TxToJSON's "time" is creator-set (soft); replaced below by
+        // "created" plus a "time"/"blocktime" pair sourced from the
+        // confirming block once one exists.
+        EraseKey(entry, "time");
 
         // fee is possible in only one color (for now)
         int nFeeColor = FEE_COLOR[wtx.GetColor()];
@@ -2393,7 +2412,12 @@ Value gettransaction(const Array& params, bool fHelp)
             int64_t nDebit = wtx.GetDebit(nColor, fMultiSig);
             int64_t nNet = nCredit - nDebit;
             int64_t nFee = ((nColor == nFeeColor) ? nTxFee : 0);
-            objAmt.push_back(Pair(COLOR_TICKER[nColor], ValueFromAmount(nNet - nFee, nColor)));
+            int64_t nAmount = nNet - nFee;
+            // zero-value entries (colors this tx didn't touch) are just noise
+            if (nAmount != 0)
+            {
+                objAmt.push_back(Pair(COLOR_TICKER[nColor], ValueFromAmount(nAmount, nColor)));
+            }
         }
         entry.push_back(Pair("amounts", objAmt));
 
@@ -2407,6 +2431,26 @@ Value gettransaction(const Array& params, bool fHelp)
         }
 
         WalletTxToJSON(wtx, entry);
+        // WalletTxToJSON's "time" is wallet-local (nTimeSmart); same reason
+        // as above, replaced below.
+        EraseKey(entry, "time");
+
+        entry.push_back(Pair("created", (boost::int64_t)wtx.nTime));
+
+        int confirms = wtx.GetDepthInMainChain();
+        if ((confirms > 0) && mapBlockIndex.count(wtx.hashBlock))
+        {
+            CBlockIndex* pindexConf = mapBlockIndex[wtx.hashBlock];
+            entry.push_back(Pair("height", pindexConf->nHeight));
+            entry.push_back(Pair("blocktime", (boost::int64_t)pindexConf->nTime));
+            entry.push_back(Pair("time", (boost::int64_t)pindexConf->nTime));
+        }
+        else
+        {
+            // not yet confirmed: no block time to prefer, so fall back to
+            // the wallet's best local estimate
+            entry.push_back(Pair("time", (boost::int64_t)wtx.GetTxTime()));
+        }
 
         Array details;
         ListTransactions(pwalletMain->mapWallet[hash], "*", 0, false, details, fMultiSig);
@@ -2419,8 +2463,14 @@ Value gettransaction(const Array& params, bool fHelp)
         if (GetTransaction(hash, tx, hashBlock))
         {
             TxToJSON(tx, 0, entry);
+            EraseKey(entry, "time");
+            entry.push_back(Pair("created", (boost::int64_t)tx.nTime));
+
             if (hashBlock == 0)
+            {
                 entry.push_back(Pair("confirmations", 0));
+                entry.push_back(Pair("time", (boost::int64_t)tx.nTime));
+            }
             else
             {
                 entry.push_back(Pair("blockhash", hashBlock.GetHex()));
@@ -2429,9 +2479,21 @@ Value gettransaction(const Array& params, bool fHelp)
                 {
                     CBlockIndex* pindex = (*mi).second;
                     if (pindex->IsInMainChain())
+                    {
                         entry.push_back(Pair("confirmations", 1 + nBestHeight - pindex->nHeight));
+                        entry.push_back(Pair("height", pindex->nHeight));
+                        entry.push_back(Pair("blocktime", (boost::int64_t)pindex->nTime));
+                        entry.push_back(Pair("time", (boost::int64_t)pindex->nTime));
+                    }
                     else
+                    {
                         entry.push_back(Pair("confirmations", 0));
+                        entry.push_back(Pair("time", (boost::int64_t)tx.nTime));
+                    }
+                }
+                else
+                {
+                    entry.push_back(Pair("time", (boost::int64_t)tx.nTime));
                 }
             }
         }

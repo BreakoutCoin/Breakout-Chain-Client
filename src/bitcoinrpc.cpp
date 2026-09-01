@@ -449,6 +449,7 @@ static const CRPCCommand vRPCCommands[] =
     // Breakout Explore
     { "getaddressbalance",         &getaddressbalance,         false,  false },
     { "getaddressinfo",            &getaddressinfo,            false,  false },
+    { "getcardinfo",               &getcardinfo,               false,  false },
     { "getaddressinputs",          &getaddressinputs,          false,  false },
     { "getaddressoutputs",         &getaddressoutputs,         false,  false },
     { "getaddressutxos",           &getaddressutxos,           false,  false },

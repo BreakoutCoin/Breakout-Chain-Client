@@ -29,6 +29,7 @@
 #include <leveldb/write_batch.h>
 
 class ExploreTx;
+class ExploreCardInfo;
 
 // Explore debug logging flag (defined alongside the explore engine in
 // explore.cpp; declared here so the DB layer can honour -debugexplore).
@@ -54,7 +55,8 @@ typedef std::pair<exploreKey_t, std::pair<int, int64_t> > balance_set_key_t;
 // Explore database schema version. Bump this to force existing exploredb
 // contents to be discarded and rebuilt on next startup (independent of the
 // txleveldb DATABASE_VERSION).
-static const int EXPLOREDB_VERSION = 1;
+// v2: added card (deck NFT) provenance tracking (CARD_INFO records).
+static const int EXPLOREDB_VERSION = 2;
 
 
 template<typename K>
@@ -387,6 +389,11 @@ public:
     bool ReadExploreTx(const uint256& txid, ExploreTx& extxRet);
     bool WriteExploreTx(const uint256& txid, const ExploreTx& extx);
     bool RemoveExploreTx(const uint256& txid);
+
+    bool ReadCardInfo(const int nColor, ExploreCardInfo& cardRet);
+    bool WriteCardInfo(const int nColor, const ExploreCardInfo& card);
+    bool RemoveCardInfo(const int nColor);
+    bool CardInfoIsViable(const int nColor);
 };
 
 

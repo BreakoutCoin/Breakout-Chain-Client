@@ -317,6 +317,7 @@ extern json_spirit::Value scanforstealthtxns(const json_spirit::Array& params, b
 // Breakout Explore
 extern json_spirit::Value getaddressbalance(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value getaddressinfo(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value getcardinfo(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value getaddressinputs(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value getaddressoutputs(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value getaddresstxspg(const json_spirit::Array& params, bool fHelp);

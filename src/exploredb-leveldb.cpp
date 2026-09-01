@@ -16,6 +16,7 @@
 
 #include "exploredb-leveldb.h"
 #include "explore/ExploreTx.hpp"
+#include "explore/ExploreCardInfo.hpp"
 #include "util.h"
 #include "main.h"
 
@@ -472,4 +473,29 @@ bool CExploreDB::RemoveExploreTx(const uint256& txid)
 {
     std::pair<exploreKey_t, uint256> key = std::make_pair(EXPLORE_TX, txid);
     return RemoveRecord(key);
+}
+
+/*  CardInfo (deck NFT provenance)
+ *  Parameters - nColor:color, card:ExploreCardInfo
+ */
+bool CExploreDB::ReadCardInfo(const int nColor, ExploreCardInfo& cardRet)
+{
+   cardRet.SetNull();
+   std::pair<exploreKey_t, int> key = std::make_pair(CARD_INFO, nColor);
+   return ReadRecord(key, cardRet);
+}
+bool CExploreDB::WriteCardInfo(const int nColor, const ExploreCardInfo& card)
+{
+   std::pair<exploreKey_t, int> key = std::make_pair(CARD_INFO, nColor);
+   return Write(key, card);
+}
+bool CExploreDB::RemoveCardInfo(const int nColor)
+{
+    std::pair<exploreKey_t, int> key = std::make_pair(CARD_INFO, nColor);
+    return RemoveRecord(key);
+}
+bool CExploreDB::CardInfoIsViable(const int nColor)
+{
+    std::pair<exploreKey_t, int> key = std::make_pair(CARD_INFO, nColor);
+    return IsViable(key);
 }

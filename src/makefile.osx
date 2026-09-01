@@ -175,6 +175,8 @@ OBJS = \
     obj/ExploreInOutLookup.o \
     obj/ExploreInOutList.o \
     obj/ExploreTx.o \
+    obj/ExploreCardTransfer.o \
+    obj/ExploreCardInfo.o \
     obj/InOutInfo.o \
     obj/AddrTxInfo.o \
     obj/AddrInOutInfo.o \

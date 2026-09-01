@@ -21,6 +21,7 @@
 #include "explore/ExploreInOutList.hpp"
 #include "explore/ExploreInOutLookup.hpp"
 #include "explore/ExploreTx.hpp"
+#include "explore/ExploreCardInfo.hpp"
 
 #include "bip32/hdkeys.h"
 
@@ -458,6 +459,43 @@ Value getaddressinfo(const Array &params, bool fHelp)
 
     Object obj;
     GetAddrInfo(strAddress, nColor, obj);
+    return obj;
+}
+
+
+Value getcardinfo(const Array &params, bool fHelp)
+{
+    string strExploreHelp = CheckExploreAPI(fHelp);
+    if (fHelp || (params.size() != 1))
+    {
+        throw runtime_error(
+            strExploreHelp +
+            "getcardinfo <ticker>\n"
+            "Returns the mint, transfer, and staking provenance of deck card <ticker>.");
+    }
+
+    string strTicker = params[0].get_str();
+    int nColor;
+    if (!GetColorFromTicker(strTicker, nColor) || !IsDeck(nColor))
+    {
+        throw runtime_error("Ticker is not a card.");
+    }
+
+    CExploreDB exploredb;
+
+    if (!exploredb.CardInfoIsViable(nColor))
+    {
+        throw runtime_error("Card has not been minted.");
+    }
+
+    ExploreCardInfo card;
+    if (!exploredb.ReadCardInfo(nColor, card))
+    {
+        throw runtime_error("TSNH: Can't read card info.");
+    }
+
+    Object obj;
+    card.AsJSON(strTicker, obj);
     return obj;
 }
 
