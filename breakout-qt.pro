@@ -57,10 +57,6 @@ QT += core gui widgets printsupport
 # Inside local-env-*.pri, users are encouraged to set the
 #   following environment specific variables to ensure
 #   compatibility with the build:
-#     - DEPS_DIR
-#       - Mac Example: /usr/local/Cellar
-#       - Windows: C:/$$MSYS/usr/include
-#       - Linux: /usr/local
 #     - BOOST_LIB_SUFFIX
 #     - BOOST_LIB_PATH
 #     - BOOST_INCLUDE_PATH
@@ -100,9 +96,11 @@ macx {
 ##  Environment Specific Defaults
 #######################################################################
 
-# Dependencies directroy, with above package manager assumptions.
-isEmpty(DEPS_DIR) {
-    error("DEPS_DIR is not set")
+# Hard gate: if the local-env include did not load, nothing below works.
+# BOOST_LIB_PATH is used to check because every local-env-*.pri sets it
+# and the build genuinely needs it, so the message names a real cause.
+isEmpty(BOOST_LIB_PATH) {
+    error("BOOST_LIB_PATH is not set - is local-env-*.pri present and readable?")
 }
 
 equals(BOOST_LIB_SUFFIX, "-") {
@@ -113,10 +111,6 @@ equals(BOOST_LIB_SUFFIX, "-") {
 
 isEmpty(BOOST_THREAD_LIB_SUFFIX) {
     BOOST_THREAD_LIB_SUFFIX = $$BOOST_LIB_SUFFIX
-}
-
-isEmpty(BOOST_LIB_PATH) {
-    warning("BOOST_LIB_PATH is not set")
 }
 
 isEmpty(BOOST_INCLUDE_PATH) {
@@ -234,8 +228,6 @@ INCLUDEPATH += $$BOOST_INCLUDE_PATH $$BDB_INCLUDE_PATH \
 # - Debian: apt
 # - Windows: MSYS+MinGW
 
-# INCLUDEPATH += $$DEPS_DIR/include
-
 
 #######################################################################
 ## System Include Paths
@@ -254,7 +246,8 @@ INCLUDEPATH += $$BOOST_INCLUDE_PATH $$BDB_INCLUDE_PATH \
 
 ## Windows
 win32 {
-    # MXE provides all headers via DEPS_DIR; no separate system include needed
+    # MXE provides all headers under MXE_PREFIX/include, which the
+    # *_INCLUDE_PATH variables already cover; no separate system include
 }
 
 
@@ -893,13 +886,6 @@ LIBS += $$join(BOOST_LIB_PATH,,-L,) $$join(BDB_LIB_PATH,,-L,) \
         $$join(OPENSSL_LIB_PATH,,-L,) $$join(EVENT_LIB_PATH,,-L,) \
         $$join(ZLIB_LIB_PATH,,-L,) $$join(QRENCODE_LIB_PATH,,-L,)
 
-# Package manager dependencies
-!macx {
-  !equals(DEPS_DIR, "-") {
-      LIBS += -L$$DEPS_DIR/lib
-  }
-}
-
 # Linux Specific Library Paths
 !win32:!macx {
     isEmpty(SYSTEM_LIB_PATH) {
@@ -913,7 +899,8 @@ LIBS += $$join(BOOST_LIB_PATH,,-L,) $$join(BDB_LIB_PATH,,-L,) \
 
 # Windows Specific Library Paths
 win32 {
-    # MXE: all libs are under MXE_PREFIX/lib, already added via DEPS_DIR
+    # MXE: all libs are under MXE_PREFIX/lib, already added by the
+    # *_LIB_PATH joins above, which all point there
 }
 
 
