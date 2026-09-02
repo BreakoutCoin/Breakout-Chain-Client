@@ -99,6 +99,11 @@ static const int DATABASE_VERSION = 70508;
 //        Restore legacy background color of key panels in the GUI
 //    (1.9.1.3)
 //        Correct CLIENT_VERSION fields: 1.9.1.2 reported as 1.9.2.1
+//    (1.9.1.4)
+//        No change in behavior; build system only.  Windows cross-build
+//        fixed (ExploreConstants.hpp needed an explicit <cstdint>, which
+//        libstdc++ does not supply transitively), DEPS_DIR removed, and
+//        the MXE host lrelease is now located rather than hardcoded.
 static const int PROTOCOL_VERSION = 61030;
 
 

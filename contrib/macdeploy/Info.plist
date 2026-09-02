@@ -9,16 +9,16 @@
         <key>CFBundlePackageType</key>
         <string>APPL</string>
         <key>CFBundleGetInfoString</key>
-        <string>Breakout Chain [BRK/BRX] Multicurrency 1.9.1.3</string>
+        <string>Breakout Chain [BRK/BRX] Multicurrency 1.9.1.4</string>
         <key>CFBundleExecutable</key>
         <string>Breakout-Chain</string>
         <key>CFBundleIdentifier</key>
         <string>com.breakoutcoin.breakout-qt</string>
         <key>CFBundleShortVersionString</key>
-        <string>1.9.1.3</string>
+        <string>1.9.1.4</string>
         <key>CFBundleSignature</key>
         <string>BrkC</string>
         <key>CFBundleVersion</key>
-        <string>1.9.1.3</string>
+        <string>1.9.1.4</string>
 </dict>
 </plist>
