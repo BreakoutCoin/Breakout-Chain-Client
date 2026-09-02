@@ -824,10 +824,35 @@ contains(BITCOIN_QT_TEST, 1) {
 # also add new translations to src/qt/bitcoin.qrc under translations/
 TRANSLATIONS = $$files(src/qt/locale/bitcoin_*.ts)
 
+# lrelease has to be a binary that runs on the *build* host.  For a native
+# build that is simply the one belonging to the active Qt.  Cross-compiling
+# for Windows it is not: $$[QT_INSTALL_BINS] then names the target Qt, whose
+# lrelease is a Windows .exe.
+#
+# MXE keeps a host build of the Qt tools alongside the target one, under a
+# directory named for the build triplet - x86_64-apple-darwin25.5.0,
+# x86_64-pc-linux-gnu, and so on.  Rather than hardcode a triplet, scan for
+# the host tool by its extensionless name: only the host build has a plain
+# "lrelease", the Windows target build has "lrelease.exe".
+#
+# Setting QMAKE_LRELEASE in local-env-win.pri overrides all of this, and is
+# the right place for anything specific to one machine.
 isEmpty(QMAKE_LRELEASE) {
-    MXE_HOST_QT_BIN = /Users/jstroud/Code/Breakout/MXE/mxe/usr/x86_64-apple-darwin25.5.0/qt6/bin
     win32 {
-        QMAKE_LRELEASE = $$MXE_HOST_QT_BIN/lrelease
+        !isEmpty(MXE_ROOT) {
+            # $$files() expands a wildcard only in the last path component -
+            # a mid-path "*" silently yields an empty list - so glob the
+            # triplet directories and test each candidate underneath.
+            MXE_TRIPLET_DIRS = $$files($$MXE_ROOT/usr/*)
+            for(dir, MXE_TRIPLET_DIRS) {
+                isEmpty(QMAKE_LRELEASE):exists($$dir/qt6/bin/lrelease) {
+                    QMAKE_LRELEASE = $$dir/qt6/bin/lrelease
+                }
+            }
+        }
+        isEmpty(QMAKE_LRELEASE) {
+            error("QMAKE_LRELEASE is not set and no host lrelease was found under MXE_ROOT - set QMAKE_LRELEASE in local-env-win.pri")
+        }
     } else {
         QMAKE_LRELEASE = $$[QT_INSTALL_BINS]/lrelease
     }
