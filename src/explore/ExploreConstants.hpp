@@ -5,6 +5,7 @@
 #ifndef _EXPLORECONSTANTS_H_
 #define _EXPLORECONSTANTS_H_ 1
 
+#include <cstdint>
 #include <string>
 #include <map>
 
