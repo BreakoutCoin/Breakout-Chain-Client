@@ -768,7 +768,7 @@
 #define SIZEOF___INT64 0
 
 /* tor's sourcedir directory */
-#define SRCDIR "/home/jstroud/Tor/tor-0.4.8.12"
+#define SRCDIR "."
 
 /* Set to 1 if we can compile a simple stdatomic example. */
 #define STDATOMIC_WORKS 1
