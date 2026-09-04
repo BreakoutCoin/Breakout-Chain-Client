@@ -25,7 +25,7 @@ INCLUDEPATHS += \
 
 DEBUGFLAGS = -g
 
-xCFLAGS += $(INCLUDEPATHS) -std=gnu99 $(DEBUGFLAGS)
+xCFLAGS += $(INCLUDEPATHS) -std=gnu17 $(DEBUGFLAGS)
 
 USE_UPNP := -
 USE_IPV6 := -
@@ -33,9 +33,39 @@ USE_IPV6 := -
 LINK := $(CXX)
 ARCH := $(shell uname -m)
 
+# ---------------------------------------------------------------------------
+# Per-configuration build directories
+#
+# Object files and the leveldb static libs are tagged with OS, CPU and build
+# type so that two platforms sharing one checkout (a network mount, a VM bind
+# mount) cannot overwrite each other's artifacts. Mixing them surfaces at link
+# time as "file format not recognized", which is a confusing way to learn that
+# obj/ held Mach-O and ELF objects at the same time.
+#
+# BUILD_TAG is composed the way the planned CMake daemon build will name its
+# binary dirs, so obj/Linux-x86_64 here maps onto build/Linux-x86_64 there.
+# OBJDIR and LEVELDB_OUT_DIR are both overridable on the command line, which
+# is the make-side equivalent of `cmake -B <dir>`:
+#
+#     make -f makefile.unix OBJDIR=obj/experiment breakoutd
+#
+# Note that `clean` now removes only the current configuration's directory.
+# ---------------------------------------------------------------------------
+HOST_OS := $(shell uname -s)
+ifdef DEBUG
+    BUILD_SUFFIX := -debug
+else
+    BUILD_SUFFIX :=
+endif
+BUILD_TAG ?= $(HOST_OS)-$(ARCH)$(BUILD_SUFFIX)
+OBJDIR ?= obj/$(BUILD_TAG)
+LEVELDB_OUT_DIR ?= out-$(BUILD_TAG)
+LEVELDB_OUT = leveldb/$(LEVELDB_OUT_DIR)
+$(shell mkdir -p $(OBJDIR))
+
 DEFS = -DBOOST_SPIRIT_THREADSAFE
 
-incDEFS = $(addprefix -I, $(CURDIR) $(CURDIR)/obj \
+incDEFS = $(addprefix -I, $(CURDIR) $(CURDIR)/$(OBJDIR) \
                           $(BOOST_INCLUDE_PATH) $(BDB_INCLUDE_PATH) \
                           $(OPENSSL_INCLUDE_PATH) $(EVENT_INCLUDE_PATH) \
                           $(ZLIB_INCLUDE_PATH) )
@@ -105,7 +135,7 @@ LIBS += \
 
     # Build position independent code to take advantage of Address Space Layout Randomization
     # offered by some kernels.
-    # see doc/build-unix.txt for more information.
+    # see doc/build-daemon.md for more information.
     ifdef PIE
         HARDENING += -fPIE
         LDHARDENING += -pie
@@ -133,7 +163,7 @@ endif
 # CXXFLAGS can be specified on the make command line, so we use xCXXFLAGS that only
 # adds some defaults in front. Unfortunately, CXXFLAGS=... $(CXXFLAGS) does not work.
 xCXXFLAGS = $(OPTIFLAGS) $(EXT_OPTIONS) \
-            -std=c++11 -pthread -Wall -Wextra -Wno-ignored-qualifiers \
+            -std=c++17 -pthread -Wall -Wextra -Wno-ignored-qualifiers \
             -Wformat -Wformat-security -Wno-unused-parameter \
             $(DEBUGFLAGS) $(DEFS) $(HARDENING) $(INCLUDEPATHS) $(CXXFLAGS)
 
@@ -213,103 +243,105 @@ OBJS = \
 all: breakoutd
 
 
-LIBS += $(CURDIR)/leveldb/out-static/libleveldb.a $(CURDIR)/leveldb/out-static/libmemenv.a
+LIBS += $(CURDIR)/$(LEVELDB_OUT)/libleveldb.a $(CURDIR)/$(LEVELDB_OUT)/libmemenv.a
 DEFS += $(addprefix -I,$(CURDIR)/leveldb/include)
 DEFS += $(addprefix -I,$(CURDIR)/leveldb/helpers)
 OBJS += obj/txdb-leveldb.o
 
 # leveldb/out-static/libleveldb.a:
 #	@echo "Building LevelDB in leveldb/ ..."; cd leveldb; make staticlibs; cd ..;
-leveldb/out-static/libleveldb.a:
-	@echo "Building LevelDB in leveldb/ ..."
-	cd leveldb ; CXXFLAGS="${CXXFLAGS} -std=c++0x" make staticlibs; cd ..;
+$(LEVELDB_OUT)/libleveldb.a:
+	@echo "Building LevelDB in leveldb/ ($(LEVELDB_OUT_DIR)) ..."
+	cd leveldb ; CXXFLAGS="${CXXFLAGS} -std=c++17" OUT_DIR=$(LEVELDB_OUT_DIR) make staticlibs; cd ..;
 
-obj/txdb-leveldb.o: leveldb/out-static/libleveldb.a
+$(OBJDIR)/txdb-leveldb.o: $(LEVELDB_OUT)/libleveldb.a
 
 
 # auto-generated dependencies:
--include obj/*.P
+-include $(OBJDIR)/*.P
 
-obj/build.h: FORCE
-	/bin/sh ../share/genbuild.sh obj/build.h
-version.cpp: obj/build.h
+$(OBJDIR)/build.h: FORCE
+	/bin/sh ../share/genbuild.sh $(OBJDIR)/build.h
+version.cpp: $(OBJDIR)/build.h
 DEFS += -DHAVE_BUILD_INFO
 
 include tor/tor-include.mk
 
-obj/%.o: %.cpp
+# Retarget every object named by the lists above (this file and
+# tor/tor-include.mk) into the per-configuration directory. Done here,
+# once, so those lists stay plain "obj/foo.o" and need no maintenance.
+OBJS := $(patsubst obj/%,$(OBJDIR)/%,$(OBJS))
+
+$(OBJDIR)/%.o: %.cpp
 	$(CXX) -c $(xCXXFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
 	@cp $(@:%.o=%.d) $(@:%.o=%.P); \
 	  sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' \
 	      -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
 	  rm -f $(@:%.o=%.d)
 
-obj/%.o: %.c
+$(OBJDIR)/%.o: %.c
 	$(CC) -c $(incDEFS) $(xCFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
 	@cp $(@:%.o=%.d) $(@:%.o=%.P); \
 	  sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' \
 	      -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
 	  rm -f $(@:%.o=%.d)
 
-obj/%.o: json/%.cpp
+$(OBJDIR)/%.o: json/%.cpp
 	$(CXX) -c $(xCXXFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
 	@cp $(@:%.o=%.d) $(@:%.o=%.P); \
 	  sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' \
 	      -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
 	  rm -f $(@:%.o=%.d)
 
-obj/%.o: explore/%.cpp
+$(OBJDIR)/%.o: explore/%.cpp
 	$(CXX) -c $(xCXXFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
 	@cp $(@:%.o=%.d) $(@:%.o=%.P); \
 	  sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' \
 	      -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
 	  rm -f $(@:%.o=%.d)
 
-obj/%.o: bip32/%.cpp
+$(OBJDIR)/%.o: bip32/%.cpp
 	$(CXX) -c $(xCXXFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
 	@cp $(@:%.o=%.d) $(@:%.o=%.P); \
 	  sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' \
 	      -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
 	  rm -f $(@:%.o=%.d)
 
-obj/%.o: ethash/lib/ethash/%.cpp
+$(OBJDIR)/%.o: ethash/lib/ethash/%.cpp
 	$(CXX) -c $(xCXXFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
 	@cp $(@:%.o=%.d) $(@:%.o=%.P); \
 	  sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' \
 	      -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
 	  rm -f $(@:%.o=%.d)
 
-obj/%.o: ethash/lib/ethash/%.c
+$(OBJDIR)/%.o: ethash/lib/ethash/%.c
 	$(CC) -c $(incDEFS) $(xCFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
 	@cp $(@:%.o=%.d) $(@:%.o=%.P); \
 	  sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' \
 	      -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
 	  rm -f $(@:%.o=%.d)
 
-obj/%.o: ethash/lib/keccak/%.c
+$(OBJDIR)/%.o: ethash/lib/keccak/%.c
 	$(CC) -c $(incDEFS) $(xCFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
 	@cp $(@:%.o=%.d) $(@:%.o=%.P); \
 	  sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' \
 	      -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
 	  rm -f $(@:%.o=%.d)
 
-obj/toradapter.o: tor/adapter/toradapter.cpp
+$(OBJDIR)/toradapter.o: tor/adapter/toradapter.cpp
 	$(CXX) -c $(xCXXFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
 	@cp $(@:%.o=%.d) $(@:%.o=%.P); \
 	sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' \
             -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
 	rm -f $(@:%.o=%.d)
 
-breakoutd: leveldb/out-static/libleveldb.a \
-              $(OBJS:obj/%=obj/%) obj/toradapter.o
+breakoutd: $(LEVELDB_OUT)/libleveldb.a \
+              $(OBJS) $(OBJDIR)/toradapter.o
 	$(CXX) $(xCXXFLAGS) -o $@ $(LIBPATHS) $^ $(xLDFLAGS) $(LIBS)
 
 clean:
 	-rm -f breakoutd
-	-rm -f obj/*.o
-	-rm -f obj/*.P
-	-rm -f obj/*.d
-	-rm -f obj/build.h
-	cd leveldb; make clean
+	-rm -rf $(OBJDIR)
+	cd leveldb; make OUT_DIR=$(LEVELDB_OUT_DIR) clean
 
 FORCE:

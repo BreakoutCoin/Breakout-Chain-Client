@@ -39,9 +39,41 @@ INCLUDEPATH += src src/json src/qt src/explore src/bip32
 INCLUDEPATH += src/ethash src/ethash/include src/ethash/lib
 
 
-OBJECTS_DIR = build
-MOC_DIR = build
-UI_DIR = build
+#######################################################################
+# qmake's intermediate output is written to a platform-specific directory,
+# for the same reason LevelDB's is (see the out-* comment further down):
+# one source tree has to serve builds for more than one platform without
+# them stomping on each other.
+#
+#   build/universal  - macOS universal (x86_64 + arm64)
+#   build/mac        - macOS single-arch
+#   build/windows    - Windows (MXE cross-compile)
+#   build/posix      - Linux, FreeBSD, and other POSIX hosts
+#
+# Sharing one directory used to mean that running a Windows gmake in a tree
+# last used for macOS found several hundred Mach-O objects, judged them up
+# to date, and tried to link them into a PE. The tags are chosen to match
+# the LevelDB suffixes so the two schemes read alike.
+#
+# Note that qmake still writes Makefile itself at the top level, which is
+# NOT tagged; use `qmake -o <dir>/Makefile` if two platforms need to be
+# configured simultaneously rather than merely to coexist.
+#######################################################################
+macx {
+    contains(QMAKE_APPLE_DEVICE_ARCHS, arm64):contains(QMAKE_APPLE_DEVICE_ARCHS, x86_64) {
+        BUILD_TAG = universal
+    } else {
+        BUILD_TAG = mac
+    }
+} else:win32 {
+    BUILD_TAG = windows
+} else {
+    BUILD_TAG = posix
+}
+
+OBJECTS_DIR = build/$$BUILD_TAG
+MOC_DIR = build/$$BUILD_TAG
+UI_DIR = build/$$BUILD_TAG
 
 
 #######################################################################
@@ -73,22 +105,30 @@ QT += core gui widgets printsupport
 # Default values are used if not overridden elsewhere.
 # MacOS is given default values for homebrew, because MacOS has
 #    no platform supported package manager.
-# Building on windows assumes MSYS+MinGW (Pacman).
+# Windows is cross-compiled with MXE (mingw-w64 static toolchain),
+#    which supplies every dependency itself; see local-env-win.pri.
 # Linux distributions generally have package managers
 #    that install libraries to /usr/local.
 #######################################################################
+# Name the file this platform expects up front, so the diagnostics below can
+# say which one is missing rather than listing all three.
 macx {
-    exists(local-env-osx.pri) {
-        include(local-env-osx.pri)
-    }
+    LOCAL_ENV_PRI = local-env-osx.pri
 } else:win32 {
-    exists(local-env-win.pri) {
-        include(local-env-win.pri)
-    }
+    LOCAL_ENV_PRI = local-env-win.pri
 } else {
-    exists(local-env-linux.pri) {
-        include(local-env-linux.pri)
+    LOCAL_ENV_PRI = local-env-linux.pri
+}
+
+exists($$LOCAL_ENV_PRI) {
+    # include() returns false when the file is there but does not parse.
+    # Without this test a syntax error looks exactly like a missing file:
+    # both leave every variable unset, and the only symptom is the
+    # BOOST_LIB_PATH gate below firing on a file you are looking straight at.
+    !include($$LOCAL_ENV_PRI) {
+        error("$$LOCAL_ENV_PRI was found but could not be parsed. Check it for qmake syntax errors; see doc/build-qt.md.")
     }
+    LOCAL_ENV_LOADED = 1
 }
 
 
@@ -97,10 +137,17 @@ macx {
 #######################################################################
 
 # Hard gate: if the local-env include did not load, nothing below works.
-# BOOST_LIB_PATH is used to check because every local-env-*.pri sets it
-# and the build genuinely needs it, so the message names a real cause.
+# BOOST_LIB_PATH is the variable tested because every local-env-*.pri sets it
+# and the build genuinely needs it. The two cases are reported separately --
+# "the file never loaded" and "the file loaded but is incomplete" have
+# different fixes, and a single message covering both sends people looking in
+# the wrong place. A file that exists but does not parse is caught earlier,
+# at the include() above.
 isEmpty(BOOST_LIB_PATH) {
-    error("BOOST_LIB_PATH is not set - is local-env-*.pri present and readable?")
+    isEmpty(LOCAL_ENV_LOADED) {
+        error("$$LOCAL_ENV_PRI was not found. Copy the matching section of local-env.pri.example to $$LOCAL_ENV_PRI, or, if it is a symlink, check that it is not dangling with: ls -lL $$LOCAL_ENV_PRI  (see doc/build-qt.md)")
+    }
+    error("$$LOCAL_ENV_PRI was loaded but does not set BOOST_LIB_PATH. See doc/build-qt.md for every variable it has to define.")
 }
 
 equals(BOOST_LIB_SUFFIX, "-") {
@@ -226,7 +273,7 @@ INCLUDEPATH += $$BOOST_INCLUDE_PATH $$BDB_INCLUDE_PATH \
 # Assumed package managers are:
 # - MacOS: homebrew
 # - Debian: apt
-# - Windows: MSYS+MinGW
+# - Windows: MXE (cross-built dependencies, no host package manager)
 
 
 #######################################################################

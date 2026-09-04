@@ -7,7 +7,11 @@ TOR_INCLUDEPATHS = \
   -I"$(CURDIR)/tor" \
   -I"$(CURDIR)/tor/adapter"
 
-TOR_CFLAGS = $(CFLAGS) $(TOR_INCLUDEPATHS) $(DEBUGFLAGS)
+# -std= is set explicitly so the Tor build does not silently follow the
+# compiler default, and matches the C standard the .pro uses (CONFIG += c17,
+# which without strict_c resolves to -std=gnu17). Placed before $(CFLAGS) so
+# an override on the make command line still wins.
+TOR_CFLAGS = -std=gnu17 $(CFLAGS) $(TOR_INCLUDEPATHS) $(DEBUGFLAGS)
 
 TOR_DEFS = $(addprefix -I, $(OPENSSL_INCLUDE_PATH) \
                            $(EVENT_INCLUDE_PATH))
@@ -434,98 +438,98 @@ OBJS += \
   obj/control_getinfo.o \
   obj/dirclient_modes.o
 
-obj/%.o: tor/adapter/%.c
+$(OBJDIR)/%.o: tor/adapter/%.c
 	$(CC) -c $(TOR_DEFS) $(TOR_CFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
 	@cp $(@:%.o=%.d) $(@:%.o=%.P); \
 	  sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' \
 	      -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
 	  rm -f $(@:%.o=%.d)
 
-obj/%.o: tor/core/%.c
+$(OBJDIR)/%.o: tor/core/%.c
 	$(CC) -c $(TOR_DEFS) $(TOR_CFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
 	@cp $(@:%.o=%.d) $(@:%.o=%.P); \
 	  sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' \
 	      -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
 	  rm -f $(@:%.o=%.d)
 
-obj/%.o: tor/app/%.c
+$(OBJDIR)/%.o: tor/app/%.c
 	$(CC) -c $(TOR_DEFS) $(TOR_CFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
 	@cp $(@:%.o=%.d) $(@:%.o=%.P); \
 	  sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' \
 	      -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
 	  rm -f $(@:%.o=%.d)
 
-obj/%.o: tor/ext/%.c
+$(OBJDIR)/%.o: tor/ext/%.c
 	$(CC) -c $(TOR_DEFS) $(TOR_CFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
 	@cp $(@:%.o=%.d) $(@:%.o=%.P); \
 	  sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' \
 	      -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
 	  rm -f $(@:%.o=%.d)
 
-obj/%.o: tor/ext/keccak-tiny/%.c
+$(OBJDIR)/%.o: tor/ext/keccak-tiny/%.c
 	$(CC) -c $(TOR_DEFS) $(TOR_CFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
 	@cp $(@:%.o=%.d) $(@:%.o=%.P); \
 	  sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' \
 	      -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
 	  rm -f $(@:%.o=%.d)
 
-obj/%.o: tor/ext/equix/hashx/src/%.c
+$(OBJDIR)/%.o: tor/ext/equix/hashx/src/%.c
 	$(CC) -c $(TOR_DEFS) $(TOR_CFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
 	@cp $(@:%.o=%.d) $(@:%.o=%.P); \
 	  sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' \
 	      -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
 	  rm -f $(@:%.o=%.d)
 
-obj/%.o: tor/ext/equix/src/%.c
+$(OBJDIR)/%.o: tor/ext/equix/src/%.c
 	$(CC) -c $(TOR_DEFS) $(TOR_CFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
 	@cp $(@:%.o=%.d) $(@:%.o=%.P); \
 	  sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' \
 	      -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
 	  rm -f $(@:%.o=%.d)
 
-obj/%.o: tor/ext/trunnel/%.c
+$(OBJDIR)/%.o: tor/ext/trunnel/%.c
 	$(CC) -c $(TOR_DEFS) $(TOR_CFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
 	@cp $(@:%.o=%.d) $(@:%.o=%.P); \
 	  sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' \
 	      -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
 	  rm -f $(@:%.o=%.d)
 
-obj/%.o: tor/ext/curve25519_donna/%.c
+$(OBJDIR)/%.o: tor/ext/curve25519_donna/%.c
 	$(CC) -c $(TOR_DEFS) $(TOR_CFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
 	@cp $(@:%.o=%.d) $(@:%.o=%.P); \
 	  sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' \
 	      -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
 	  rm -f $(@:%.o=%.d)
 
-obj/%.o: tor/ext/ed25519/donna/%.c
+$(OBJDIR)/%.o: tor/ext/ed25519/donna/%.c
 	$(CC) -c $(TOR_DEFS) $(TOR_CFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
 	@cp $(@:%.o=%.d) $(@:%.o=%.P); \
 	  sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' \
 	      -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
 	  rm -f $(@:%.o=%.d)
 
-obj/%.o: tor/ext/ed25519/ref10/%.c
+$(OBJDIR)/%.o: tor/ext/ed25519/ref10/%.c
 	$(CC) -c $(TOR_DEFS) $(TOR_CFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
 	@cp $(@:%.o=%.d) $(@:%.o=%.P); \
 	  sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' \
 	      -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
 	  rm -f $(@:%.o=%.d)
 
-obj/%.o: tor/trunnel/%.c
+$(OBJDIR)/%.o: tor/trunnel/%.c
 	$(CC) -c $(TOR_DEFS) $(TOR_CFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
 	@cp $(@:%.o=%.d) $(@:%.o=%.P); \
 	  sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' \
 	      -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
 	  rm -f $(@:%.o=%.d)
 
-obj/%.o: tor/lib/%.c
+$(OBJDIR)/%.o: tor/lib/%.c
 	$(CC) -c $(TOR_DEFS) $(TOR_CFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
 	@cp $(@:%.o=%.d) $(@:%.o=%.P); \
 	  sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' \
 	      -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
 	  rm -f $(@:%.o=%.d)
 
-obj/%.o: tor/feature/%.c
+$(OBJDIR)/%.o: tor/feature/%.c
 	$(CC) -c $(TOR_DEFS) $(TOR_CFLAGS) -MMD -MF $(@:%.o=%.d) -o $@ $<
 	@cp $(@:%.o=%.d) $(@:%.o=%.P); \
 	  sed -e 's/#.*//' -e 's/^[^:]*: *//' -e 's/ *\\$$//' \
