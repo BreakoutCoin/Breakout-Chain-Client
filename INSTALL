@@ -1,4 +1,8 @@
 Building breakout
-See doc/readme-qt.rst for instructions on building breakout QT.
 
-See doc/build-*.txt for instructions on building breakoutd.
+See doc/build-qt.md      for instructions on building the Qt GUI client.
+See doc/build-daemon.md  for instructions on building breakoutd, the daemon
+                         and command-line RPC client.
+
+Copy local-env.pri.example to the local-env-*.pri for your platform before
+configuring the Qt build; see doc/build-qt.md for the details.

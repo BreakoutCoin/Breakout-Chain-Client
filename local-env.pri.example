@@ -1,0 +1,198 @@
+#######################################################################
+##  local-env.pri.example -- template for the Qt (qmake) build
+#######################################################################
+#
+# breakout-qt.pro does not hardcode any dependency location. It expects a
+# machine-specific include file that it picks up by platform:
+#
+#     macOS     local-env-osx.pri
+#     Windows   local-env-win.pri      (MXE cross-compile)
+#     Linux     local-env-linux.pri
+#
+# Copy the section you need out of this file into one of those names in the
+# repository root. All three are covered by the `*local-env-*` rule in
+# .gitignore, so your copy stays out of version control; this template is
+# named `local-env.pri.example` precisely so it is NOT swept up by that rule.
+#
+# A common arrangement is to keep one file per machine and symlink it, e.g.
+#
+#     ln -sfn myhost-local-env-osx.pri local-env-osx.pri
+#
+# Check the link resolves with `ls -lL local-env-osx.pri` -- plain `ls -l`
+# succeeds on a dangling symlink and tells you nothing.
+#
+#
+# THE "-" SENTINEL
+#
+# Several variables accept "-" to mean "not applicable on this machine; add
+# nothing to the compiler or linker flags". Leaving such a variable unset is
+# not the same thing: unset trips the isEmpty() check. Use "-" to say "I
+# considered this and it is deliberately empty".
+#
+#
+# WHAT IS REQUIRED
+#
+#   BOOST_LIB_PATH            every platform. Hard error if unset -- it is
+#                             the gate that detects a missing or dangling
+#                             local-env include.
+#   SYSTEM_INCLUDE_PATH       Linux only. Hard error if unset. Use "-" when
+#   SYSTEM_LIB_PATH           the compiler already finds system headers.
+#   MXE_ROOT                  Windows only. Hard error if unset; also used to
+#                             locate the host lrelease and to cross-build
+#                             LevelDB.
+#
+# Everything else only warns when unset, but a warning here usually becomes a
+# link error later, so fill them all in. QRENCODE_* have no check at all yet
+# are effectively required: USE_QRCODE is defined unconditionally.
+#
+# BOOST_THREAD_LIB_SUFFIX defaults to BOOST_LIB_SUFFIX when unset, and QM_DIR
+# defaults to src/qt/locale. QMAKE_LRELEASE defaults to the host Qt's lrelease
+# everywhere except Windows, where the cross Qt ships a Windows lrelease.exe
+# that cannot run on the build host -- see the Windows section below.
+#
+#######################################################################
+
+
+#######################################################################
+##  macOS  (copy to local-env-osx.pri)
+#######################################################################
+# Dependencies come from Homebrew. Pinning the Cellar version directories
+# rather than using $${BREW}/lib keeps a brew upgrade from silently changing
+# what you link against.
+
+CPU_ARCH = x86_64
+
+# Apple Silicon: BREW = /opt/homebrew
+# Apple Intel:   BREW = /usr/local
+BREW   = /usr/local
+CELLAR = $${BREW}/Cellar
+
+HOMEBREW_INCLUDE = -I$${BREW}/include
+HOMEBREW_LIBS    = $${BREW}/lib
+
+# Recorded so Tor can report them; read from `clang --version`.
+COMPILER         = Apple clang version XX.X.X (clang-XXXX.X.X.XXX)
+COMPILER_VENDOR  = Apple
+COMPILER_VERSION = clang-XXXX.X.X.XXX
+
+ISYSROOT_SDK = "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/"
+ISYSROOT     = -isysroot $${ISYSROOT_SDK}
+
+CFLAGS   = $${ISYSROOT}
+CCFLAGS  = $${ISYSROOT}
+CXXFLAGS = $${ISYSROOT}
+CPPFLAGS = $${ISYSROOT}
+
+# Tor embeds these in its version banner.
+TOR_COMPILER_VERSION_FLAGS = -DCOMPILER="\""$${COMPILER}"\"" \
+          -DCOMPILER_VENDOR="\""$${COMPILER_VENDOR}"\"" \
+          -DCOMPILER_VERSION="\""$${COMPILER_VERSION}"\""
+CFLAGS   += $${TOR_COMPILER_VERSION_FLAGS}
+CCFLAGS  += $${TOR_COMPILER_VERSION_FLAGS}
+CXXFLAGS += $${TOR_COMPILER_VERSION_FLAGS}
+CPPFLAGS += $${TOR_COMPILER_VERSION_FLAGS}
+
+# Versions as installed by brew; check with `brew list --versions`.
+BDB_VERSION     = 18.1.40_2
+BOOST_VERSION   = 1.90.0_1
+OPENSSL_VERSION = 3.6.2
+EVENT_VERSION   = 2.1.12_1
+ZLIB_VERSION    = 1.3.2
+
+BDB_LIB_PATH     = $${CELLAR}/berkeley-db/$${BDB_VERSION}/lib
+BDB_INCLUDE_PATH = $${CELLAR}/berkeley-db/$${BDB_VERSION}/include
+BDB_LIB_SUFFIX   = -
+
+BOOST_LIB_PATH     = $${CELLAR}/boost/$${BOOST_VERSION}/lib
+BOOST_INCLUDE_PATH = $${CELLAR}/boost/$${BOOST_VERSION}/include
+BOOST_LIB_SUFFIX   = -
+
+OPENSSL_LIB_PATH     = $${CELLAR}/openssl@3/$${OPENSSL_VERSION}/lib
+OPENSSL_INCLUDE_PATH = $${CELLAR}/openssl@3/$${OPENSSL_VERSION}/include
+
+EVENT_LIB_PATH     = $${CELLAR}/libevent/$${EVENT_VERSION}/lib
+EVENT_INCLUDE_PATH = $${CELLAR}/libevent/$${EVENT_VERSION}/include
+
+ZLIB_LIB_PATH     = $${CELLAR}/zlib/$${ZLIB_VERSION}/lib
+ZLIB_INCLUDE_PATH = $${CELLAR}/zlib/$${ZLIB_VERSION}/include
+
+# libqrencode is built out-of-tree for the deployment target; point these at
+# wherever you keep it.
+QRENCODE_LIB_PATH     = /path/to/qrencode/lib
+QRENCODE_INCLUDE_PATH = /path/to/qrencode/include
+
+
+#######################################################################
+##  Windows -- MXE cross-compile  (copy to local-env-win.pri)
+#######################################################################
+# MXE supplies every dependency, so all the *_PATH variables point into one
+# prefix. Building the MXE toolchain itself is a separate exercise and is not
+# covered here.
+#
+# MXE_ROOT   = /path/to/mxe
+# MXE_TARGET = x86_64-w64-mingw32.static
+# MXE_PREFIX = $$MXE_ROOT/usr/$$MXE_TARGET
+#
+# QMAKE_CC      = $$MXE_ROOT/usr/bin/$$MXE_TARGET-gcc
+# QMAKE_CXX     = $$MXE_ROOT/usr/bin/$$MXE_TARGET-g++
+# QMAKE_AR      = $$MXE_ROOT/usr/bin/$$MXE_TARGET-ar
+# QMAKE_RANLIB  = $$MXE_ROOT/usr/bin/$$MXE_TARGET-ranlib
+# QMAKE_OBJCOPY = $$MXE_ROOT/usr/bin/$$MXE_TARGET-objcopy
+# QMAKE_STRIP   = $$MXE_ROOT/usr/bin/$$MXE_TARGET-strip
+#
+# lrelease must be a binary that runs on the BUILD host. Cross-compiling,
+# $$[QT_INSTALL_BINS] names the target Qt, whose lrelease is a Windows .exe.
+# Set this explicitly, or leave it unset and let breakout-qt.pro find the host
+# build by globbing $$MXE_ROOT/usr/*/qt6/bin/lrelease (the extensionless name
+# is what distinguishes it from the target's lrelease.exe).
+# QMAKE_LRELEASE = $$MXE_ROOT/usr/<build-triplet>/qt6/bin/lrelease
+#
+# BOOST_LIB_PATH          = $$MXE_PREFIX/lib
+# BOOST_INCLUDE_PATH      = $$MXE_PREFIX/include
+# BOOST_LIB_SUFFIX        = -mt-x64
+# BOOST_THREAD_LIB_SUFFIX = -mt-x64
+#
+# BDB_LIB_PATH     = $$MXE_PREFIX/lib
+# BDB_INCLUDE_PATH = $$MXE_PREFIX/include
+# BDB_LIB_SUFFIX   = -
+#
+# OPENSSL_LIB_PATH     = $$MXE_PREFIX/lib
+# OPENSSL_INCLUDE_PATH = $$MXE_PREFIX/include
+# EVENT_LIB_PATH       = $$MXE_PREFIX/lib
+# EVENT_INCLUDE_PATH   = $$MXE_PREFIX/include
+# ZLIB_LIB_PATH        = $$MXE_PREFIX/lib
+# ZLIB_INCLUDE_PATH    = $$MXE_PREFIX/include
+# QRENCODE_LIB_PATH     = $$MXE_PREFIX/lib
+# QRENCODE_INCLUDE_PATH = $$MXE_PREFIX/include
+#
+# MXE provides everything; there is no separate host system path.
+# SYSTEM_INCLUDE_PATH = -
+# SYSTEM_LIB_PATH     = -
+
+
+#######################################################################
+##  Linux  (copy to local-env-linux.pri)
+#######################################################################
+# Distribution packages install into one prefix, so most of these repeat.
+# On Debian/Ubuntu the multiarch directory is the one to name in
+# SYSTEM_*_PATH; use "-" if your compiler already finds everything.
+#
+# BOOST_LIB_PATH     = /usr/lib/x86_64-linux-gnu
+# BOOST_INCLUDE_PATH = /usr/include
+# BOOST_LIB_SUFFIX   = -
+#
+# BDB_LIB_PATH     = /usr/lib/x86_64-linux-gnu
+# BDB_INCLUDE_PATH = /usr/include
+# BDB_LIB_SUFFIX   = -
+#
+# OPENSSL_LIB_PATH     = /usr/lib/x86_64-linux-gnu
+# OPENSSL_INCLUDE_PATH = /usr/include
+# EVENT_LIB_PATH       = /usr/lib/x86_64-linux-gnu
+# EVENT_INCLUDE_PATH   = /usr/include
+# ZLIB_LIB_PATH        = /usr/lib/x86_64-linux-gnu
+# ZLIB_INCLUDE_PATH    = /usr/include
+# QRENCODE_LIB_PATH     = /usr/lib/x86_64-linux-gnu
+# QRENCODE_INCLUDE_PATH = /usr/include
+#
+# SYSTEM_INCLUDE_PATH = /usr/include/x86_64-linux-gnu
+# SYSTEM_LIB_PATH     = /usr/lib/x86_64-linux-gnu

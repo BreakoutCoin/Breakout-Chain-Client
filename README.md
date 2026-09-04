@@ -2,27 +2,50 @@
 
 ## Releases
 
-Release notes live in [`doc/release-notes/`](doc/release-notes/). The current release is
-**v1.9.1.0** — [release notes](doc/release-notes/release-notes-1.9.1.0.md). v1.9.1.0 adds Explore
-API functionality on top of v1.9.0.0 and changes no consensus rule or protocol requirement; see the
-[v1.9.0.0 release notes](doc/release-notes/release-notes-1.9.0.0.md) for the fork activation below.
+**Releases and tags are not the same thing.** A version is a *release* when it appears under
+[Releases](../../releases) with published binaries and a notes document in
+[`doc/release-notes/`](doc/release-notes/). Every other tag simply marks a point in the history — a
+version bump, a GUI tweak, a build-system fix — and has no binaries and no notes. The newest tag is
+therefore often ahead of the newest release, and that is expected rather than an oversight.
+
+The current release is **v1.9.1.0** —
+[release notes](doc/release-notes/release-notes-1.9.1.0.md).
+
+| release | notes | consensus-affecting |
+|---|---|---|
+| **v1.9.1.0** | [notes](doc/release-notes/release-notes-1.9.1.0.md) | Yes — schedules the `BRK_FORK008` / `BRK_FORK009` / `BRK_FORK010` activation below |
+| v1.7.3.0 and earlier | see [Releases](../../releases) | — |
+
+`v1.9.0.0` is a tag, not a release: it was superseded by v1.9.1.0 within days, before any binaries
+were published for it. Its content is carried forward in full by the v1.9.1.0 notes, which are the
+single document for the fork.
 
 <!-- BEGIN TEMPORARY UPGRADE NOTICE -- remove after 2026-09-06 -->
 > ### ⚠ Mandatory upgrade before Sun Sep 6 02:00:00 2026 UTC
 >
-> v1.9.0.0 schedules three consensus changes (`BRK_FORK008`, `BRK_FORK009`, `BRK_FORK010`) to
-> activate at **Sun Sep 6 02:00:00 2026 UTC** (epoch `1788660000`). v1.9.1.0 carries the same
-> schedule forward unchanged.
+> v1.9.1.0 schedules three consensus gates (`BRK_FORK008`, `BRK_FORK009`, `BRK_FORK010`) to
+> activate at **Sun Sep 6 02:00:00 2026 UTC** (epoch `1788660000`).
 >
 > **Every node must be upgraded before that instant.** A node still running v1.8.0.0 afterwards will
 > lose its peers and stop following the network — it will not degrade gracefully. If you cannot
 > upgrade in time, stop the node rather than let it run past activation; nothing is damaged by
 > stopping, and it will resume normally once upgraded.
 >
-> Either **v1.9.0.0 or v1.9.1.0** satisfies the fork. See the
-> [v1.9.0.0 release notes](doc/release-notes/release-notes-1.9.0.0.md) for what changes, why the
-> deadline is hard, and which build you need.
+> **v1.9.1.0** satisfies the fork. See the
+> [release notes](doc/release-notes/release-notes-1.9.1.0.md) for what changes, why the deadline is
+> hard, and which build you need.
 <!-- END TEMPORARY UPGRADE NOTICE -->
+
+## Building
+
+| What | Document |
+|---|---|
+| Qt GUI client | [`doc/build-qt.md`](doc/build-qt.md) |
+| `breakoutd` daemon / CLI | [`doc/build-daemon.md`](doc/build-daemon.md) |
+
+Neither build hardcodes dependency locations: the Qt build reads a
+`local-env-*.pri` and the daemon a `local-env-*.mk`, both gitignored. Start
+from [`local-env.pri.example`](local-env.pri.example).
 
 ## Overview
 
