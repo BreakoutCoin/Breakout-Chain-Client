@@ -1534,9 +1534,20 @@ bool AppInit2()
            pindexBest->nHeight,
            pindexBest->phashBlock->GetHex().c_str());
 
-    CWalletDB walletdb(strWalletFileName);
+    // Keep the wallet DB handle in its own scope.  CDB bumps
+    // bitdb.mapFileUseCount[wallet.dat] for the lifetime of the object, and in
+    // the non-Qt build AppInit2() never returns -- it ends in a sleep loop --
+    // so a function-scope handle here would pin wallet.dat as "in use" for the
+    // life of the process.  BackupWallet() waits for that count to reach zero,
+    // so it would spin forever while holding cs_main/cs_wallet and wedge every
+    // subsequent RPC.  (Pre-1.9 this handle lived inside the -rescan `else`
+    // block and was released immediately.)
     CBlockLocator locator;
-    bool fReadOK = walletdb.ReadBestBlock(locator);
+    bool fReadOK = false;
+    {
+        CWalletDB walletdb(strWalletFileName);
+        fReadOK = walletdb.ReadBestBlock(locator);
+    }
     printf("Read wallet best block OK: %s\n", fReadOK ? "yes" : "no");
     if (fReadOK)
     {

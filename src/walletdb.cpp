@@ -661,7 +661,11 @@ bool BackupWallet(const CWallet& wallet, const string& strDest)
 {
     if (!wallet.fFileBacked)
         return false;
-    while (true)
+    // Bail out on shutdown rather than looping forever: if some other handle
+    // keeps wallet.dat's use count above zero, an unconditional loop pins
+    // cs_main/cs_wallet (held by CRPCTable::execute) and the RPC handler
+    // thread never exits, so "stop" leaves ThreadRPCServer running.
+    while (!fShutdown)
     {
         {
             LOCK(bitdb.cs_db);
