@@ -104,6 +104,14 @@ static const int DATABASE_VERSION = 70508;
 //        fixed (ExploreConstants.hpp needed an explicit <cstdint>, which
 //        libstdc++ does not supply transitively), DEPS_DIR removed, and
 //        the MXE host lrelease is now located rather than hardcoded.
+//    (1.9.2.0)
+//        Fixes an RPC hang: a wallet.dat handle held open for the life of
+//        the daemon made backupwallet spin forever under cs_main/cs_wallet,
+//        wedging every subsequent RPC call.  Daemon only; the Qt client was
+//        never affected.  Build system reworked: C++17/gnu17 across the
+//        makefiles, per-configuration object directories, dead makefiles
+//        removed, build documentation added.  No consensus rule, network
+//        protocol requirement or fork schedule changes.
 static const int PROTOCOL_VERSION = 61030;
 
 

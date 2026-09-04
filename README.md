@@ -8,12 +8,13 @@
 version bump, a GUI tweak, a build-system fix — and has no binaries and no notes. The newest tag is
 therefore often ahead of the newest release, and that is expected rather than an oversight.
 
-The current release is **v1.9.1.0** —
-[release notes](doc/release-notes/release-notes-1.9.1.0.md).
+The current release is **v1.9.2.0** —
+[release notes](doc/release-notes/release-notes-1.9.2.0.md).
 
 | release | notes | consensus-affecting |
 |---|---|---|
-| **v1.9.1.0** | [notes](doc/release-notes/release-notes-1.9.1.0.md) | Yes — schedules the `BRK_FORK008` / `BRK_FORK009` / `BRK_FORK010` activation below |
+| **v1.9.2.0** | [notes](doc/release-notes/release-notes-1.9.2.0.md) | No — fixes an RPC hang in `breakoutd`; carries the v1.9.1.0 fork content unchanged |
+| v1.9.1.0 | [notes](doc/release-notes/release-notes-1.9.1.0.md) | Yes — schedules the `BRK_FORK008` / `BRK_FORK009` / `BRK_FORK010` activation below |
 | v1.7.3.0 and earlier | see [Releases](../../releases) | — |
 
 `v1.9.0.0` is a tag, not a release: it was superseded by v1.9.1.0 within days, before any binaries
@@ -23,7 +24,7 @@ single document for the fork.
 <!-- BEGIN TEMPORARY UPGRADE NOTICE -- remove after 2026-09-06 -->
 > ### ⚠ Mandatory upgrade before Sun Sep 6 02:00:00 2026 UTC
 >
-> v1.9.1.0 schedules three consensus gates (`BRK_FORK008`, `BRK_FORK009`, `BRK_FORK010`) to
+> v1.9.1.0 scheduled three consensus gates (`BRK_FORK008`, `BRK_FORK009`, `BRK_FORK010`) to
 > activate at **Sun Sep 6 02:00:00 2026 UTC** (epoch `1788660000`).
 >
 > **Every node must be upgraded before that instant.** A node still running v1.8.0.0 afterwards will
@@ -31,9 +32,10 @@ single document for the fork.
 > upgrade in time, stop the node rather than let it run past activation; nothing is damaged by
 > stopping, and it will resume normally once upgraded.
 >
-> **v1.9.1.0** satisfies the fork. See the
-> [release notes](doc/release-notes/release-notes-1.9.1.0.md) for what changes, why the deadline is
-> hard, and which build you need.
+> **v1.9.1.0 or v1.9.2.0** satisfies the fork. See the
+> [v1.9.1.0 release notes](doc/release-notes/release-notes-1.9.1.0.md) for what changes, why the
+> deadline is hard, and which build you need. v1.9.2.0 changes none of it and is the recommended
+> build for anyone running `breakoutd`.
 <!-- END TEMPORARY UPGRADE NOTICE -->
 
 ## Building
