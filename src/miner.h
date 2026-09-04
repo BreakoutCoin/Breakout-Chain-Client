@@ -9,6 +9,9 @@
 #include "main.h"
 #include "wallet.h"
 
+#include <atomic>
+#include <mutex>
+
 
 extern CCriticalSection cs_kawpow_mining;
 extern std::atomic<bool> fKawpowMiningActive;
