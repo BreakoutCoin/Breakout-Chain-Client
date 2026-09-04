@@ -1036,7 +1036,11 @@ int GetFork(int64_t nTime)
     // an unscheduled earlier one" pattern that self-check exists to catch
     // elsewhere. So both have their own gate, entirely outside this ladder
     // and this table.
-    const int nForksInLadder = TOTAL_FORKS - 2; // excludes BRK_FORK009, BRK_FORK010
+    // constexpr, not just const: this is what makes nForksInLadder usable
+    // inside the lambda below without being captured (referencing a constant
+    // expression is not an odr-use). If a later edit made it runtime-valued,
+    // the error would land here rather than silently reintroducing a capture.
+    constexpr int nForksInLadder = TOTAL_FORKS - 2; // excludes BRK_FORK009, BRK_FORK010
     const int64_t aForks[9][2] = {
     //                                   Time,         Fork Number
                                {    BRK_GENESIS_TIME,  BRK_GENESIS},
@@ -1064,7 +1068,7 @@ int GetFork(int64_t nTime)
     // below, silently. Check once per process and abort loudly rather than
     // let a fork silently fail to activate. (Scoped to this ladder only --
     // BRK_FORK009 and BRK_FORK010 are intentionally exempt, see above.)
-    static const bool fForksAscendingChecked = [&aForks, nForksInLadder]() -> bool
+    static const bool fForksAscendingChecked = [&aForks]() -> bool
     {
         for (int i = 1; i < nForksInLadder; ++i)
         {
