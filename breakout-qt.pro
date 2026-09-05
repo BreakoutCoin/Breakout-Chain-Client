@@ -4,7 +4,6 @@
 
 TEMPLATE = app
 TARGET = "Breakout-Chain"
-VERSION = 1.9.2.0
 
 macx {
     QMAKE_MACOSX_DEPLOYMENT_TARGET = 11
@@ -13,6 +12,44 @@ macx {
 
 # Testnet (true) or mainnet build (unset or any thing but true)
 TESTNET = false
+
+
+#######################################################################
+##  Version
+#######################################################################
+# src/clientversion.h is the single place the version is written.  Every
+# other consumer derives it from there: src/version.h composes
+# CLIENT_VERSION, src/qt/res/bitcoin-qt.rc stringizes the macros into the
+# Windows PE version resource, and the block below reads them for qmake
+# and for the macOS property list.
+#
+# This is pure qmake on purpose.  A $$system(sed ...) form was tried first
+# and does not work: qmake's tokenizer consumes the quotes before the shell
+# sees them, and it fails with "Missing closing ' quote".
+#
+# Note that the version a *built* binary reports is a separate matter.
+# share/genbuild.sh sets BUILD_DESC from `git describe --dirty`, so inside
+# a git tree the reported version comes from the tag, not from this file.
+# Tag before building release artifacts.
+#######################################################################
+
+CV_LINES = $$cat($$PWD/src/clientversion.h, lines)
+for(line, CV_LINES) {
+    tokens = $$split(line, " ")
+    key = $$member(tokens, 1)
+    equals(key, CLIENT_VERSION_MAJOR)    { VER_MAJOR = $$last(tokens) }
+    equals(key, CLIENT_VERSION_MINOR)    { VER_MINOR = $$last(tokens) }
+    equals(key, CLIENT_VERSION_REVISION) { VER_REV   = $$last(tokens) }
+    equals(key, CLIENT_VERSION_BUILD)    { VER_BUILD = $$last(tokens) }
+}
+
+# An unreadable header must fail the build loudly rather than quietly
+# produce a VERSION of "...".
+isEmpty(VER_MAJOR)|isEmpty(VER_MINOR)|isEmpty(VER_REV)|isEmpty(VER_BUILD) {
+    error("could not read the client version from src/clientversion.h")
+}
+
+VERSION = $${VER_MAJOR}.$${VER_MINOR}.$${VER_REV}.$${VER_BUILD}
 
 
 #######################################################################
@@ -74,6 +111,66 @@ macx {
 OBJECTS_DIR = build/$$BUILD_TAG
 MOC_DIR = build/$$BUILD_TAG
 UI_DIR = build/$$BUILD_TAG
+
+
+#######################################################################
+##  macOS Bundle Property List
+#######################################################################
+# The bundle's Info.plist is generated from contrib/macdeploy/Info.plist.in
+# with the derived VERSION substituted in, and installed by the build.  It
+# used to be copied over the qmake-generated placeholder by hand after the
+# build, which both carried its own hardcoded version and was easy to skip
+# -- skipping it left the bundle identifier as "Big.Breakout-Chain", which
+# breaks signing and notarization.
+#
+# The generated file goes to the platform build directory rather than next
+# to the template, so that no generated file lands in the source tree and
+# so that it cannot collide with the placeholder qmake writes to OUT_PWD.
+#
+# The substitution is done with sed and NOT with QMAKE_SUBSTITUTES.  That
+# engine lexes its input as qmake source, so it mangles XML: it strips the
+# double quotes from <?xml version="1.0" ...?> and silently deletes any line
+# containing an apostrophe.  Only comments carry apostrophes today and qmake
+# re-serialises the plist on the way into the bundle, so it was not visibly
+# broken -- but a <string> value with an apostrophe would be dropped along
+# with its key, and the only warning is a "Missing closing ' quote" line
+# that reads as noise.  That is the same trap that rules out $$system(sed
+# ...) for reading clientversion.h above; here it is reached through the
+# file being substituted rather than through the command.
+#
+# Generation stays at qmake time, as it was under QMAKE_SUBSTITUTES, because
+# qmake itself consumes QMAKE_INFO_PLIST.  A QMAKE_EXTRA_TARGETS rule -- the
+# right shape for build.h, which only the compiler reads -- would not exist
+# yet on the first qmake run in a clean tree, and qmake would quietly install
+# its own placeholder instead.
+#
+# Paths go through shell_quote so a tree whose path contains a space still
+# works.  The quotes it emits are produced when the line is evaluated, not
+# written in this file, so they never reach qmake's lexer.
+#######################################################################
+
+macx {
+    PLIST_DIR = $$OUT_PWD/build/$$BUILD_TAG
+    PLIST_IN  = $$PWD/contrib/macdeploy/Info.plist.in
+    PLIST_OUT = $$PLIST_DIR/Info.plist
+
+    !exists($$PLIST_IN) {
+        error("missing $$PLIST_IN, needed to generate the bundle Info.plist")
+    }
+
+    # mkdir because qmake creates OBJECTS_DIR only at generate time, which is
+    # after this file is parsed -- so on a clean tree the directory does not
+    # exist yet.  The genbuild rule needs the same mkdir for the same reason.
+    Q_DIR = $$shell_quote($$PLIST_DIR)
+    Q_IN  = $$shell_quote($$PLIST_IN)
+    Q_OUT = $$shell_quote($$PLIST_OUT)
+
+    !system(mkdir -p $$Q_DIR && sed -e s/@VERSION@/$$VERSION/g $$Q_IN > $$Q_OUT) {
+        error("could not generate $$PLIST_OUT from the Info.plist template")
+    }
+
+    QMAKE_INFO_PLIST = $$PLIST_OUT
+}
 
 
 #######################################################################

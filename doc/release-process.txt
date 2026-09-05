@@ -1,10 +1,12 @@
 * update translations (ping tcatm on IRC for now)
 
-* update (commit) version in sources
-  bitcoin-qt.pro
-  src/version.h
-  share/setup.nsi
-  doc/README*
+* update (commit) the version in src/clientversion.h -- and nowhere else.
+  It is the single source of truth; breakout-qt.pro, src/version.h,
+  src/qt/res/bitcoin-qt.rc and contrib/macdeploy/Info.plist.in all derive
+  their value from it.  See the comment at the top of that header.
+
+* add an entry to CHANGELOG.md under the appropriate protocol version.
+  This is written by hand and is not generated from the commit history.
 
 * tag version in git
 

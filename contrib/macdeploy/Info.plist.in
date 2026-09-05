@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist SYSTEM "file://localhost/System/Library/DTDs/PropertyList.dtd">
+<!--
+    Template.  breakout-qt.pro substitutes the three at-delimited version
+    placeholders below using sed, writes the result to the platform build
+    directory, and installs that as the bundle's property list.  The value is
+    derived from src/clientversion.h, so this file must never carry a literal
+    version number.
+
+    The placeholders are deliberately at-delimited rather than $-sigilled:
+    this file must never be routed through qmake's own substitution engine
+    (QMAKE_SUBSTITUTES), which lexes it as qmake source.  Doing so strips the
+    double quotes from the XML declaration and silently deletes any line
+    containing an apostrophe, which would drop a string value and its key
+    together, silently, from the bundle.
+
+    Three fields take the version, not two: CFBundleShortVersionString and
+    CFBundleVersion are bare, and CFBundleGetInfoString embeds it in prose.
+    A sweep for the previous release's exact string once matched the two
+    bare fields and skipped the third.
+-->
+<plist version="0.9">
+<dict>
+        <key>NSPrincipalClass</key>
+        <string>NSApplication</string>
+        <key>CFBundleIconFile</key>
+        <string>bitcoin.icns</string>
+        <key>CFBundlePackageType</key>
+        <string>APPL</string>
+        <key>CFBundleGetInfoString</key>
+        <string>Breakout Chain [BRK/BRX] Multicurrency @VERSION@</string>
+        <key>CFBundleExecutable</key>
+        <string>Breakout-Chain</string>
+        <key>CFBundleIdentifier</key>
+        <string>com.breakoutcoin.breakout-qt</string>
+        <key>CFBundleShortVersionString</key>
+        <string>@VERSION@</string>
+        <key>CFBundleSignature</key>
+        <string>BrkC</string>
+        <key>CFBundleVersion</key>
+        <string>@VERSION@</string>
+</dict>
+</plist>
