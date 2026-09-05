@@ -25,6 +25,24 @@ Related:
 
 ## Protocol version 61030
 
+### 1.9.2.1
+
+* No change in behavior; build system only. No consensus rule, network protocol
+  requirement or fork schedule changes.
+* The version number is now written in exactly one place, `src/clientversion.h`.
+  `breakout-qt.pro`, the Windows PE version resource and the macOS bundle property
+  list all derive it from there, and the property list is generated and installed
+  by the build rather than copied over the qmake placeholder by hand. The v1.9.2.0
+  bump had to touch four places and missed one.
+* This change log was moved out of `src/version.h`, where it had grown to 107 lines
+  of comment around 39 lines of code.
+* `genbuild.sh` now writes `build.h` to the per-configuration output directory.
+  Moving the object directories per-platform in 1.9.2.0 put `-Ibuild/<tag>` on the
+  include path while `build.h` was still written to `build/`, so `src/version.cpp`
+  could not find it. Windows was unaffected -- the enclosing guard skips the block
+  there -- and 1.9.2.0 shipped Windows-only, which is why a broken non-Windows
+  build survived a release.
+
 ### 1.9.2.0
 
 * Fixes an RPC hang: a `wallet.dat` handle held open for the life of the daemon
