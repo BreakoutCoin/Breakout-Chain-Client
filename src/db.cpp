@@ -355,6 +355,12 @@ bool CDBEnv::RemoveDb(const string& strFile)
 
 bool CDB::Rewrite(const string& strFile, const char* pszSkip)
 {
+    // Bounded for the same reason as BackupWallet()'s wait loop: this is
+    // reached from EncryptWallet() and LoadWallet() with cs_main and cs_wallet
+    // held, so if some handle keeps strFile's use count above zero an
+    // unconditional loop would pin both locks and wedge every other RPC until
+    // shutdown.  Fail with a logged error instead.
+    int64_t nDeadline = GetTimeMillis() + nDBWaitTimeoutMillis;
     while (!fShutdown)
     {
         {
@@ -440,6 +446,12 @@ bool CDB::Rewrite(const string& strFile, const char* pszSkip)
                     printf("Rewriting of %s FAILED!\n", strFileRes.c_str());
                 return fSuccess;
             }
+        }
+        if (GetTimeMillis() >= nDeadline)
+        {
+            printf("CDB::Rewrite() : timed out after %" PRId64 "s waiting for %s to be released\n",
+                   nDBWaitTimeoutMillis / 1000, strFile.c_str());
+            return false;
         }
         MilliSleep(100);
     }

@@ -26,8 +26,16 @@ class CWalletTx;
 
 extern unsigned int nWalletDBUpdated;
 
+// How long BackupWallet() and CDB::Rewrite() wait for a database file's use
+// count to drop to zero before giving up.  Both are called with cs_main and
+// cs_wallet held, so an unbounded wait blocks every other RPC until shutdown.
+static const int64_t nDBWaitTimeoutMillis = 60 * 1000;
+
 void ThreadFlushWalletDB(void* parg);
-bool BackupWallet(const CWallet& wallet, const std::string& strDest);
+// Copy the wallet file to strDest, which may name a directory or a file.
+// On failure, *pstrError (when given) is set to a caller-facing reason.
+bool BackupWallet(const CWallet& wallet, const std::string& strDest,
+                  std::string* pstrError = NULL);
 
 
 class CDBEnv

@@ -5,6 +5,9 @@
 #include <iostream>
 #include <fstream>
 
+#include <cerrno>
+#include <cstring>
+
 #include "init.h" // for pwalletMain
 #include "bitcoinrpc.h"
 #include "ui_interface.h"
@@ -227,7 +230,9 @@ Value importwallet(const Array& params, bool fHelp)
         throw runtime_error(
             "importwallet <filename> [ticker]\n"
             "If [ticker] is not given, updates address book for default currency.\n"
-            "Imports keys from a wallet dump file (see dumpwallet)."
+            "Imports keys from a wallet dump file (see dumpwallet).\n"
+            "The file is read on the machine running this server; a relative path is\n"
+            "resolved against that server's data directory."
        );
     }
 
@@ -245,12 +250,19 @@ Value importwallet(const Array& params, bool fHelp)
           }
     }
 
+    boost::filesystem::path pathDump = AbsolutePathFromDataDir(params[0].get_str());
+
     ifstream file;
-    file.open(params[0].get_str().c_str());
+    // iostreams are not required to set errno, so only quote it if it was set.
+    errno = 0;
+    file.open(pathDump.string().c_str());
     if (!file.is_open())
     {
         throw JSONRPCError(RPC_INVALID_PARAMETER,
-                           "Cannot open wallet dump file");
+                           errno == 0
+                               ? strprintf("Cannot open wallet dump file %s", pathDump.string().c_str())
+                               : strprintf("Cannot open wallet dump file %s: %s",
+                                           pathDump.string().c_str(), strerror(errno)));
     }
 
     int64_t nTimeBegin = pindexBest->nTime;
@@ -465,7 +477,9 @@ Value dumpwallet(const Array& params, bool fHelp)
     if (fHelp || params.size() != 1)
         throw runtime_error(
             "dumpwallet <filename>\n"
-            "Dumps all wallet keys in a human-readable format.");
+            "Dumps all wallet keys in a human-readable format.\n"
+            "The file is written on the machine running this server; a relative path is\n"
+            "resolved against that server's data directory.");
 
     int nColor = CheckDefaultCurrency();
 
@@ -481,10 +495,18 @@ Value dumpwallet(const Array& params, bool fHelp)
           }
     }
 
+    boost::filesystem::path pathDump = AbsolutePathFromDataDir(params[0].get_str());
+
     ofstream file;
-    file.open(params[0].get_str().c_str());
+    // iostreams are not required to set errno, so only quote it if it was set.
+    errno = 0;
+    file.open(pathDump.string().c_str());
     if (!file.is_open())
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "Cannot open wallet dump file");
+        throw JSONRPCError(RPC_INVALID_PARAMETER,
+                           errno == 0
+                               ? strprintf("Cannot open wallet dump file %s", pathDump.string().c_str())
+                               : strprintf("Cannot open wallet dump file %s: %s",
+                                           pathDump.string().c_str(), strerror(errno)));
 
     std::map<CKeyID, int64_t> mapKeyBirth;
 
@@ -650,11 +672,14 @@ Value importencryptedkey(const Array& params, bool fHelp)
     {
         throw runtime_error(
             "importencryptedkey <walletfile> <password>\n"
-            "Import the encrypted wallet from the first coin sale.");
+            "Import the encrypted wallet from the first coin sale.\n"
+            "The file is read on the machine running this server; a relative path is\n"
+            "resolved against that server's data directory.");
     }
 
-    std::string strFilename = params[0].get_str();
+    std::string strFilename = AbsolutePathFromDataDir(params[0].get_str()).string();
     std::string strJson; 
+    errno = 0;
     ifstream wfile(strFilename.c_str());
     if (wfile.is_open())
     {
@@ -664,7 +689,10 @@ Value importencryptedkey(const Array& params, bool fHelp)
     }
     else
     {
-        throw runtime_error(strprintf("Unable to open file '%s'", strFilename.c_str()));
+        throw runtime_error(errno == 0
+                                ? strprintf("Unable to open file '%s'", strFilename.c_str())
+                                : strprintf("Unable to open file '%s': %s",
+                                            strFilename.c_str(), strerror(errno)));
     }
     Value value;
     json_spirit::read(strJson, value);

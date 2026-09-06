@@ -2628,11 +2628,16 @@ Value backupwallet(const Array& params, bool fHelp)
     if (fHelp || params.size() != 1)
         throw runtime_error(
             "backupwallet <destination>\n"
-            "Safely copies wallet.dat to destination, which can be a directory or a path with filename.");
+            "Safely copies wallet.dat to destination, which can be a directory or a path with filename.\n"
+            "The destination is a path on the machine running this server; a relative path is\n"
+            "resolved against that server's data directory.");
 
     string strDest = params[0].get_str();
-    if (!BackupWallet(*pwalletMain, strDest))
-        throw JSONRPCError(RPC_WALLET_ERROR, "Error: Wallet backup failed!");
+    string strError;
+    if (!BackupWallet(*pwalletMain, strDest, &strError))
+        throw JSONRPCError(RPC_WALLET_ERROR,
+                           strError.empty() ? string("Error: Wallet backup failed!")
+                                            : "Error: Wallet backup failed: " + strError);
 
     return Value::null;
 }

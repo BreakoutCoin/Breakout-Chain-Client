@@ -1199,6 +1199,21 @@ const boost::filesystem::path& GetDataDir(bool fNetSpecific)
     return path;
 }
 
+boost::filesystem::path AbsolutePathFromDataDir(const std::string& strPath)
+{
+    // A relative path from an RPC caller resolves against the data directory,
+    // not against the process's working directory.  The working directory is
+    // whatever happened to be current when the daemon was started -- often "/"
+    // under a service manager, and in any case unknowable to a client on
+    // another machine -- so a relative destination would otherwise land
+    // somewhere the caller cannot predict or reach.  This matches how
+    // -rpcsslcertificatechainfile and -rpcsslprivatekeyfile are resolved.
+    boost::filesystem::path path(strPath);
+    if (!path.is_absolute())
+        path = GetDataDir() / path;
+    return path;
+}
+
 boost::filesystem::path GetConfigFile()
 {
     boost::filesystem::path pathConfigFile(GetArg("-conf", "breakout.conf"));

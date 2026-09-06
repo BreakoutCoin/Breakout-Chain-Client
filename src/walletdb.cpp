@@ -15,6 +15,10 @@
 #include <boost/filesystem.hpp>
 #include <boost/foreach.hpp>
 
+#include <cerrno>
+#include <cstdio>
+#include <cstring>
+
 using namespace std;
 using namespace boost;
 
@@ -657,14 +661,166 @@ void ThreadFlushWalletDB(void* parg)
     }
 }
 
-bool BackupWallet(const CWallet& wallet, const string& strDest)
+// Copy pathSrc to pathDest by writing a temporary file next to the destination
+// and renaming it into place.
+//
+// This deliberately avoids boost::filesystem::copy_file.  On Linux that is
+// implemented with copy_file_range(), which the kernel may refuse with EXDEV
+// when source and destination are on different file systems, and Boost grew no
+// fallback for that until 1.75.  Backing up to a USB stick, a network share or
+// any other mount point therefore fails outright on older Boost -- and since
+// copy_file has already created and truncated the destination by the time it
+// gives up, the failure leaves a zero-byte file where the previous good backup
+// used to be.  Writing to a temporary and renaming over the target keeps the
+// old backup intact unless the new one is complete, and a plain read/write
+// loop works across file systems everywhere.
+static bool CopyWalletFile(const boost::filesystem::path& pathSrc,
+                           const boost::filesystem::path& pathDest,
+                           string& strError)
 {
-    if (!wallet.fFileBacked)
+    boost::filesystem::path pathTmp(pathDest.string() +
+                                    strprintf(".%04x.tmp", (unsigned int)GetRand(0x10000)));
+
+    FILE* fileIn = fopen(pathSrc.string().c_str(), "rb");
+    if (fileIn == NULL)
+    {
+        strError = strprintf("cannot read %s: %s", pathSrc.string().c_str(), strerror(errno));
         return false;
+    }
+
+    FILE* fileOut = fopen(pathTmp.string().c_str(), "wb");
+    if (fileOut == NULL)
+    {
+        strError = strprintf("cannot create %s (temporary file for %s): %s",
+                             pathTmp.string().c_str(), pathDest.string().c_str(), strerror(errno));
+        fclose(fileIn);
+        return false;
+    }
+
+    bool fOk = true;
+    char pchBuf[64 * 1024];
+    while (fOk)
+    {
+        size_t nRead = fread(pchBuf, 1, sizeof(pchBuf), fileIn);
+        if (nRead != sizeof(pchBuf) && ferror(fileIn))
+        {
+            strError = strprintf("error reading %s", pathSrc.string().c_str());
+            fOk = false;
+            break;
+        }
+        if (nRead == 0)
+            break;
+        if (fwrite(pchBuf, 1, nRead, fileOut) != nRead)
+        {
+            strError = strprintf("error writing %s: %s", pathTmp.string().c_str(), strerror(errno));
+            fOk = false;
+            break;
+        }
+    }
+
+    // Get the copy onto the disk before the rename, so that a crash cannot
+    // leave the destination name pointing at a file whose contents never
+    // landed.
+    if (fOk)
+        FileCommit(fileOut);
+    if (fclose(fileOut) != 0 && fOk)
+    {
+        strError = strprintf("error closing %s: %s", pathTmp.string().c_str(), strerror(errno));
+        fOk = false;
+    }
+    fclose(fileIn);
+
+    // boost::filesystem::copy_file carried the wallet's permissions over to the
+    // copy; a freshly fopen()ed file would instead get whatever the umask
+    // allows.  Keep the old behaviour so a backup is no more readable than the
+    // wallet it came from.
+    if (fOk)
+    {
+#if BOOST_VERSION >= 104400
+        boost::system::error_code ecPerms;
+        boost::filesystem::permissions(pathTmp,
+                                       boost::filesystem::status(pathSrc).permissions(),
+                                       ecPerms);
+#endif
+    }
+
+    if (fOk && !RenameOver(pathTmp, pathDest))
+    {
+        // RenameOver() goes through MoveFileEx() on Windows, where errno says
+        // nothing about why it failed.
+#ifdef WIN32
+        strError = strprintf("cannot rename %s to %s",
+                             pathTmp.string().c_str(), pathDest.string().c_str());
+#else
+        strError = strprintf("cannot rename %s to %s: %s",
+                             pathTmp.string().c_str(), pathDest.string().c_str(), strerror(errno));
+#endif
+        fOk = false;
+    }
+
+    if (!fOk)
+    {
+        boost::system::error_code ec;
+        boost::filesystem::remove(pathTmp, ec);
+    }
+
+    return fOk;
+}
+
+bool BackupWallet(const CWallet& wallet, const string& strDest, string* pstrError)
+{
+    string strErrorUnused;
+    string& strError = (pstrError != NULL) ? *pstrError : strErrorUnused;
+    strError.clear();
+
+    if (!wallet.fFileBacked)
+    {
+        strError = "wallet is not file backed, there is nothing to back up";
+        return false;
+    }
+
+    if (strDest.empty())
+    {
+        strError = "no destination given";
+        return false;
+    }
+
+    // Resolve the destination before touching the wallet database, so that an
+    // unusable path fails immediately instead of after closing wallet.dat.
+    boost::filesystem::path pathSrc = GetDataDir() / wallet.strWalletFile;
+    boost::filesystem::path pathDest;
+    try {
+        // A relative destination resolves against the data directory; see
+        // AbsolutePathFromDataDir().  Every message below names the resolved
+        // path, so a caller on the other end of an RPC connection can tell
+        // where the backup actually went.
+        pathDest = AbsolutePathFromDataDir(strDest);
+        if (boost::filesystem::is_directory(pathDest))
+            pathDest /= wallet.strWalletFile;
+
+        boost::filesystem::path pathParent = pathDest.parent_path();
+        if (!pathParent.empty() && !boost::filesystem::is_directory(pathParent))
+        {
+            strError = strprintf("no such directory: %s", pathParent.string().c_str());
+            return false;
+        }
+
+        if (boost::filesystem::exists(pathDest) &&
+            boost::filesystem::equivalent(pathSrc, pathDest))
+        {
+            strError = strprintf("destination %s is the wallet itself", pathDest.string().c_str());
+            return false;
+        }
+    } catch (const boost::filesystem::filesystem_error& e) {
+        strError = strprintf("cannot use destination %s: %s", strDest.c_str(), e.what());
+        return false;
+    }
+
     // Bail out on shutdown rather than looping forever: if some other handle
     // keeps wallet.dat's use count above zero, an unconditional loop pins
     // cs_main/cs_wallet (held by CRPCTable::execute) and the RPC handler
     // thread never exits, so "stop" leaves ThreadRPCServer running.
+    int64_t nDeadline = GetTimeMillis() + nDBWaitTimeoutMillis;
     while (!fShutdown)
     {
         {
@@ -677,33 +833,27 @@ bool BackupWallet(const CWallet& wallet, const string& strDest)
                 bitdb.mapFileUseCount.erase(wallet.strWalletFile);
 
                 // Copy wallet.dat
-                boost::filesystem::path pathSrc = GetDataDir() / wallet.strWalletFile;
-                boost::filesystem::path pathDest(strDest);
-                if (boost::filesystem::is_directory(pathDest))
-                    pathDest /= wallet.strWalletFile;
-
-                try {
-#if BOOST_VERSION >= 107400
-                    boost::filesystem::copy_file(pathSrc,
-                                          pathDest,
-                                          boost::filesystem::copy_options::overwrite_existing);
-#elif BOOST_VERSION >= 104000
-                    boost::filesystem::copy_file(pathSrc,
-                                          pathDest,
-                                          boost::filesystem::copy_option::overwrite_if_exists);
-#else
-                    boost::filesystem::copy_file(pathSrc, pathDest);
-#endif
-                    printf("copied wallet.dat to %s\n", pathDest.string().c_str());
-                    return true;
-                } catch(const boost::filesystem::filesystem_error &e) {
-                    printf("error copying wallet.dat to %s - %s\n", pathDest.string().c_str(), e.what());
+                if (!CopyWalletFile(pathSrc, pathDest, strError))
+                {
+                    printf("error copying wallet.dat to %s - %s\n",
+                           pathDest.string().c_str(), strError.c_str());
                     return false;
                 }
+                printf("copied wallet.dat to %s\n", pathDest.string().c_str());
+                return true;
             }
+        }
+        if (GetTimeMillis() >= nDeadline)
+        {
+            strError = strprintf("timed out after %" PRId64 "s waiting for %s to be released",
+                                 nDBWaitTimeoutMillis / 1000, wallet.strWalletFile.c_str());
+            printf("BackupWallet() : %s\n", strError.c_str());
+            return false;
         }
         MilliSleep(100);
     }
+
+    strError = "shutting down";
     return false;
 }
 
