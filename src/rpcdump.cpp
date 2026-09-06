@@ -474,9 +474,10 @@ Value dumpprivkey(const Array& params, bool fHelp)
 
 Value dumpwallet(const Array& params, bool fHelp)
 {
-    if (fHelp || params.size() != 1)
+    if (fHelp || params.size() < 1 || params.size() > 2)
         throw runtime_error(
-            "dumpwallet <filename>\n"
+            "dumpwallet <filename> [ticker]\n"
+            "If [ticker] is not given, addresses are written for the default currency.\n"
             "Dumps all wallet keys in a human-readable format.\n"
             "The file is written on the machine running this server; a relative path is\n"
             "resolved against that server's data directory.");
