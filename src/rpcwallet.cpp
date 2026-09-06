@@ -2844,13 +2844,25 @@ Value encryptwallet(const Array& params, bool fHelp)
             "encryptwallet <passphrase>\n"
             "Encrypts the wallet with <passphrase>.");
 
-    if (!pwalletMain->EncryptWallet(strWalletPass))
+    bool fRewriteFailed = false;
+    if (!pwalletMain->EncryptWallet(strWalletPass, &fRewriteFailed))
         throw JSONRPCError(RPC_WALLET_ENCRYPTION_FAILED, "Error: Failed to encrypt the wallet.");
 
     // BDB seems to have a bad habit of writing old data into
     // slack space in .dat files; that is bad if the old data is
     // unencrypted private keys. So:
     StartShutdown();
+
+    // The wallet is encrypted either way -- but if the rewrite that scrubs the
+    // old plaintext keys out of wallet.dat failed, say so plainly instead of
+    // reporting a clean success the caller would act on.
+    if (fRewriteFailed)
+        return "wallet encrypted, BUT rewriting wallet.dat FAILED: the file may still contain "
+               "your private keys in the clear, so do not rely on the passphrase to protect it "
+               "-- move your coins to a newly created wallet.  breakout server stopping, "
+               "restart to run with encrypted wallet.  The keypool has been flushed, you need "
+               "to make a new backup.";
+
     return "wallet encrypted; breakout server stopping, restart to run with encrypted wallet.  The keypool has been flushed, you need to make a new backup.";
 }
 

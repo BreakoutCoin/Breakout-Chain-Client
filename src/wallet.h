@@ -342,7 +342,12 @@ public:
     bool Lock();
     bool Unlock(const SecureString& strWalletPassphrase, bool lockedOK=false);
     bool ChangeWalletPassphrase(const SecureString& strOldWalletPassphrase, const SecureString& strNewWalletPassphrase);
-    bool EncryptWallet(const SecureString& strWalletPassphrase);
+    // Encrypt the wallet.  On return true the wallet is encrypted and usable;
+    // *pfRewriteFailed (when given) then says whether the follow-up rewrite
+    // that scrubs the old plaintext keys out of wallet.dat's slack space
+    // failed, which leaves the file readable by anyone who obtains a copy.
+    bool EncryptWallet(const SecureString& strWalletPassphrase,
+                       bool* pfRewriteFailed = NULL);
 
     void GetKeyBirthTimes(std::map<CKeyID, int64_t> &mapKeyBirth) const;
 

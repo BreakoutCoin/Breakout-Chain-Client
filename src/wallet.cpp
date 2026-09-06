@@ -392,8 +392,11 @@ bool CWallet::SetMaxVersion(int nVersion)
     return true;
 }
 
-bool CWallet::EncryptWallet(const SecureString& strWalletPassphrase)
+bool CWallet::EncryptWallet(const SecureString& strWalletPassphrase, bool* pfRewriteFailed)
 {
+    if (pfRewriteFailed != NULL)
+        *pfRewriteFailed = false;
+
     if (IsCrypted())
         return false;
 
@@ -491,7 +494,26 @@ bool CWallet::EncryptWallet(const SecureString& strWalletPassphrase)
 
         // Need to completely rewrite the wallet file; if we don't, bdb might keep
         // bits of the unencrypted private key in slack space in the database file.
-        CDB::Rewrite(strWalletFile);
+        if (!CDB::Rewrite(strWalletFile))
+        {
+            // Not an encryption failure, and it must not be reported as one:
+            // the master key and the encrypted keys are already committed, so
+            // the wallet really is encrypted and usable.  What failed is the
+            // scrub, and its consequence is the opposite of harmless -- the
+            // file still holds the old keys in the clear, so the passphrase
+            // protects the wallet in memory but not the file on disk.
+            if (pfRewriteFailed != NULL)
+                *pfRewriteFailed = true;
+            std::string strMessage = _(
+                "Error: the wallet was encrypted, but rewriting wallet.dat to remove the old "
+                "unencrypted keys failed.  The file may still contain your private keys in the "
+                "clear: do not rely on the passphrase to protect it, and move your coins to a "
+                "newly created wallet.");
+            printf("*** %s\n", strMessage.c_str());
+            uiInterface.ThreadSafeMessageBox(strMessage, "Breakout",
+                                             CClientUIInterface::OK |
+                                             CClientUIInterface::ICON_EXCLAMATION);
+        }
 
     }
     NotifyStatusChanged(this);
