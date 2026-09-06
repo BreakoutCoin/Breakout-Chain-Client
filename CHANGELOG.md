@@ -25,6 +25,44 @@ Related:
 
 ## Protocol version 61030
 
+### 1.9.2.2
+
+* Fixes `backupwallet`, which could fail to produce a backup without saying so.
+  Two independent faults. A destination on a different file system failed
+  outright: Boost's `copy_file` is `copy_file_range()` on Linux, which the kernel
+  may refuse between file systems, and Boost grew no fallback for that until
+  1.75 -- so backing up to a USB stick or a network share did not work. And a
+  relative destination resolved against the daemon's working directory rather
+  than the data directory, so the file landed somewhere the caller had no way to
+  predict while the RPC still reported success.
+* A failed `backupwallet` was also destructive. `copy_file` creates and truncates
+  the destination before it gives up, so a failure left a zero-byte file where
+  the previous good backup had been -- and running it again over a good backup
+  destroyed that one too. The copy is now written to a temporary beside the
+  destination and renamed into place, so the existing backup survives untouched
+  unless the new one is complete.
+* **Behavior change:** a relative path given to `backupwallet`, `dumpwallet`,
+  `importwallet` or `importencryptedkey` now resolves against the data directory,
+  the way `-rpcsslcertificatechainfile` already did. Scripts that passed a
+  relative path and relied on the daemon's working directory will see the file
+  move. Absolute paths are unaffected.
+* RPC failures in those calls now carry the reason and the resolved absolute path
+  back to the caller, instead of leaving them in the server's `debug.log` -- the
+  one place a client on another machine cannot look.
+* `encryptwallet` no longer reports a clean success when the rewrite that scrubs
+  the old unencrypted keys out of `wallet.dat` has failed. The wallet is
+  encrypted either way, so this is not an encryption failure and is not reported
+  as one, but the file may still hold those keys in the clear and that is now
+  said rather than swallowed.
+* `dumpwallet` accepts the `[ticker]` argument it documents; the argument count
+  check above it had made that branch unreachable.
+* The Linux Qt build works. `qmake-include/breakout-tor-linux.pri` was never
+  written, and qmake does not treat a missing include as fatal, so the Linux
+  branch appeared to configure while generating a Makefile with no Tor in it and
+  failing at link. The GUI also builds against Qt 6.4 now, not only Qt 6.10 and
+  later. Still not released.
+* No consensus rule, network protocol requirement or fork schedule changes.
+
 ### 1.9.2.1
 
 * No change in behavior; build system only. No consensus rule, network protocol
