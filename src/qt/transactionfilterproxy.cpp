@@ -54,33 +54,44 @@ bool TransactionFilterProxy::filterAcceptsRow(int sourceRow, const QModelIndex &
     return true;
 }
 
+void TransactionFilterProxy::refilter()
+{
+    // QSortFilterProxyModel::beginFilterChange() arrived in Qt 6.9 and
+    // endFilterChange() in Qt 6.10; invalidateFilter() is what came before and
+    // is deprecated from Qt 6.13.  Use whichever the Qt being built against
+    // actually has, so this builds on the Qt versions distributions still ship
+    // as well as on current ones.
+#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
+    beginFilterChange();
+    endFilterChange();
+#else
+    invalidateFilter();
+#endif
+}
+
 void TransactionFilterProxy::setDateRange(const QDateTime &from, const QDateTime &to)
 {
     this->dateFrom = from;
     this->dateTo = to;
-    beginFilterChange();
-    endFilterChange();
+    refilter();
 }
 
 void TransactionFilterProxy::setAddressPrefix(const QString &addrPrefix)
 {
     this->addrPrefix = addrPrefix;
-    beginFilterChange();
-    endFilterChange();
+    refilter();
 }
 
 void TransactionFilterProxy::setTypeFilter(quint32 modes)
 {
     this->typeFilter = modes;
-    beginFilterChange();
-    endFilterChange();
+    refilter();
 }
 
 void TransactionFilterProxy::setMinAmount(qint64 minimum)
 {
     this->minAmount = minimum;
-    beginFilterChange();
-    endFilterChange();
+    refilter();
 }
 
 void TransactionFilterProxy::setLimit(int limit)
@@ -91,8 +102,7 @@ void TransactionFilterProxy::setLimit(int limit)
 void TransactionFilterProxy::setShowInactive(bool showInactive)
 {
     this->showInactive = showInactive;
-    beginFilterChange();
-    endFilterChange();
+    refilter();
 }
 
 int TransactionFilterProxy::rowCount(const QModelIndex &parent) const

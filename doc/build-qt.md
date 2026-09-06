@@ -28,7 +28,11 @@ The daemon's platform support differs; see [build-daemon.md](build-daemon.md).
 
 ## Prerequisites
 
-Qt 6 (`core`, `gui`, `widgets`, `printsupport`), plus:
+Qt 6 (`core`, `gui`, `widgets`, `printsupport`) — known to build with 6.4 and
+newer; `src/qt/transactionfilterproxy.cpp` picks between
+`QSortFilterProxyModel::beginFilterChange()`/`endFilterChange()` (Qt 6.10 and
+later) and `invalidateFilter()` (deprecated from Qt 6.13) at compile time, so
+both ends of that range work. Plus:
 
 - Boost
 - Berkeley DB (C++ API)

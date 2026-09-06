@@ -39,6 +39,9 @@ protected:
     bool filterAcceptsRow(int source_row, const QModelIndex & source_parent) const;
 
 private:
+    /** Re-run the filter after one of the criteria above has changed. */
+    void refilter();
+
     QDateTime dateFrom;
     QDateTime dateTo;
     QString addrPrefix;
