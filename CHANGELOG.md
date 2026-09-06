@@ -25,6 +25,30 @@ Related:
 
 ## Protocol version 61030
 
+### 1.9.3.0
+
+* Fixes a startup crash on any node that upgrades *after* a consensus change
+  has already activated. `CTxDB::LoadBlockIndex()` verifies the last
+  `-checkblocks` blocks as it loads, and a stored block that the new rules
+  reject makes it roll the best-chain pointer back -- which runs `Reorganize()`.
+  That function maintains the wallet's per-color balance totals and takes
+  `LOCK(pwalletMain->cs_wallet)` to do it, but the block index loads fifty lines
+  before `AppInit2()` constructs the wallet, so `pwalletMain` is still null.
+  Segfault, before the window appears and before any RPC is up. Restarting did
+  not help, because the stored chain was unchanged.
+* Reachable only when previously stored blocks become invalid, which in normal
+  operation does not happen -- a scheduled fork is what produced the conditions.
+  The affected population was therefore users who were already behind: those who
+  stayed on a pre-fork client past the Sun Sep 6 02:00 UTC BRK_FORK008/009/010
+  activation and then upgraded. Present in every 1.9.x release since c780234.
+* Fixed by guarding the three wallet-balance sections of `Reorganize()` with
+  `if (pwalletMain)`. Nothing else moved: block disconnection and reconnection,
+  the database writes, the chain-pointer fixups and the mempool handling all sit
+  outside the guard, and with a wallet loaded the path is identical to 1.9.2.2.
+  No balances are lost by skipping the accounting -- `FillSnapshot()` recomputes
+  every total from the wallet's transactions on every startup regardless.
+* No consensus rule, network protocol requirement or fork schedule changes.
+
 ### 1.9.2.2
 
 * Fixes `backupwallet`, which could fail to produce a backup without saying so.

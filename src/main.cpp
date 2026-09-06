@@ -3349,120 +3349,124 @@ bool static Reorganize(CTxDB& txdb, CBlockIndex* pindexNew)
             return error("Reorganize() : ReadFromDisk for disconnect failed");
         }
 
-        ///////////////////////////////////////////////////////////////////
-        // Calculate balance changes for main wallet before the block is
-        //    fully disconnected.
-        ///////////////////////////////////////////////////////////////////
-        BOOST_FOREACH(const CTransaction& tx, block.vtx)
+        if (pwalletMain)
         {
-            // temporary wallet transaction for calculations
-            CWalletTx wtx;
+            ///////////////////////////////////////////////////////////////////
+            // Calculate balance changes for main wallet before the block is
+            //    fully disconnected.
+            ///////////////////////////////////////////////////////////////////
+            BOOST_FOREACH(const CTransaction& tx, block.vtx)
             {
-                LOCK(pwalletMain->cs_wallet);
-                wtx = CWalletTx(pwalletMain, tx);
-            }
-            bool fDoesMature = wtx.DoesMature();
-            bool fImmature = (fDoesMature &&
-                              (wtx.GetBlocksToMaturity() > 0));
-            bool fUnconfirmed = ((!fDoesMature) && (wtx.GetDepthInMainChain() <= 0));
-            mapConfStatus[wtx.GetHash()] = fUnconfirmed
-                                               ? CONF_UNCONFIRMED_BEFORE
-                                               : CONF_CONFIRMED_BEFORE;
-            ColorsMap mapReceived;
-            ColorsMap mapSent;
-            wtx.GetAmounts(false, mapReceived, mapSent);
-            // DISCONNECTION: Subtract Received, add back Sent.
-            mapConfirmedChanges.Subtract(mapReceived);
-            mapConfirmedChanges.Add(mapSent);
-            if (fImmature)
-            {
-                // DISCONNECTION: Subtract Received
-                if (wtx.IsCoinStake())
+                // temporary wallet transaction for calculations
+                CWalletTx wtx;
                 {
-                    // inputs = outputs, so keep track of only one side
-                    mapStakeChanges.Subtract(mapReceived);
+                    LOCK(pwalletMain->cs_wallet);
+                    wtx = CWalletTx(pwalletMain, tx);
                 }
-                else if (wtx.IsCoinBase())
+                bool fDoesMature = wtx.DoesMature();
+                bool fImmature = (fDoesMature &&
+                                  (wtx.GetBlocksToMaturity() > 0));
+                bool fUnconfirmed = ((!fDoesMature) &&
+                                     (wtx.GetDepthInMainChain() <= 0));
+                mapConfStatus[wtx.GetHash()] = fUnconfirmed
+                                                   ? CONF_UNCONFIRMED_BEFORE
+                                                   : CONF_CONFIRMED_BEFORE;
+                ColorsMap mapReceived;
+                ColorsMap mapSent;
+                wtx.GetAmounts(false, mapReceived, mapSent);
+                // DISCONNECTION: Subtract Received, add back Sent.
+                mapConfirmedChanges.Subtract(mapReceived);
+                mapConfirmedChanges.Add(mapSent);
+                if (fImmature)
                 {
-                    // there are no inputs for coinbase
-                    mapCoinbaseChanges.Subtract(mapReceived);
-                }
-                else
-                {
-                     throw runtime_error(
-                                "Reorganize(): TSNH upon DISCONNECTION - "
-                                "matures but not coinstake or coinbase");
-                }
-            }
-        }
-        // Subtract coins that would become immature upon disconnecting.
-        CBlockIndex* pindexImm = pindex;
-        // confs:     1        2      3      4     ...     MATURITY_DEPTH
-        //        pindexImm->pprev->pprev->pprev-> ... -> [becomes immature]
-        int i = 1;
-        while (pindexImm->pprev)
-        {
-            pindexImm = pindexImm->pprev;
-            i += 1;
-            if (i == MATURITY_DEPTH)
-            {
-                break;
-            }
-        }
-        if ((i != MATURITY_DEPTH) && (pindexImm != pindexGenesisBlock))
-        {
-            // This should never happen: can't step back through
-            //    pprevs to get to block that would become immature
-            throw std::runtime_error(strprintf("Reorganize(): i=%d "
-                         "TSNH can't step back from disconnect\n  %s",
-                         i,
-                         pindex->GetBlockHash().ToString().c_str()));
-        }
-        // ensure it stepped through enough blocks
-        if (pindexImm && (i == MATURITY_DEPTH))
-        {
-            CBlock blockImm;
-            if (!blockImm.ReadFromDisk(pindexImm))
-            {
-                return error("Reorganize(): Read from disk failed \n  %s",
-                             pindexImm->GetBlockHash().ToString().c_str());
-            }
-            BOOST_FOREACH(CTransaction& tx, blockImm.vtx)
-            {
-                if (tx.DoesMature())
-                {
-                    // temporary wallet transaction for calculations
-                    CWalletTx wtx;
-                    {
-                        LOCK(pwalletMain->cs_wallet);
-                        wtx = CWalletTx(pwalletMain, tx);
-                    }
-                    ColorsMap mapReceived;
-                    ColorsMap mapSentUnused;
-                    wtx.GetAmounts(false, mapReceived, mapSentUnused);
-
-                    // BECAME-IMMATURE (Became stake/coinbase) ==> Add
+                    // DISCONNECTION: Subtract Received
                     if (wtx.IsCoinStake())
                     {
                         // inputs = outputs, so keep track of only one side
-                        mapStakeChanges.Add(mapReceived);
+                        mapStakeChanges.Subtract(mapReceived);
                     }
                     else if (wtx.IsCoinBase())
                     {
                         // there are no inputs for coinbase
-                        mapCoinbaseChanges.Add(mapReceived);
+                        mapCoinbaseChanges.Subtract(mapReceived);
                     }
                     else
                     {
                          throw runtime_error(
-                                 "Reorganize(): TSNH upon BECAME-IMMATURE - "
-                                 "matures but not coinstake or coinbase");
+                             "Reorganize(): TSNH upon DISCONNECTION - "
+                             "matures but not coinstake or coinbase");
                     }
                 }
             }
-        }
-        ///////////////////////////////////////////////////////////////////
-        ///////////////////////////////////////////////////////////////////
+            // Subtract coins that would become immature upon disconnecting.
+            CBlockIndex* pindexImm = pindex;
+            // confs:    1        2      3      4     ...     MATURITY_DEPTH
+            //       pindexImm->pprev->pprev->pprev-> ... -> [becomes immature]
+            int i = 1;
+            while (pindexImm->pprev)
+            {
+                pindexImm = pindexImm->pprev;
+                i += 1;
+                if (i == MATURITY_DEPTH)
+                {
+                    break;
+                }
+            }
+            if ((i != MATURITY_DEPTH) && (pindexImm != pindexGenesisBlock))
+            {
+                // This should never happen: can't step back through
+                //    pprevs to get to block that would become immature
+                throw std::runtime_error(strprintf("Reorganize(): i=%d "
+                             "TSNH can't step back from disconnect\n  %s",
+                             i,
+                             pindex->GetBlockHash().ToString().c_str()));
+            }
+            // ensure it stepped through enough blocks
+            if (pindexImm && (i == MATURITY_DEPTH))
+            {
+                CBlock blockImm;
+                if (!blockImm.ReadFromDisk(pindexImm))
+                {
+                    return error("Reorganize(): Read from disk failed \n  %s",
+                                 pindexImm->GetBlockHash().ToString().c_str());
+                }
+                BOOST_FOREACH(CTransaction& tx, blockImm.vtx)
+                {
+                    if (tx.DoesMature())
+                    {
+                        // temporary wallet transaction for calculations
+                        CWalletTx wtx;
+                        {
+                            LOCK(pwalletMain->cs_wallet);
+                            wtx = CWalletTx(pwalletMain, tx);
+                        }
+                        ColorsMap mapReceived;
+                        ColorsMap mapSentUnused;
+                        wtx.GetAmounts(false, mapReceived, mapSentUnused);
+
+                        // BECAME-IMMATURE (Became stake/coinbase) ==> Add
+                        if (wtx.IsCoinStake())
+                        {
+                            // inputs = outputs, so keep track of only one side
+                            mapStakeChanges.Add(mapReceived);
+                        }
+                        else if (wtx.IsCoinBase())
+                        {
+                            // there are no inputs for coinbase
+                            mapCoinbaseChanges.Add(mapReceived);
+                        }
+                        else
+                        {
+                             throw runtime_error(
+                                 "Reorganize(): TSNH upon BECAME-IMMATURE - "
+                                 "matures but not coinstake or coinbase");
+                        }
+                    }
+                }
+            }
+            ///////////////////////////////////////////////////////////////////
+            ///////////////////////////////////////////////////////////////////
+        }  // pwalletMain != nullptr
 
         if (!block.DisconnectBlock(txdb, pindex))
         {
@@ -3492,114 +3496,120 @@ bool static Reorganize(CTxDB& txdb, CBlockIndex* pindexNew)
             return error("Reorganize() : ReadFromDisk for connect failed");
         }
 
-        ///////////////////////////////////////////////////////////////////
-        // Calculate balance changes for main wallet before the block is
-        //    fully connected.
-        ///////////////////////////////////////////////////////////////////
-        BOOST_FOREACH(const CTransaction& tx, block.vtx)
+        if (pwalletMain)
         {
-            // temporary wallet transaction for calculations
-            CWalletTx wtx;
+            ///////////////////////////////////////////////////////////////////
+            // Calculate balance changes for main wallet before the block is
+            //    fully connected.
+            ///////////////////////////////////////////////////////////////////
+            BOOST_FOREACH(const CTransaction& tx, block.vtx)
             {
-                LOCK(pwalletMain->cs_wallet);
-                wtx = CWalletTx(pwalletMain, tx);
-            }
-            bool fDoesMature = wtx.DoesMature();
-            bool fImmature = (fDoesMature &&
-                              (wtx.GetBlocksToMaturity() > 0));
-            bool fUnconfirmed = ((!fDoesMature) && (wtx.GetDepthInMainChain() <= 0));
-            mapConfStatus[wtx.GetHash()] = fUnconfirmed ? CONF_UNCONFIRMED_BEFORE
-                                                        : CONF_CONFIRMED_BEFORE;
-            ColorsMap mapReceived;
-            ColorsMap mapSent;
-            wtx.GetAmounts(false, mapReceived, mapSent);
-            // CONNECTION: Add Received, subtract Sent.
-            mapConfirmedChanges.Add(mapReceived);
-            mapConfirmedChanges.Subtract(mapSent);
-            if (fImmature)
-            {
-                // CONNECTION: Add Received
-                if (wtx.IsCoinStake())
+                // temporary wallet transaction for calculations
+                CWalletTx wtx;
                 {
-                    // inputs = outputs, so keep track of only one side
-                    mapStakeChanges.Add(mapReceived);
+                    LOCK(pwalletMain->cs_wallet);
+                    wtx = CWalletTx(pwalletMain, tx);
                 }
-                else if (wtx.IsCoinBase())
+                bool fDoesMature = wtx.DoesMature();
+                bool fImmature = (fDoesMature &&
+                                  (wtx.GetBlocksToMaturity() > 0));
+                bool fUnconfirmed = ((!fDoesMature) &&
+                                     (wtx.GetDepthInMainChain() <= 0));
+                mapConfStatus[wtx.GetHash()] = fUnconfirmed
+                                                   ? CONF_UNCONFIRMED_BEFORE
+                                                   : CONF_CONFIRMED_BEFORE;
+                ColorsMap mapReceived;
+                ColorsMap mapSent;
+                wtx.GetAmounts(false, mapReceived, mapSent);
+                // CONNECTION: Add Received, subtract Sent.
+                mapConfirmedChanges.Add(mapReceived);
+                mapConfirmedChanges.Subtract(mapSent);
+                if (fImmature)
                 {
-                    // there are no inputs for coinbase
-                    mapCoinbaseChanges.Add(mapReceived);
-                }
-                else
-                {
-                     throw runtime_error(
-                              "Reorganize(): TSNH upon CONNECTION - "
-                              "matures but not coinstake or coinbase");
-                }
-            }
-        }
-        // Add coins that would become mature upon connecting.
-        CBlockIndex* pindexMat = pindex;
-        // new confs:     1        2      3      4     ...     MATURITY_DEPTH
-        //            pindexMat->pprev->pprev->pprev-> ... -> [becomes mature]
-        int j = 1;
-        while (pindexMat->pprev)
-        {
-            pindexMat = pindexMat->pprev;
-            j += 1;
-            if (j == MATURITY_DEPTH)
-            {
-                break;
-            }
-        }
-        if ((j != MATURITY_DEPTH) && (pindexMat != pindexGenesisBlock))
-        {
-            // This should never happen: can't step back through
-            //    pprevs to get to block that would become mature
-            throw std::runtime_error(strprintf("Reorganize(): i=%d "
-                         "TSNH can't step back from connect\n  %s",
-                         j,
-                         pindex->GetBlockHash().ToString().c_str()));
-        }
-        // ensure it stepped through enough blocks
-        if (pindexMat && (j == MATURITY_DEPTH))
-        {
-            CBlock blockMat;
-            blockMat.ReadFromDisk(pindexMat);
-            BOOST_FOREACH(CTransaction& tx, blockMat.vtx)
-            {
-                if (tx.DoesMature())
-                {
-                    // temporary wallet transaction for calculations
-                    CWalletTx wtx;
-                    {
-                        LOCK(pwalletMain->cs_wallet);
-                        wtx = CWalletTx(pwalletMain, tx);
-                    }
-                    ColorsMap mapReceived;
-                    ColorsMap mapSentUnused;
-                    wtx.GetAmounts(false, mapReceived, mapSentUnused);
-
-                    // BECAME-MATURE (stake/coinbase matured) ==> Subtract
+                    // CONNECTION: Add Received
                     if (wtx.IsCoinStake())
                     {
                         // inputs = outputs, so keep track of only one side
-                        mapStakeChanges.Subtract(mapReceived);
+                        mapStakeChanges.Add(mapReceived);
                     }
                     else if (wtx.IsCoinBase())
                     {
                         // there are no inputs for coinbase
-                        mapCoinbaseChanges.Subtract(mapReceived);
+                        mapCoinbaseChanges.Add(mapReceived);
                     }
                     else
                     {
                          throw runtime_error(
-                                   "Reorganize(): TSNH upon BECAME-MATURE - "
-                                   "matures but not coinstake or coinbase");
+                             "Reorganize(): TSNH upon CONNECTION - "
+                             "matures but not coinstake or coinbase");
                     }
                 }
             }
-        }
-        ///////////////////////////////////////////////////////////////////
+            // Add coins that would become mature upon connecting.
+            CBlockIndex* pindexMat = pindex;
+            // new confs:  1        2      3      4     ...     MATURITY_DEPTH
+            //         pindexMat->pprev->pprev->pprev-> ... -> [becomes mature]
+            int j = 1;
+            while (pindexMat->pprev)
+            {
+                pindexMat = pindexMat->pprev;
+                j += 1;
+                if (j == MATURITY_DEPTH)
+                {
+                    break;
+                }
+            }
+            if ((j != MATURITY_DEPTH) && (pindexMat != pindexGenesisBlock))
+            {
+                // This should never happen: can't step back through
+                //    pprevs to get to block that would become mature
+                throw std::runtime_error(strprintf("Reorganize(): i=%d "
+                             "TSNH can't step back from connect\n  %s",
+                             j,
+                             pindex->GetBlockHash().ToString().c_str()));
+            }
+            // ensure it stepped through enough blocks
+            if (pindexMat && (j == MATURITY_DEPTH))
+            {
+                CBlock blockMat;
+                blockMat.ReadFromDisk(pindexMat);
+                BOOST_FOREACH(CTransaction& tx, blockMat.vtx)
+                {
+                    if (tx.DoesMature())
+                    {
+                        // temporary wallet transaction for calculations
+                        CWalletTx wtx;
+                        {
+                            LOCK(pwalletMain->cs_wallet);
+                            wtx = CWalletTx(pwalletMain, tx);
+                        }
+                        ColorsMap mapReceived;
+                        ColorsMap mapSentUnused;
+                        wtx.GetAmounts(false, mapReceived, mapSentUnused);
+
+                        // BECAME-MATURE (stake/coinbase matured) ==> Subtract
+                        if (wtx.IsCoinStake())
+                        {
+                            // inputs = outputs, so keep track of only one side
+                            mapStakeChanges.Subtract(mapReceived);
+                        }
+                        else if (wtx.IsCoinBase())
+                        {
+                            // there are no inputs for coinbase
+                            mapCoinbaseChanges.Subtract(mapReceived);
+                        }
+                        else
+                        {
+                             throw runtime_error(
+                                 "Reorganize(): TSNH upon BECAME-MATURE - "
+                                 "matures but not coinstake or coinbase");
+                        }
+                    }
+                }
+            }
+            ///////////////////////////////////////////////////////////////////
+            ///////////////////////////////////////////////////////////////////
+        }  // pwalletMain != nullptr
 
         if (!block.ConnectBlock(txdb, pindex))
         {
@@ -3672,119 +3682,128 @@ bool static Reorganize(CTxDB& txdb, CBlockIndex* pindexNew)
         mempool.removeConflicts(tx);
     }
 
-    ///////////////////////////////////////////////////////////////////
-    // Calculate any changes to unconfirmed balances resulting from
-    //    the disconnections (vDisconnect).
-    ///////////////////////////////////////////////////////////////////
-    BOOST_FOREACH(CBlockIndex* pindex, vDisconnect)
+    if (pwalletMain)
     {
-        CBlock block;
-        if (!block.ReadFromDisk(pindex))
+        ///////////////////////////////////////////////////////////////////
+        // Calculate any changes to unconfirmed balances resulting from
+        //    the disconnections (vDisconnect).
+        ///////////////////////////////////////////////////////////////////
+        BOOST_FOREACH(CBlockIndex* pindex, vDisconnect)
         {
-            return error("Reorganize(): ReadFromDisk after disconnect failed");
-        }
-        BOOST_FOREACH(const CTransaction& tx, block.vtx)
-        {
-            // temporary wallet transaction for calculations
-            CWalletTx wtx;
+            CBlock block;
+            if (!block.ReadFromDisk(pindex))
             {
-                LOCK(pwalletMain->cs_wallet);
-                wtx = CWalletTx(pwalletMain, tx);
+                return error(
+                    "Reorganize(): ReadFromDisk after disconnect failed");
             }
-            uint256 hash = wtx.GetHash();
-            // Coinstake/coinbase txs can never be mempool-unconfirmed; they
-            // are always block-bound. Disconnecting them does not move them to
-            // mapReceived/mapSent, so exclude DoesMature() txs here.
-            if ((mapConfStatus[hash] == CONF_BECAME_UNCONFIRMED) &&
-                !tx.DoesMature())
+            BOOST_FOREACH(const CTransaction& tx, block.vtx)
             {
-                ColorsMap mapReceived;
-                ColorsMap mapSent;
-                wtx.GetAmounts(false, mapReceived, mapSent);
-                // BECAME-UNCONFIRMED: Add
-                mapReceivedChanges.Add(mapReceived);
-                mapSentChanges.Add(mapSent);
+                // temporary wallet transaction for calculations
+                CWalletTx wtx;
+                {
+                    LOCK(pwalletMain->cs_wallet);
+                    wtx = CWalletTx(pwalletMain, tx);
+                }
+                uint256 hash = wtx.GetHash();
+                // Coinstake/coinbase txs can never be mempool-unconfirmed;
+                // they are always block-bound. Disconnecting them does not
+                // move them to mapReceived/mapSent, so exclude DoesMature()
+                // txs here.
+                if ((mapConfStatus[hash] == CONF_BECAME_UNCONFIRMED) &&
+                    !tx.DoesMature())
+                {
+                    ColorsMap mapReceived;
+                    ColorsMap mapSent;
+                    wtx.GetAmounts(false, mapReceived, mapSent);
+                    // BECAME-UNCONFIRMED: Add
+                    mapReceivedChanges.Add(mapReceived);
+                    mapSentChanges.Add(mapSent);
+                }
             }
         }
-    }
-    ///////////////////////////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////////
 
-    ///////////////////////////////////////////////////////////////////
-    // Calculate any changes to unconfirmed balances resulting from
-    //    the connections (vConnect).
-    ///////////////////////////////////////////////////////////////////
-    BOOST_FOREACH(CBlockIndex* pindex, vConnect)
-    {
-        CBlock block;
-        if (!block.ReadFromDisk(pindex))
+        ///////////////////////////////////////////////////////////////////
+        // Calculate any changes to unconfirmed balances resulting from
+        //    the connections (vConnect).
+        ///////////////////////////////////////////////////////////////////
+        BOOST_FOREACH(CBlockIndex* pindex, vConnect)
         {
-            return error("Reorganize(): ReadFromDisk after connect failed");
-        }
-        BOOST_FOREACH(const CTransaction& tx, block.vtx)
-        {
-            // temporary wallet transaction for calculations
-            CWalletTx wtx;
+            CBlock block;
+            if (!block.ReadFromDisk(pindex))
             {
-                LOCK(pwalletMain->cs_wallet);
-                wtx = CWalletTx(pwalletMain, tx);
+                return error(
+                    "Reorganize(): ReadFromDisk after connect failed");
             }
-            uint256 hash = wtx.GetHash();
-            mapConfStatus[hash] |= CONF_CONFIRMED_AFTER;
-            // Symmetric guard: coinstake/coinbase txs are never in the unconfirmed
-            // maps, so connecting them should never subtract from mapReceived/mapSent.
-            if ((mapConfStatus[hash] == CONF_BECAME_CONFIRMED) && !tx.DoesMature())
+            BOOST_FOREACH(const CTransaction& tx, block.vtx)
             {
-                ColorsMap mapReceived;
-                ColorsMap mapSent;
-                wtx.GetAmounts(false, mapReceived, mapSent);
-                // BECAME-CONFIRMED: Subtract.
-                mapReceivedChanges.Subtract(mapReceived);
-                mapSentChanges.Subtract(mapSent);
+                // temporary wallet transaction for calculations
+                CWalletTx wtx;
+                {
+                    LOCK(pwalletMain->cs_wallet);
+                    wtx = CWalletTx(pwalletMain, tx);
+                }
+                uint256 hash = wtx.GetHash();
+                mapConfStatus[hash] |= CONF_CONFIRMED_AFTER;
+                // Symmetric guard: coinstake/coinbase txs are never in the
+                // unconfirmed maps, so connecting them should never subtract
+                // from mapReceived/mapSent.
+                if ((mapConfStatus[hash] == CONF_BECAME_CONFIRMED) &&
+                    !tx.DoesMature())
+                {
+                    ColorsMap mapReceived;
+                    ColorsMap mapSent;
+                    wtx.GetAmounts(false, mapReceived, mapSent);
+                    // BECAME-CONFIRMED: Subtract.
+                    mapReceivedChanges.Subtract(mapReceived);
+                    mapSentChanges.Subtract(mapSent);
+                }
             }
         }
-    }
-    ///////////////////////////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////////
 
-    ///////////////////////////////////////////////////////////////////
-    // Add balance changes to pwalletMain now that chain is
-    //    fully reorganized
-    ///////////////////////////////////////////////////////////////////
-    {
-        LOCK(pwalletMain->cs_wallet);
-        pwalletMain->mapConfirmed.Add(mapConfirmedChanges);
-        pwalletMain->mapStake.Add(mapStakeChanges);
-        pwalletMain->mapCoinbase.Add(mapCoinbaseChanges);
-        pwalletMain->mapReceived.Add(mapReceivedChanges);
-        pwalletMain->mapSent.Add(mapSentChanges);
-    }
-    if (fDebugMiner)
-    {
-        LOCK(pwalletMain->cs_wallet);
-        printf("====================\n");
-        printf("Reorganize() : mapConfirmedChanges: %s\n",
-               mapConfirmedChanges.ToString().c_str());
-        printf("Reorganize() : mapStakeChanges: %s\n",
-               mapStakeChanges.ToString().c_str());
-        printf("Reorganize() : mapCoinbaseChanges: %s\n",
-               mapCoinbaseChanges.ToString().c_str());
-        printf("Reorganize() : mapReceivedChanges: %s\n",
-               mapReceivedChanges.ToString().c_str());
-        printf("Reorganize() : mapSentChanges: %s\n",
-               mapSentChanges.ToString().c_str());
-        printf("====================\n");
-        printf("Reorganize() : mapConfirmed: %s\n",
-               pwalletMain->mapConfirmed.ToString().c_str());
-        printf("Reorganize() : mapStake: %s\n",
-               pwalletMain->mapStake.ToString().c_str());
-        printf("Reorganize() : mapCoinbase: %s\n",
-               pwalletMain->mapCoinbase.ToString().c_str());
-        printf("Reorganize() : mapReceived: %s\n",
-               pwalletMain->mapReceived.ToString().c_str());
-        printf("Reorganize() : mapSent: %s\n",
-               pwalletMain->mapSent.ToString().c_str());
-        printf("====================\n");
-    }
-    ///////////////////////////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////////
+        // Add balance changes to pwalletMain now that chain is
+        //    fully reorganized
+        ///////////////////////////////////////////////////////////////////
+        {
+            LOCK(pwalletMain->cs_wallet);
+            pwalletMain->mapConfirmed.Add(mapConfirmedChanges);
+            pwalletMain->mapStake.Add(mapStakeChanges);
+            pwalletMain->mapCoinbase.Add(mapCoinbaseChanges);
+            pwalletMain->mapReceived.Add(mapReceivedChanges);
+            pwalletMain->mapSent.Add(mapSentChanges);
+        }
+        if (fDebugMiner)
+        {
+            LOCK(pwalletMain->cs_wallet);
+            printf("====================\n");
+            printf("Reorganize() : mapConfirmedChanges: %s\n",
+                   mapConfirmedChanges.ToString().c_str());
+            printf("Reorganize() : mapStakeChanges: %s\n",
+                   mapStakeChanges.ToString().c_str());
+            printf("Reorganize() : mapCoinbaseChanges: %s\n",
+                   mapCoinbaseChanges.ToString().c_str());
+            printf("Reorganize() : mapReceivedChanges: %s\n",
+                   mapReceivedChanges.ToString().c_str());
+            printf("Reorganize() : mapSentChanges: %s\n",
+                   mapSentChanges.ToString().c_str());
+            printf("====================\n");
+            printf("Reorganize() : mapConfirmed: %s\n",
+                   pwalletMain->mapConfirmed.ToString().c_str());
+            printf("Reorganize() : mapStake: %s\n",
+                   pwalletMain->mapStake.ToString().c_str());
+            printf("Reorganize() : mapCoinbase: %s\n",
+                   pwalletMain->mapCoinbase.ToString().c_str());
+            printf("Reorganize() : mapReceived: %s\n",
+                   pwalletMain->mapReceived.ToString().c_str());
+            printf("Reorganize() : mapSent: %s\n",
+                   pwalletMain->mapSent.ToString().c_str());
+            printf("====================\n");
+        }
+        ///////////////////////////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////////
+    }  // pwalletMain != nullptr
 
 
     printf("REORGANIZE: done\n");
