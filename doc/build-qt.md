@@ -21,7 +21,7 @@ configurations expected to keep compiling; breaking one is a regression.
 |---|---|---|
 | macOS (universal: x86_64 + arm64) | Apple clang, Homebrew dependencies | Supported, released |
 | Windows x64 | MXE cross-compile from macOS (mingw-w64, static) | Supported, released |
-| Linux | system Qt6 + distribution packages | `.pro` branch exists and configures, but is not currently built or deployed |
+| Linux | system Qt6 + distribution packages | Builds; not released |
 | FreeBSD / other BSD | — | Not currently supported |
 
 The daemon's platform support differs; see [build-daemon.md](build-daemon.md).
