@@ -2772,7 +2772,15 @@ bool CBlock::DisconnectBlock(CTxDB& txdb, CBlockIndex* pindex)
         SyncWithWallets(tx, this, false, false);
     }
 
-    if (fWithExploreAPI)
+    // CExploreDB::IsOpen() gates this the way pwalletMain gates the wallet
+    // balance work in Reorganize(): AppInit2() opens the explore index in
+    // Step 9, but Step 7's LoadBlockIndex() can roll the chain back through
+    // Reorganize() long before that.  Constructing a CExploreDB there would
+    // throw, because the default "r+" mode does not create the database.
+    // Skipping is correct as well as safe -- Step 9 rebuilds the index
+    // whenever it is missing or out of sync with the tip, so any explore
+    // update made during startup would be discarded anyway.
+    if (fWithExploreAPI && CExploreDB::IsOpen())
     {
         CExploreDB exploredb;
         if (!ExploreDisconnectBlock(txdb, exploredb, this))
@@ -3274,7 +3282,9 @@ bool CBlock::ConnectBlock(CTxDB& txdb, CBlockIndex* pindex, bool fJustCheck)
     }
 
     // fJustCheck is a validation-only pass, so it must not write the index.
-    if (fWithExploreAPI && !fJustCheck)
+    // IsOpen() skips the explore update when the index has not been opened
+    // yet; see the matching comment in DisconnectBlock().
+    if (fWithExploreAPI && !fJustCheck && CExploreDB::IsOpen())
     {
         CExploreDB exploredb;
         if (!ExploreConnectBlock(txdb, exploredb, this))

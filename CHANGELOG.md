@@ -25,6 +25,41 @@ Related:
 
 ## Protocol version 61030
 
+### 1.9.4.0
+
+* Fixes a startup crash in nodes running the Breakout Explore API
+  (`-exploreapi`) whose data directory has no `exploredb` yet -- a new node,
+  or the first start after enabling the API. `AppInit2()` does not open the
+  explore index until Step 9, but `CBlock::ConnectBlock()` and
+  `CBlock::DisconnectBlock()` open it with `CExploreDB`'s default `"r+"`
+  mode, which has `create_if_missing = false`. Anything that connects a block
+  earlier therefore threw straight out of `AppInit()`:
+
+  ```
+  EXCEPTION: St13runtime_error
+  init_exploredb(): error opening database environment Invalid argument:
+  <datadir>/exploredb: does not exist (create_if_missing is false)
+  ```
+
+  Step 7's `LoadBlockIndex()` reaches that path whenever it has to roll the
+  chain back through `Reorganize()`, and Step 9's own `bootstrap.dat` and
+  `-loadblock` imports connect blocks outright, ten lines before the index is
+  created. An empty directory does not help: LevelDB reports `does not exist`
+  when the manifest is absent.
+* Fixed by gating both call sites on `CExploreDB::IsOpen()`, mirroring the
+  `pwalletMain` guard added in 1.9.3.0. Skipping is correct and not merely
+  safe: Step 9 compares the index against the chain tip and rebuilds it
+  whenever it is missing or out of sync, so any explore update made that
+  early would be discarded anyway. Construction cannot be used for the test
+  -- it throws before yielding an object -- so the check reads the global
+  handle through a static accessor instead.
+* Latent since c283b80 (2026-07-14), which introduced both the two
+  unguarded opens and the Step 9 create. It needs `-exploreapi`, no existing
+  `exploredb`, and a block connected during startup, all at once, which is
+  why it survived three releases.
+* No consensus rule, network protocol requirement or fork schedule changes.
+  Nodes not running `-exploreapi` are unaffected.
+
 ### 1.9.3.0
 
 * Fixes a startup crash on any node that upgrades *after* a consensus change

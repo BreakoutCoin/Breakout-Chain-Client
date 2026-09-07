@@ -50,6 +50,11 @@ static void init_exploredb(leveldb::Options& options, bool fRemoveOld = false) {
     }
 }
 
+bool CExploreDB::IsOpen()
+{
+    return exploredb != NULL;
+}
+
 CExploreDB::CExploreDB(const char* pszMode)
 {
     assert(pszMode);

@@ -79,6 +79,18 @@ public:
         delete activeBatch;
     }
 
+    // True once the global explore LevelDB handle is open.
+    //
+    // Construction cannot be used for this test: CExploreDB's default "r+"
+    // mode has create_if_missing = false, so building one before the index
+    // exists throws out of the constructor rather than yielding an object
+    // with a null pdb.  Callers that may run before AppInit2() has opened the
+    // index -- CBlock::ConnectBlock() and CBlock::DisconnectBlock(), which
+    // Step 7's Reorganize() reaches -- must therefore ask first and skip.
+    // Nothing is lost by skipping: Step 9 compares the index against the
+    // chain tip and rebuilds it when it is missing or out of sync.
+    static bool IsOpen();
+
     // Destroys the underlying shared global state accessed by this CExploreDB.
     void Close();
 
