@@ -41,16 +41,16 @@ string CheckExploreAPI(bool& fHelp)
 {
     if (fWithExploreAPI)
     {
-       return "== Explore API ==\n";
+       return "  *Explore API*\n";
     }
     else if (fHelp)
     {
-       return "== Explore API ==\n";
+       return "  *Explore API*\n";
     }
     else
     {
        fHelp = true;
-       return "** ERROR: Explore API only **\n";
+       return "  ** ERROR: Explore API only **\n";
     }
 }
 
@@ -419,8 +419,8 @@ Value getaddressbalance(const Array &params, bool fHelp)
     if (fHelp || (params.size()  != 1))
     {
         throw runtime_error(
+            "getaddressbalance <address>" +
             strExploreHelp +
-            "getaddressbalance <address>\n"
             "Returns the balance of <address>.");
     }
 
@@ -449,8 +449,8 @@ Value getaddressinfo(const Array &params, bool fHelp)
     if (fHelp || (params.size() != 1))
     {
         throw runtime_error(
+            "getaddressinfo <address>" +
             strExploreHelp +
-            "getaddressinfo <address>\n"
             "Returns info about <address>.");
     }
 
@@ -469,8 +469,8 @@ Value getcardinfo(const Array &params, bool fHelp)
     if (fHelp || (params.size() != 1))
     {
         throw runtime_error(
+            "getcardinfo <ticker>" +
             strExploreHelp +
-            "getcardinfo <ticker>\n"
             "Returns the mint, transfer, and staking provenance of deck card <ticker>.");
     }
 
@@ -506,8 +506,8 @@ Value getaddressinputs(const Array &params, bool fHelp)
     if (fHelp || (params.size()  < 1) || (params.size() > 3))
     {
         throw runtime_error(
+            "getaddressinputs <address> [start] [max]" +
             strExploreHelp +
-            "getaddressinputs <address> [start] [max]\n"
             "Returns [max] inputs of <address> beginning with [start]\n"
             "  For example, if [start]=101 and [max]=100 means to\n"
             "  return the second 100 inputs (if possible).\n"
@@ -586,8 +586,8 @@ Value getaddressoutputs(const Array &params, bool fHelp)
     if (fHelp || (params.size()  < 1) || (params.size() > 3))
     {
         throw runtime_error(
+            "getaddressoutputs <address> [start] [max]" +
             strExploreHelp +
-            "getaddressoutputs <address> [start] [max]\n"
             "Returns [max] outputs of <address> beginning with [start]\n"
             "  For example, if [start]=101 and [max]=100 means to\n"
             "  return the second 100 outputs (if possible).\n"
@@ -713,8 +713,8 @@ Value getaddressutxos(const Array &params, bool fHelp)
     if (fHelp || (params.size()  < 1) || (params.size() > 3))
     {
         throw runtime_error(
+            "getaddressutxos <address> [start] [max]" +
             strExploreHelp +
-            "getaddressutxos <address> [start] [max]\n"
             "Returns [max] unspent outputs (UTXOs) of <address> beginning with [start]\n"
             "  For example, if [start]=101 and [max]=100 means to\n"
             "  return the second 100 UTXOs (if possible).\n"
@@ -787,8 +787,8 @@ Value getaddressutxospg(const Array &params, bool fHelp)
     if (fHelp || (params.size() < 3) || (params.size() > 4))
     {
         throw runtime_error(
+            "getaddressutxospg <address> <page> <perpage> [ordering]" +
             strExploreHelp +
-            "getaddressutxospg <address> <page> <perpage> [ordering]\n"
             "Returns up to <perpage> unspent outputs (UTXOs) of <address>\n"
             "  beginning with 1 + (<perpage> * (<page> - 1)).\n"
             "    <page> is the page number\n"
@@ -853,8 +853,8 @@ Value getaddresstxspg(const Array &params, bool fHelp)
     if (fHelp || (params.size() < 3) || (params.size() > 4))
     {
         throw runtime_error(
+            "getaddresstxspg <address> <page> <perpage> [ordering]" +
             strExploreHelp +
-            "getaddresstxspg <address> <page> <perpage> [ordering]\n"
             "Returns up to <perpage> transactions of <address>\n"
             "  beginning with 1 + (<perpage> * (<page> - 1>))\n"
             "  For example, <page>=2 and <perpage>=20 means to\n"
@@ -919,8 +919,8 @@ Value getaddressinouts(const Array &params, bool fHelp)
     if (fHelp || (params.size() < 1) || (params.size() > 3))
     {
         throw runtime_error(
+            "getaddressinouts <address> [start] [max]" +
             strExploreHelp +
-            "getaddressinouts <address> [start] [max]\n"
             "Returns [max] inputs + outputs of <address> beginning with [start]\n"
             "  For example, if [start]=101 and [max]=100 means to\n"
             "  return the second 100 in-outs (if possible).\n"
@@ -994,8 +994,8 @@ Value getaddressinoutspg(const Array &params, bool fHelp)
     if (fHelp || (params.size() < 3) || (params.size() > 4))
     {
         throw runtime_error(
+            "getaddressinoutspg <address> <page> <perpage> [ordering]" +
             strExploreHelp +
-            "getaddressinoutspg <address> <page> <perpage> [ordering]\n"
             "Returns up to <perpage> inputs + outputs of <address>\n"
             "  beginning with 1 + (<perpage> * (<page> - 1>))\n"
             "  For example, <page>=2 and <perpage>=20 means to\n"
@@ -1413,8 +1413,8 @@ Value getchildkey(const Array &params, bool fHelp)
     if (fHelp || (params.size() < 2) || (params.size() > 3))
     {
         throw runtime_error(
+            "getchildkey <extended key> <child> [color]" +
             strExploreHelp +
-            "getchildkey <extended key> <child> [color]\n"
             "Returns key and address information about the child.\n"
             "  <extended key> is the parent extended (public) key\n"
             "  <child> is the child index (>= 0)\n"
@@ -1474,8 +1474,8 @@ Value gethdaddresses(const Array &params, bool fHelp)
     if (fHelp || (params.size() < 1) || (params.size() > 2))
     {
         throw runtime_error(
+            "gethdaddresses <extended key> [color]" +
             strExploreHelp +
-            "gethdaddresses <extended key> [color]\n"
             "Returns all known addresses for the <extended key>, separated by\n"
             "external and change. With [color] the scan is scoped to that one\n"
             "currency; otherwise every color is reported per child.");
@@ -1550,8 +1550,8 @@ Value gethdaccountbalance(const Array &params, bool fHelp)
     if (fHelp || (params.size() < 1) || (params.size() > 2))
     {
         throw runtime_error(
+            "gethdaccountbalance <extended key> [color]" +
             strExploreHelp +
-            "gethdaccountbalance <extended key> [color]\n"
             "Returns the balance of the HD account. With [color] a single\n"
             "formatted balance is returned; otherwise an object keyed by\n"
             "currency ticker.");
@@ -1632,8 +1632,8 @@ Value gethdaccountinfo(const Array &params, bool fHelp)
     if (fHelp || (params.size() < 1) || (params.size() > 2))
     {
         throw runtime_error(
+            "gethdaccountinfo <extended key> [color]" +
             strExploreHelp +
-            "gethdaccountinfo <extended key> [color]\n"
             "Returns aggregated info about the HD account: per-color balance,\n"
             "received, sent, and in/out/tx counts, plus the number of used\n"
             "external and change addresses. [color] scopes to one currency.");
@@ -1720,8 +1720,8 @@ Value gethdaccountinputs(const Array &params, bool fHelp)
     if (fHelp || (params.size() < 1) || (params.size() > 4))
     {
         throw runtime_error(
+            "gethdaccountinputs <extended key> [start] [max] [color]" +
             strExploreHelp +
-            "gethdaccountinputs <extended key> [start] [max] [color]\n"
             "Returns [max] inputs of the HD account beginning with [start],\n"
             "ordered by blockchain position (across all the account's addresses).\n"
             "    [start] is the nth input (default: 1)\n"
@@ -1790,8 +1790,8 @@ Value gethdaccountoutputs(const Array &params, bool fHelp)
     if (fHelp || (params.size() < 1) || (params.size() > 4))
     {
         throw runtime_error(
+            "gethdaccountoutputs <extended key> [start] [max] [color]" +
             strExploreHelp +
-            "gethdaccountoutputs <extended key> [start] [max] [color]\n"
             "Returns [max] outputs of the HD account beginning with [start],\n"
             "ordered by blockchain position (across all the account's addresses).\n"
             "    [start] is the nth output (default: 1)\n"
@@ -1860,8 +1860,8 @@ Value gethdaccountutxos(const Array &params, bool fHelp)
     if (fHelp || (params.size() < 1) || (params.size() > 4))
     {
         throw runtime_error(
+            "gethdaccountutxos <extended key> [start] [max] [color]" +
             strExploreHelp +
-            "gethdaccountutxos <extended key> [start] [max] [color]\n"
             "Returns [max] unspent outputs (UTXOs) of the HD account beginning\n"
             "with [start], ordered by blockchain position (across all the\n"
             "account's addresses).\n"
@@ -1931,8 +1931,8 @@ Value gethdaccountutxospg(const Array &params, bool fHelp)
     if (fHelp || (params.size() < 3) || (params.size() > 5))
     {
         throw runtime_error(
+            "gethdaccountutxospg <extended key> <page> <perpage> [ordering] [color]" +
             strExploreHelp +
-            "gethdaccountutxospg <extended key> <page> <perpage> [ordering] [color]\n"
             "Returns up to <perpage> unspent outputs (UTXOs) of the HD account\n"
             "  beginning with 1 + (<perpage> * (<page> - 1)).\n"
             "    <page> is the page number\n"
@@ -1995,8 +1995,8 @@ Value gethdaccountinouts(const Array &params, bool fHelp)
     if (fHelp || (params.size() < 1) || (params.size() > 4))
     {
         throw runtime_error(
+            "gethdaccountinouts <extended key> [start] [max] [color]" +
             strExploreHelp +
-            "gethdaccountinouts <extended key> [start] [max] [color]\n"
             "Returns [max] transactions of the HD account beginning with [start],\n"
             "ordered by blockchain position. Each transaction consolidates every\n"
             "input and output of the account that touches it.\n"
@@ -2068,8 +2068,8 @@ Value gethdaccountinoutspg(const Array &params, bool fHelp)
     if (fHelp || (params.size() < 3) || (params.size() > 5))
     {
         throw runtime_error(
+            "gethdaccountinoutspg <extended key> <page> <perpage> [ordering] [color]" +
             strExploreHelp +
-            "gethdaccountinoutspg <extended key> <page> <perpage> [ordering] [color]\n"
             "Returns up to <perpage> transactions of the HD account\n"
             "  beginning with 1 + (<perpage> * (<page> - 1)).\n"
             "  Each transaction consolidates every input and output of the\n"
@@ -2170,8 +2170,8 @@ Value getrichlistsize(const Array &params, bool fHelp)
     if (fHelp || (params.size() < 1) || (params.size() > 2))
     {
         throw runtime_error(
+            "getrichlistsize <color> [minbalance]" +
             strExploreHelp +
-            "getrichlistsize <color> [minbalance]\n"
             "Returns the number of <color> addresses with balances\n"
             "  greater than [minbalance] (default: 1 cent of the color).");
     }
@@ -2241,8 +2241,8 @@ Value getrichlist(const Array &params, bool fHelp)
     if (fHelp || (params.size() < 1) || (params.size() > 3))
     {
         throw runtime_error(
+            "getrichlist <color> [start] [max]" +
             strExploreHelp +
-            "getrichlist <color> [start] [max]\n"
             "Returns [max] <color> addresses from rich list beginning with [start]\n"
             "  For example, if [start]=101 and [max]=100 means to\n"
             "  return the second 100 richest (if possible).\n"
@@ -2292,8 +2292,8 @@ Value getrichlistpg(const Array &params, bool fHelp)
     if (fHelp || (params.size() < 3) || (params.size() > 4))
     {
         throw runtime_error(
+            "getrichlistpg <color> <page> <perpage> [ordering]" +
             strExploreHelp +
-            "getrichlistpg <color> <page> <perpage> [ordering]\n"
             "Returns up to <perpage> addresses of the <color> rich list\n"
             "  beginning with 1 + (<perpage> * (<page> - 1>))\n"
             "  For example, <page>=2 and <perpage>=20 means to\n"
@@ -2571,8 +2571,8 @@ Value gettxvolume(const Array& params, bool fHelp)
     if (fHelp || params.size() < 1 || params.size() > 3)
     {
         throw runtime_error(
+            "gettxvolume <period> <windowsize> <windowspacing>" +
             strExploreHelp +
-            "gettxvolume <period> <windowsize> <windowspacing>\n" +
             strWindowHelp +
             "  - tx_volume: number of transactions in each window");
     }
@@ -2606,8 +2606,8 @@ Value getblockinterval(const Array& params, bool fHelp)
     if (fHelp || params.size() < 1 || params.size() > 3)
     {
         throw runtime_error(
+            "getblockinterval <period> <windowsize> <windowspacing>" +
             strExploreHelp +
-            "getblockinterval <period> <windowsize> <windowspacing>\n" +
             strWindowHelp +
             "  - block_interval: total block interval for the window in seconds");
     }
@@ -2625,8 +2625,8 @@ Value getblockintervalmean(const Array& params, bool fHelp)
     if (fHelp || params.size() < 1 || params.size() > 3)
     {
         throw runtime_error(
+            "getblockintervalmean <period> <windowsize> <windowspacing>" +
             strExploreHelp +
-            "getblockintervalmean <period> <windowsize> <windowspacing>\n" +
             strWindowHelp +
             "  - block_interval_mean: rmsd of the block intervals for the "
             "window in seconds");
@@ -2645,8 +2645,8 @@ Value getblockintervalrmsd(const Array& params, bool fHelp)
     if (fHelp || params.size() < 1 || params.size() > 3)
     {
         throw runtime_error(
+            "getblockintervalrmsd <period> <windowsize> <windowspacing>" +
             strExploreHelp +
-            "getblockintervalrmsd <period> <windowsize> <windowspacing>\n" +
             strWindowHelp +
             "  - block_interval_rmsd: rmsd of the block intervals for the "
             "window in seconds");
