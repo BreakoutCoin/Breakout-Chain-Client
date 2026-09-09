@@ -460,6 +460,96 @@ bool CExploreDB::RemoveAddrSet(const exploreKey_t& t, int nColor, const int64_t 
     return RemoveRecord(key);
 }
 
+// Rebuild the rich-list cache from the ADDR_SET_BAL records on disk.
+//
+// A balance-set key serialises as (ADDR_SET_BAL, (color, balance)), so every
+// one of these records shares the byte prefix of ADDR_SET_BAL and they sort
+// contiguously. One ranged scan therefore covers the lot: seek to the prefix,
+// stop at the first key that no longer carries it.
+bool CExploreDB::LoadAddressBalances(std::map<int, MapBalanceCounts>& mapRet)
+{
+    mapRet.clear();
+
+    if (!pdb)
+    {
+        return error("LoadAddressBalances() : explore db is not open");
+    }
+    if (activeBatch)
+    {
+        return error("LoadAddressBalances() : active batch not allowed");
+    }
+
+    CDataStream ssPrefix(SER_DISK, CLIENT_VERSION);
+    ssPrefix.reserve(64);
+    ssPrefix << ADDR_SET_BAL;
+    const string strPrefix = ssPrefix.str();
+
+    int nSets = 0;
+    int nAddresses = 0;
+    bool fOk = true;
+
+    leveldb::Iterator *iter = pdb->NewIterator(leveldb::ReadOptions());
+    for (iter->Seek(strPrefix); iter->Valid(); iter->Next())
+    {
+        if (fRequestShutdown)
+        {
+            break;
+        }
+
+        leveldb::Slice slKey = iter->key();
+        if ((slKey.size() < strPrefix.size()) ||
+            (memcmp(slKey.data(), strPrefix.data(), strPrefix.size()) != 0))
+        {
+            // past the last ADDR_SET_BAL record
+            break;
+        }
+
+        int nColor = 0;
+        int64_t nBalance = 0;
+        set<string> setAddr;
+        try
+        {
+            CDataStream ssKey(SER_DISK, CLIENT_VERSION);
+            ssKey.write(slKey.data(), slKey.size());
+            exploreKey_t t;
+            ssKey >> t >> nColor >> nBalance;
+
+            leveldb::Slice slValue = iter->value();
+            CDataStream ssValue(slValue.data(), slValue.data() + slValue.size(),
+                                SER_DISK, CLIENT_VERSION);
+            ssValue >> setAddr;
+        }
+        catch (std::exception &e)
+        {
+            fOk = error("LoadAddressBalances() : deserialize failed (%s)", e.what());
+            break;
+        }
+
+        // An empty set should have been removed rather than written, but a
+        // zero count would corrupt GetRichList()'s running total, so skip it.
+        if (setAddr.empty())
+        {
+            continue;
+        }
+
+        mapRet[nColor][nBalance] = static_cast<unsigned int>(setAddr.size());
+        nSets += 1;
+        nAddresses += static_cast<int>(setAddr.size());
+    }
+    delete iter;
+
+    if (!fOk)
+    {
+        mapRet.clear();
+        return false;
+    }
+
+    printf("Loaded rich list: %d addresses over %d balance sets in %" PRIszu " colors.\n",
+           nAddresses, nSets, mapRet.size());
+
+    return true;
+}
+
 /*  ExploreTx
  *  Parameters - txid:TxID, extx:ExploreTx
  */

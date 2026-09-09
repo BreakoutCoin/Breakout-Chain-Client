@@ -398,6 +398,20 @@ public:
                       const std::set<std::string>& s);
     bool RemoveAddrSet(const exploreKey_t& t, int nColor, const int64_t b);
 
+    // Rebuild the in-memory rich-list cache from the on-disk ADDR_SET_BAL
+    // records, as (color -> balance -> number of addresses at that balance).
+    //
+    // That cache (mapAddressBalances) is otherwise only ever filled
+    // incrementally, by ExploreConnectBlock()/ExploreDisconnectBlock() as
+    // balances change. On a startup where the explore index is already in sync
+    // with the chain -- so no replay runs -- nothing else would populate it,
+    // and the rich list would serve only those balances that happened to be
+    // touched since the daemon started. See Step 9 in init.cpp.
+    //
+    // The map type is MapColorBalances (explore/explore.hpp), spelled out here
+    // so that this header need not include the explore engine.
+    bool LoadAddressBalances(std::map<int, MapBalanceCounts>& mapRet);
+
     bool ReadExploreTx(const uint256& txid, ExploreTx& extxRet);
     bool WriteExploreTx(const uint256& txid, const ExploreTx& extx);
     bool RemoveExploreTx(const uint256& txid);

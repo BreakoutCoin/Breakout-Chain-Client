@@ -1705,6 +1705,26 @@ bool AppInit2()
             fReindexExplore = false;
             printf("Reindexed %d blocks for Breakout Explore.\n", count);
         }
+        else
+        {
+            // The index is already in sync, so the replay above did not run.
+            //
+            // That replay is the only thing that fills mapAddressBalances, the
+            // in-memory rich-list cache -- ExploreConnectBlock() adds to it as
+            // balances change. Without it the cache would start empty and stay
+            // that way for the whole session, gaining an entry only when some
+            // address happened to move onto that exact balance. getrichlist
+            // would then silently omit every holder that had not been touched,
+            // which is most of them. Load it from the on-disk sets instead.
+            uiInterface.InitMessage(_("Loading the Breakout Explore rich list."));
+            printf("Loading the Breakout Explore rich list.\n");
+            if (!exploredb.LoadAddressBalances(mapAddressBalances))
+            {
+                return InitError(_("Breakout Explore: failed to load the rich "
+                                   "list. Restart with -reindexexplore to "
+                                   "rebuild the explore index."));
+            }
+        }
     }
 
     // ********************************************************* Step 10: load peers
