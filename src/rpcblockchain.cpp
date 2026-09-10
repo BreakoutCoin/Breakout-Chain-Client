@@ -290,6 +290,27 @@ Value getblockbynumber(const Array& params, bool fHelp)
     return blockToJSON(block, pblockindex, params.size() > 1 ? params[1].get_bool() : false);
 }
 
+Value getbestblock(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() > 1)
+        throw runtime_error(
+            "getbestblock [txinfo]\n"
+            "txinfo optional to print more detailed tx info\n"
+            "Returns details of the best block in the longest block chain.\n"
+            "Equivalent to getblockbynumber at the current height, without\n"
+            "the round trip through getblockcount.");
+
+    if (mapBlockIndex.count(hashBestChain) == 0)
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Block not found");
+
+    CBlock block;
+    CBlockIndex* pblockindex = mapBlockIndex[hashBestChain];
+    block.ReadFromDisk(pblockindex, true);
+
+    return blockToJSON(block, pblockindex,
+                       params.size() > 0 ? params[0].get_bool() : false);
+}
+
 // ppcoin: get information of sync-checkpoint
 Value getcheckpoint(const Array& params, bool fHelp)
 {
