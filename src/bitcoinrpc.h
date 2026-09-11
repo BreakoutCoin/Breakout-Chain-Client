@@ -299,6 +299,9 @@ extern json_spirit::Value sendrawtransaction(const json_spirit::Array& params, b
 
 extern json_spirit::Value getbestblockhash(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value getbestblock(const json_spirit::Array& params, bool fHelp);
+
+// Release accepted RPC connections and wake the listener during shutdown.
+extern void StopRPCServer();
 extern json_spirit::Value getblockcount(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value getdifficulty(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value settxfee(const json_spirit::Array& params, bool fHelp);

@@ -11,6 +11,7 @@
 #include "ui_interface.h"
 #include "onionseed.h"
 #include "toradapter.h"
+#include "bitcoinrpc.h"   // StopRPCServer()
 
 #ifdef WIN32
 #include <string.h>
@@ -1909,6 +1910,10 @@ bool StopNode()
     printf("StopNode()\n");
     fShutdown = true;
     nTransactionsUpdated++;
+    // Release the RPC side explicitly. Both the listener and the per-connection
+    // handlers block on io that only completes when a client does something, so
+    // setting fShutdown is not on its own enough to bring either of them down.
+    StopRPCServer();
     int64_t nStart = GetTime();
     shutdown_tor();
     if (semOutbound)

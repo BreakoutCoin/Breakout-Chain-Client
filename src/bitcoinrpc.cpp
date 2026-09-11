@@ -807,6 +807,10 @@ public:
     virtual iostream& stream() = 0;
     virtual string peer_address_to_string() const = 0;
     virtual void close() = 0;
+    // Unblock a handler thread parked in ReadHTTP() on this connection.
+    // Distinct from close(): this touches only the socket, never the
+    // iostreams object the owning thread is sitting in.
+    virtual void shutdown_socket() = 0;
 };
 
 template <typename Protocol>
@@ -838,6 +842,12 @@ public:
         _stream.close();
     }
 
+    virtual void shutdown_socket()
+    {
+        boost::system::error_code ec;  // non-throwing: the peer may have gone
+        sslStream.lowest_layer().shutdown(asio::socket_base::shutdown_both, ec);
+    }
+
     typename Protocol::endpoint peer;
     asio::ssl::stream<typename Protocol::socket> sslStream;
 
@@ -845,6 +855,108 @@ private:
     SSLIOStreamDevice<Protocol> _d;
     iostreams::stream< SSLIOStreamDevice<Protocol> > _stream;
 };
+
+// Live accepted RPC connections.
+//
+// Shutdown closes the acceptor, which stops new connections arriving but does
+// nothing for connections already accepted. Each of those is being served by a
+// thread sitting in a blocking ReadHTTP(), and that thread only tests fShutdown
+// when it comes back round its loop -- which it does when another request
+// arrives on the connection, or when the peer hangs up, and otherwise never.
+//
+// A client holding a keep-alive connection open therefore pins a handler
+// thread indefinitely. StopNode() waits twenty seconds, reports
+// "ThreadsRPCServer still running", and proceeds to destroy the process's
+// globals with those threads still live; the next request served on a
+// surviving connection locks an already-destroyed mutex and the daemon aborts
+// inside Boost:
+//
+//     Assertion failed: (!posix::pthread_mutex_lock(&m)),
+//     function lock, file recursive_mutex.hpp, line 108
+//
+// So shutdown shuts the sockets down as well, which returns those reads
+// immediately and lets the handlers exit the normal way.
+//
+// Ownership: a handler owns its AcceptedConnection and deletes it. It must
+// therefore deregister BEFORE deleting, under cs_rpcConnections, so that
+// ShutdownRPCConnections() can never hold a pointer to a freed object.
+static CCriticalSection cs_rpcConnections;
+static std::set<AcceptedConnection*> setRPCConnections;
+
+// Connections currently executing a request. These are left alone at shutdown:
+// they are not blocked waiting on a client, they are about to write a reply and
+// will then see fShutdown at the top of their loop and exit on their own.
+//
+// This matters for "stop" itself, which is served over one of these. The old
+// comment on that command -- "Shutdown will take long enough that the response
+// should get back" -- was relying on shutdown being slow enough to lose the
+// race. It no longer is, so the rule has to be explicit.
+static std::set<AcceptedConnection*> setRPCBusy;
+
+// The listener's io_context, so shutdown can wake it. ThreadRPCServer2 parks in
+// io_service.run_one(), which blocks until an io event arrives; without this it
+// re-tests fShutdown only when some client happens to connect, and otherwise
+// never notices that the daemon is going down.
+static asio::io_context* pRPCIoService = NULL;
+
+static void RegisterRPCConnection(AcceptedConnection* conn)
+{
+    LOCK(cs_rpcConnections);
+    setRPCConnections.insert(conn);
+}
+
+static void UnregisterRPCConnection(AcceptedConnection* conn)
+{
+    LOCK(cs_rpcConnections);
+    setRPCConnections.erase(conn);
+    setRPCBusy.erase(conn);
+}
+
+static void SetRPCConnectionBusy(AcceptedConnection* conn, bool fBusy)
+{
+    LOCK(cs_rpcConnections);
+    if (fBusy)
+        setRPCBusy.insert(conn);
+    else
+        setRPCBusy.erase(conn);
+}
+
+// Half-close every live connection so its handler's blocked read returns.
+// shutdown() rather than close(): the descriptor stays valid, so there is no
+// window in which it could be reused underneath the handler, and the handler
+// still performs its own close() and delete on the way out.
+static void ShutdownRPCConnections()
+{
+    LOCK(cs_rpcConnections);
+    int nIdle = 0;
+    for (std::set<AcceptedConnection*>::iterator it = setRPCConnections.begin();
+         it != setRPCConnections.end(); ++it)
+    {
+        if (setRPCBusy.count(*it))
+            continue;          // mid-request: let it answer and exit itself
+        (*it)->shutdown_socket();
+        nIdle++;
+    }
+    if (nIdle > 0)
+    {
+        printf("Shut down %d idle RPC connection(s), %" PRIszu " still serving\n",
+               nIdle, setRPCBusy.size());
+    }
+}
+
+// Called from StopNode() once fShutdown is set. Releases accepted connections
+// so their handlers' blocked reads return, then wakes the listener so it
+// closes the acceptor and leaves. Safe from any thread: io_context::stop() is
+// thread-safe and the registry is guarded.
+void StopRPCServer()
+{
+    ShutdownRPCConnections();
+    LOCK(cs_rpcConnections);
+    if (pRPCIoService != NULL)
+    {
+        pRPCIoService->stop();
+    }
+}
 
 bool RPCIsRunning()
 {
@@ -1080,11 +1192,24 @@ void ThreadRPCServer2(void* parg)
         return;
     }
 
+    {
+        LOCK(cs_rpcConnections);
+        pRPCIoService = &io_service;
+    }
+
     vnThreadsRunning[THREAD_RPCLISTENER]--;
     while (!fShutdown)
         io_service.run_one();
     vnThreadsRunning[THREAD_RPCLISTENER]++;
-    StopRequests();
+
+    {
+        // io_service is about to go out of scope
+        LOCK(cs_rpcConnections);
+        pRPCIoService = NULL;
+    }
+
+    StopRequests();            // stop accepting new connections
+    ShutdownRPCConnections();  // belt and braces: StopNode() has already done this
 }
 
 class JSONRequest
@@ -1173,12 +1298,14 @@ void ThreadRPCServer3(void* parg)
         vnThreadsRunning[THREAD_RPCHANDLER]++;
     }
     AcceptedConnection *conn = (AcceptedConnection *) parg;
+    RegisterRPCConnection(conn);
 
     bool fRun = true;
     while (true)
     {
         if (fShutdown || !fRun)
         {
+            UnregisterRPCConnection(conn);
             conn->close();
             delete conn;
             {
@@ -1191,6 +1318,7 @@ void ThreadRPCServer3(void* parg)
         string strRequest;
 
         ReadHTTP(conn->stream(), mapHeaders, strRequest);
+        SetRPCConnectionBusy(conn, true);
 
         // Check authorization
         if (mapHeaders.count("authorization") == 0)
@@ -1250,8 +1378,10 @@ void ThreadRPCServer3(void* parg)
             ErrorReply(conn->stream(), JSONRPCError(RPC_PARSE_ERROR, e.what()), jreq.id);
             break;
         }
+        SetRPCConnectionBusy(conn, false);
     }
 
+    UnregisterRPCConnection(conn);
     delete conn;
     {
         LOCK(cs_THREAD_RPCHANDLER);
