@@ -25,6 +25,7 @@ namespace boost {
 #include <boost/filesystem.hpp>
 #include <boost/filesystem/fstream.hpp>
 #include <boost/foreach.hpp>
+#include <boost/assert.hpp>
 #include <boost/thread.hpp>
 #include <openssl/crypto.h>
 #include <openssl/rand.h>
@@ -1119,6 +1120,102 @@ void LogStackTrace() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Boost assertion handler
+//
+// BOOST_ASSERT and BOOST_VERIFY normally expand to assert(), which writes a
+// single line to stderr and calls abort(). That line never reaches debug.log,
+// so an assertion firing inside a daemon leaves no durable trace: with
+// daemon=1 the process keeps whatever stderr it was started with, and once
+// that terminal is gone the only account of the failure goes with it.
+//
+// That is not hypothetical. This was observed in the field --
+//
+//     Assertion failed: (!posix::pthread_mutex_lock(&m)),
+//     function lock, file recursive_mutex.hpp, line 108
+//
+// -- and left nothing behind to work from: no file, no thread, no call site,
+// and no way to tell which of the daemon's mutexes it was.
+//
+// Defining BOOST_ENABLE_ASSERT_HANDLER routes every Boost assertion here
+// instead, so the same failure is recorded in debug.log with the expression,
+// the function, the file and line, the thread name and a backtrace, before
+// aborting exactly as assert() would have. Note that BOOST_VERIFY still
+// evaluates its expression either way; only the reporting changes.
+#if defined(BOOST_ENABLE_ASSERT_HANDLER)
+namespace boost {
+
+static void BreakoutAssertionFailed(const char* expr, const char* msg,
+                                    const char* function, const char* file,
+                                    long line)
+{
+    // The thread name is the most useful single field here -- it distinguishes
+    // an assertion in an RPC handler from one on the message or stake threads.
+    // Read it back the same way RenameThread() sets it.
+#if defined(PR_SET_NAME)
+    char szThread[17] = "";
+    ::prctl(PR_GET_NAME, szThread, 0, 0, 0);
+    const char* pszThread = szThread[0] ? szThread : "unnamed";
+#elif defined(MAC_OSX) || defined(__APPLE__)
+    char szThread[64] = "";
+    pthread_getname_np(pthread_self(), szThread, sizeof(szThread));
+    const char* pszThread = szThread[0] ? szThread : "unnamed";
+#else
+    const char* pszThread = "unnamed";
+#endif
+
+    std::string strMessage = strprintf(
+        "\n\n************************\n"
+        "ASSERTION FAILED: %s\n"
+        "%s%s%s"
+        "  function: %s\n"
+        "  location: %s:%ld\n"
+        "  thread:   %s\n"
+        "  version:  %s\n"
+        "************************\n",
+        expr,
+        (msg ? "  message:  " : ""), (msg ? msg : ""), (msg ? "\n" : ""),
+        function, file, line, pszThread, FormatFullVersion().c_str());
+
+    // debug.log first: it is the copy most likely to still be readable later.
+    printf("%s", strMessage.c_str());
+    if (fileout)
+    {
+#ifndef WIN32
+        void* pszBuffer[64];
+        size_t size = backtrace(pszBuffer, 64);
+        backtrace_symbols_fd(pszBuffer, size, fileno(fileout));
+#endif
+        fflush(fileout);
+    }
+
+    // and stderr, so nothing is lost relative to what assert() used to print
+    fprintf(stderr, "%s", strMessage.c_str());
+#ifndef WIN32
+    void* pszBuffer[64];
+    size_t size = backtrace(pszBuffer, 64);
+    backtrace_symbols_fd(pszBuffer, size, fileno(stderr));
+#endif
+    fflush(stderr);
+
+    abort();
+}
+
+void assertion_failed(char const* expr, char const* function,
+                      char const* file, long line)
+{
+    BreakoutAssertionFailed(expr, NULL, function, file, line);
+}
+
+void assertion_failed_msg(char const* expr, char const* msg,
+                          char const* function, char const* file, long line)
+{
+    BreakoutAssertionFailed(expr, msg, function, file, line);
+}
+
+} // namespace boost
+#endif // BOOST_ENABLE_ASSERT_HANDLER
+
 void PrintExceptionContinue(exception* pex, const char* pszThread)
 {
     string message = FormatException(pex, pszThread);
@@ -1508,15 +1605,18 @@ void RenameThread(const char* name)
 #if defined(PR_SET_NAME)
     // Only the first 15 characters are used (16 - NUL terminator)
     ::prctl(PR_SET_NAME, name, 0, 0, 0);
+#elif defined(MAC_OSX) || defined(__APPLE__)
+    // Names the calling thread; the single-argument form is the macOS spelling.
+    // Worth having: it is what boost::assertion_failed reports, and an
+    // assertion that names breakout-rpchand is a great deal more use than one
+    // that says "unnamed".
+    pthread_setname_np(name);
+
 #elif 0 && (defined(__FreeBSD__) || defined(__OpenBSD__))
     // TODO: This is currently disabled because it needs to be verified to work
     //       on FreeBSD or OpenBSD first. When verified the '0 &&' part can be
     //       removed.
     pthread_set_name_np(pthread_self(), name);
-
-// This is XCode 10.6-and-later; bring back if we drop 10.5 support:
-// #elif defined(MAC_OSX)
-//    pthread_setname_np(name);
 
 #else
     // Prevent warnings for unused parameters...

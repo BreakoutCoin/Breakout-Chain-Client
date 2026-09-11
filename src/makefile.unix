@@ -265,6 +265,12 @@ $(OBJDIR)/build.h: FORCE
 version.cpp: $(OBJDIR)/build.h
 DEFS += -DHAVE_BUILD_INFO
 
+# Route Boost assertions through our own handler (boost::assertion_failed in
+# util.cpp) so they are recorded in debug.log with thread and backtrace,
+# instead of assert()'s one line to a stderr that is usually long gone.
+DEFS += -DBOOST_ENABLE_ASSERT_HANDLER
+
+
 include tor/tor-include.mk
 
 # Retarget every object named by the lists above (this file and
