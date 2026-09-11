@@ -461,6 +461,7 @@ static const CRPCCommand vRPCCommands[] =
     { "getrichlistsize",           &getrichlistsize,           false,  false },
     { "getrichlist",               &getrichlist,               false,  false },
     { "getrichlistpg",             &getrichlistpg,             false,  false },
+    { "getmovementspg",            &getmovementspg,            false,  false },
     { "gettxvolume",               &gettxvolume,               false,  false },
     { "getblockinterval",          &getblockinterval,          false,  false },
     { "getblockintervalmean",      &getblockintervalmean,      false,  false },
@@ -1655,6 +1656,11 @@ Array RPCConvertValues(const string &strMethod, const vector<string> &strParams)
     if (strMethod == "getrichlist"                  && n > 2) ConvertTo<boost::int64_t>(params[2]);
     if (strMethod == "getrichlistpg"                && n > 0) ConvertTo<boost::int64_t>(params[0]);
     if (strMethod == "getrichlistpg"                && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "getmovementspg"               && n > 0) ConvertTo<boost::int64_t>(params[0]);
+    if (strMethod == "getmovementspg"               && n > 1) ConvertTo<boost::int64_t>(params[1]);
+    if (strMethod == "getmovementspg"               && n > 2) ConvertTo<bool>(params[2]);
+    if (strMethod == "getmovementspg"               && n > 3) ConvertTo<boost::int64_t>(params[3]);
+    if (strMethod == "getmovementspg"               && n > 4) ConvertTo<boost::int64_t>(params[4]);
     if (strMethod == "getrichlistpg"                && n > 2) ConvertTo<boost::int64_t>(params[2]);
     if (strMethod == "getrichlistpg"                && n > 3) ConvertTo<bool>(params[3]);
     if (strMethod == "gettxvolume"                  && n > 0) ConvertTo<boost::int64_t>(params[0]);

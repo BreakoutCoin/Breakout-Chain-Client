@@ -30,6 +30,7 @@
 
 class ExploreTx;
 class ExploreCardInfo;
+class ExploreMovement;
 
 // Explore debug logging flag (defined alongside the explore engine in
 // explore.cpp; declared here so the DB layer can honour -debugexplore).
@@ -56,7 +57,8 @@ typedef std::pair<exploreKey_t, std::pair<int, int64_t> > balance_set_key_t;
 // contents to be discarded and rebuilt on next startup (independent of the
 // txleveldb DATABASE_VERSION).
 // v2: added card (deck NFT) provenance tracking (CARD_INFO records).
-static const int EXPLOREDB_VERSION = 2;
+// v3: added the chain-wide movement index (MOVEMENT_QTY / MOVEMENT_SEQ).
+static const int EXPLOREDB_VERSION = 3;
 
 
 template<typename K>
@@ -411,6 +413,15 @@ public:
     // The map type is MapColorBalances (explore/explore.hpp), spelled out here
     // so that this header need not include the explore engine.
     bool LoadAddressBalances(std::map<int, MapBalanceCounts>& mapRet);
+
+    // Movement index (see ExploreMovement.hpp). A dense sequence 1..qty of
+    // transactions that moved value between parties, appended as blocks
+    // connect and unwound as they disconnect.
+    bool ReadMovementQty(int& qtyRet);
+    bool WriteMovementQty(const int& qty);
+    bool ReadMovement(const int& n, ExploreMovement& moveRet);
+    bool WriteMovement(const int& n, const ExploreMovement& move);
+    bool RemoveMovement(const int& n);
 
     bool ReadExploreTx(const uint256& txid, ExploreTx& extxRet);
     bool WriteExploreTx(const uint256& txid, const ExploreTx& extx);

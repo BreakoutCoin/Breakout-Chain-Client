@@ -206,6 +206,7 @@ OBJS = \
     obj/ExploreInOutList.o \
     obj/ExploreTx.o \
     obj/ExploreCardTransfer.o \
+    obj/ExploreMovement.o \
     obj/ExploreCardInfo.o \
     obj/InOutInfo.o \
     obj/AddrTxInfo.o \

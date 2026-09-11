@@ -695,6 +695,7 @@ HEADERS += \
     src/explore/ExploreInOutList.hpp \
     src/explore/ExploreTx.hpp \
     src/explore/ExploreCardTransfer.hpp \
+    src/explore/ExploreMovement.hpp \
     src/explore/ExploreCardInfo.hpp \
     src/explore/InOutInfo.hpp \
     src/explore/AddrTxInfo.hpp \
@@ -829,6 +830,7 @@ SOURCES += \
     src/explore/ExploreInOutList.cpp \
     src/explore/ExploreTx.cpp \
     src/explore/ExploreCardTransfer.cpp \
+    src/explore/ExploreMovement.cpp \
     src/explore/ExploreCardInfo.cpp \
     src/explore/InOutInfo.cpp \
     src/explore/AddrTxInfo.cpp \

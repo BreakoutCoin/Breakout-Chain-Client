@@ -21,6 +21,7 @@
 #include "explore/ExploreInOutList.hpp"
 #include "explore/ExploreInOutLookup.hpp"
 #include "explore/ExploreTx.hpp"
+#include "explore/ExploreMovement.hpp"
 #include "explore/ExploreCardInfo.hpp"
 
 #include "bip32/hdkeys.h"
@@ -2163,6 +2164,129 @@ boost::int64_t GetRichListSize(int nColor, int64_t nMinBalance)
     }
     return static_cast<boost::int64_t>(nCount);
 }
+
+Value getmovementspg(const Array &params, bool fHelp)
+{
+    string strExploreHelp = CheckExploreAPI(fHelp);
+    if (fHelp || (params.size() < 2) || (params.size() > 5))
+    {
+        throw runtime_error(
+            "getmovementspg <page> <perpage> [ordering] [mincoins] [color]" +
+            strExploreHelp +
+            "Returns up to <perpage> movements.\n"
+            "A movement is a transaction with an output of at least 100 coins\n"
+            "of its currency that pays an address none of the inputs came\n"
+            "from -- a stake returning its own principal is not a movement.\n"
+            "    <page> is the page number\n"
+            "    <perpage> is the number of movements per page\n"
+            "    [ordering] by blockchain position (default=true -> forward)\n"
+            "    [mincoins] raises the cutoff for this query (default: 100)\n"
+            "    [color] restricts to one currency; 0 or omitted means all");
+    }
+
+    CExploreDB exploredb;
+
+    int nQty = 0;
+    exploredb.ReadMovementQty(nQty);
+
+    // The index is built at MOVEMENT_MIN_COINS; a caller may ask for more.
+    // Each record carries the value that qualified it, so a higher cutoff is
+    // answered by filtering here rather than by rebuilding the index.
+    int64_t nMinCoins = MOVEMENT_MIN_COINS;
+    if (params.size() > 3)
+    {
+        nMinCoins = params[3].get_int64();
+        if (nMinCoins < MOVEMENT_MIN_COINS)
+        {
+            throw runtime_error(
+                strprintf("Minimum is %" PRId64 " coins; the index holds nothing below it.",
+                          (int64_t)MOVEMENT_MIN_COINS));
+        }
+    }
+
+    // Collected in blockchain order, like every other paged call here:
+    // GetPagination() computes its range over a forward sequence and flips it
+    // when [ordering] is false. The index is small by construction -- tens of
+    // thousands of records -- so filtering the whole of it per query is cheap,
+    // and it is what keeps the cutoff a query-time choice.
+    // 0 means every currency; anything else must be a real colour
+    int nColorWanted = 0;
+    if (params.size() > 4)
+    {
+        nColorWanted = params[4].get_int();
+        if (nColorWanted != 0)
+        {
+            nColorWanted = ExploreCheckColor(params[4]);
+        }
+    }
+
+    vector<ExploreMovement> vMatched;
+    for (int n = 1; n <= nQty; ++n)
+    {
+        ExploreMovement move;
+        if (!exploredb.ReadMovement(n, move))
+        {
+            continue;
+        }
+        if ((move.nColor <= 0) || (move.nColor >= N_COLORS))
+        {
+            continue;
+        }
+        if ((nColorWanted != 0) && (move.nColor != nColorWanted))
+        {
+            continue;
+        }
+        if (move.nValue < (nMinCoins * COIN[move.nColor]))
+        {
+            continue;
+        }
+        vMatched.push_back(move);
+    }
+
+    int nTotal = (int)vMatched.size();
+    if (nTotal == 0)
+    {
+        Object empty;
+        empty.push_back(Pair("total", 0));
+        empty.push_back(Pair("indexed", (boost::int64_t)nQty));
+        empty.push_back(Pair("mincoins", (boost::int64_t)nMinCoins));
+        empty.push_back(Pair("page", params[0].get_int()));
+        empty.push_back(Pair("per_page", params[1].get_int()));
+        empty.push_back(Pair("last_page", 1));
+        empty.push_back(Pair("data", Array()));
+        return empty;
+    }
+
+    // leading params = 0 (1st param is <page>)
+    static const unsigned int LEADING_PARAMS = 0;
+    pagination_t pg;
+    GetPagination(params, LEADING_PARAMS, nTotal, pg);
+
+    int nStop = min(pg.start + pg.max - 1, nTotal);
+    Array data;
+    for (int k = pg.start; k <= nStop; ++k)
+    {
+        Object obj;
+        vMatched[k - 1].AsJSON(obj);
+        data.push_back(obj);
+    }
+    if (!pg.forward)
+    {
+        reverse(data.begin(), data.end());
+    }
+
+    Object result;
+    result.push_back(Pair("total", (boost::int64_t)nTotal));
+    result.push_back(Pair("indexed", (boost::int64_t)nQty));
+    result.push_back(Pair("mincoins", (boost::int64_t)nMinCoins));
+    result.push_back(Pair("color", nColorWanted));
+    result.push_back(Pair("page", pg.page));
+    result.push_back(Pair("per_page", pg.per_page));
+    result.push_back(Pair("last_page", pg.last_page));
+    result.push_back(Pair("data", data));
+    return result;
+}
+
 
 Value getrichlistsize(const Array &params, bool fHelp)
 {

@@ -88,6 +88,29 @@ const exploreKey_t ADDR_VALUEOUT(EXPLORE_KEY, ADDR_VALUEOUT_LABEL);
 const std::string ADDR_SET_BAL_LABEL = "ASB";
 const exploreKey_t ADDR_SET_BAL(EXPLORE_KEY, ADDR_SET_BAL_LABEL);
 
+// Movement index: chain-wide, value-filtered, self-sends excluded.
+//
+// MOVEMENT_MIN is the cutoff the index is BUILT with; it decides what gets
+// recorded, so changing it requires a rebuild (bump EXPLOREDB_VERSION).
+// Callers may ask for any HIGHER cutoff at query time, because each record
+// carries the value that qualified it -- so the display threshold is a runtime
+// choice and only the floor is baked in.
+//
+// 100 coins was chosen from the distribution on mainnet: at that cutoff, with
+// self-sends excluded, the index holds about 33,000 records (~2 MB) and its
+// newest entry is within a day of the tip. The previous hard-coded display
+// threshold of 100,000 left the movement page showing nothing newer than
+// eighteen months old.
+// Expressed in whole coins; scaled by COIN[nColor] at the point of test,
+// since each currency carries its own denomination.
+const int64_t MOVEMENT_MIN_COINS = 100;
+
+const std::string MOVEMENT_QTY_LABEL = "MQ";
+const exploreKey_t MOVEMENT_QTY(EXPLORE_KEY, MOVEMENT_QTY_LABEL);
+
+const std::string MOVEMENT_SEQ_LABEL = "MS";
+const exploreKey_t MOVEMENT_SEQ(EXPLORE_KEY, MOVEMENT_SEQ_LABEL);
+
 // Tx Info
 const std::string EXPLORE_TX_LABEL = "ETX";
 const exploreKey_t EXPLORE_TX(EXPLORE_KEY, EXPLORE_TX_LABEL);

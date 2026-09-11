@@ -17,6 +17,7 @@
 #include "exploredb-leveldb.h"
 #include "explore/ExploreTx.hpp"
 #include "explore/ExploreCardInfo.hpp"
+#include "explore/ExploreMovement.hpp"
 #include "util.h"
 #include "main.h"
 
@@ -548,6 +549,36 @@ bool CExploreDB::LoadAddressBalances(std::map<int, MapBalanceCounts>& mapRet)
            nAddresses, nSets, mapRet.size());
 
     return true;
+}
+
+/*  Movement index
+ *  The counter is a single record; entries are keyed by sequence number.
+ */
+bool CExploreDB::ReadMovementQty(int& qtyRet)
+{
+    qtyRet = 0;
+    // absent simply means nothing has been indexed yet
+    Read(MOVEMENT_QTY, qtyRet);
+    return true;
+}
+bool CExploreDB::WriteMovementQty(const int& qty)
+{
+    return Write(MOVEMENT_QTY, qty);
+}
+bool CExploreDB::ReadMovement(const int& n, ExploreMovement& moveRet)
+{
+    std::pair<exploreKey_t, int> key = std::make_pair(MOVEMENT_SEQ, n);
+    return ReadRecord(key, moveRet);
+}
+bool CExploreDB::WriteMovement(const int& n, const ExploreMovement& move)
+{
+    std::pair<exploreKey_t, int> key = std::make_pair(MOVEMENT_SEQ, n);
+    return Write(key, move);
+}
+bool CExploreDB::RemoveMovement(const int& n)
+{
+    std::pair<exploreKey_t, int> key = std::make_pair(MOVEMENT_SEQ, n);
+    return RemoveRecord(key);
 }
 
 /*  ExploreTx

@@ -7,6 +7,7 @@
 #include "base58.h"
 #include "main.h"
 #include "explore.hpp"
+#include "ExploreMovement.hpp"
 #include "ExploreCardInfo.hpp"
 
 using namespace std;
@@ -108,6 +109,88 @@ void ExploreGetDestinations(const vector<CTxOut>& vout, VecDest& vret)
     }
 }
 
+
+
+// Does this transaction belong in the movement index?
+//
+// Two conditions, both computed from what ExploreConnectTx already has in
+// hand, so nothing extra is loaded:
+//
+//   * some output is at least MOVEMENT_MIN_COINS of its own currency, and
+//   * some output pays an address that none of the inputs came from.
+//
+// The second is the one that matters. On this chain most large outputs are a
+// stake handing its own principal back to the address that staked it; at a
+// cutoff of 100 coins those are 82% of all large outputs. They are not
+// movement, and dropping them is what lets the cutoff be low enough to be
+// interesting while the index stays small.
+//
+// Scaling by COIN[nColor] also disposes of the Deck neatly: a card's COIN is
+// 1 and its entire supply is 1, so no card transfer can reach a 100-coin
+// cutoff. Cards have their own provenance views and do not belong here.
+//
+// Returns the largest qualifying output in nValueRet / nColorRet.
+static bool IsMovement(const VecDest& vFrom, const VecDest& vTo,
+                       int64_t& nValueRet, int& nColorRet)
+{
+    // every address the inputs came from
+    std::set<std::string> setFrom;
+    for (VecDest::const_iterator it = vFrom.begin(); it != vFrom.end(); ++it)
+    {
+        for (unsigned int i = 0; i < it->addresses.size(); ++i)
+        {
+            setFrom.insert(it->addresses[i]);
+        }
+    }
+
+    // Sum by recipient, not by output.
+    //
+    // ExploreGetDestinations() emits one entry per vout, and a transaction may
+    // pay the same address in several of them. What moved to a party is the
+    // total they received, so paying one address 60 and 60 is a movement of
+    // 120, not two of 60. Only outputs going to an address the inputs did not
+    // come from are counted: a stake handing its principal back to itself is
+    // not movement, and a large self-return alongside a dust payment elsewhere
+    // is a dust movement, not a large one.
+    std::map<std::pair<std::string, int>, int64_t> mapTo;
+    for (VecDest::const_iterator it = vTo.begin(); it != vTo.end(); ++it)
+    {
+        if ((it->color <= 0) || (it->color >= N_COLORS))
+        {
+            continue;
+        }
+        for (unsigned int i = 0; i < it->addresses.size(); ++i)
+        {
+            if (setFrom.count(it->addresses[i]) != 0)
+            {
+                continue;   // back to a sender: not movement
+            }
+            std::pair<std::string, int> key(it->addresses[i], it->color);
+            mapTo[key] += it->amount;
+        }
+    }
+
+    int64_t nBest = 0;
+    int nBestColor = 0;
+    for (std::map<std::pair<std::string, int>, int64_t>::const_iterator
+             it = mapTo.begin(); it != mapTo.end(); ++it)
+    {
+        const int nColor = it->first.second;
+        if (it->second < (MOVEMENT_MIN_COINS * COIN[nColor]))
+        {
+            continue;
+        }
+        if (it->second > nBest)
+        {
+            nBest = it->second;
+            nBestColor = nColor;
+        }
+    }
+
+    nValueRet = nBest;
+    nColorRet = nBestColor;
+    return (nBest > 0);
+}
 
 void UpdateMapAddressBalances(const MapColorBalances& mapAddressBalancesAdd,
                               const MapColorBalancesRemove& setAddressBalancesRemove,
@@ -1195,6 +1278,19 @@ bool ExploreConnectTx(CTxDB& txdb,
 
     exploredb.WriteExploreTx(txid, txInfo);
 
+    // Movement index: append if this transaction moved value between parties.
+    int64_t nMoveValue = 0;
+    int nMoveColor = 0;
+    if (IsMovement(vFrom, vTo, nMoveValue, nMoveColor))
+    {
+        int nQty = 0;
+        exploredb.ReadMovementQty(nQty);
+        nQty += 1;
+        exploredb.WriteMovement(nQty, ExploreMovement(txid, nHeight,
+                                                      nMoveValue, nMoveColor));
+        exploredb.WriteMovementQty(nQty);
+    }
+
     UpdateMapAddressBalances(mapAddressBalancesAdd,
                              setAddressBalancesRemove,
                              mapAddressBalances);
@@ -2182,6 +2278,28 @@ bool ExploreDisconnectTx(CTxDB& txdb, CExploreDB& exploredb, const CTransaction 
     if (!ExploreDisconnectCard(exploredb, tx, txid, fEconomicEvents))
     {
         return false;
+    }
+
+    // Movement index: pop this transaction if it is the most recent entry.
+    //
+    // Disconnection runs in exact reverse of connection -- blocks unwind from
+    // the tip, and ExploreDisconnectBlock walks a block's transactions with
+    // BOOST_REVERSE_FOREACH -- so a transaction that was indexed is necessarily
+    // the last record. Matching on txid rather than recomputing IsMovement()
+    // means the two paths cannot disagree about what qualified, which is what
+    // would silently desynchronise the counter.
+    {
+        int nQty = 0;
+        exploredb.ReadMovementQty(nQty);
+        if (nQty > 0)
+        {
+            ExploreMovement move;
+            if (exploredb.ReadMovement(nQty, move) && (move.txid == txid))
+            {
+                exploredb.RemoveMovement(nQty);
+                exploredb.WriteMovementQty(nQty - 1);
+            }
+        }
     }
 
     exploredb.RemoveExploreTx(txid);
