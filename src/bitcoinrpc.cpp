@@ -1210,6 +1210,42 @@ void ThreadRPCServer2(void* parg)
 
     StopRequests();            // stop accepting new connections
     ShutdownRPCConnections();  // belt and braces: StopNode() has already done this
+
+    // Do not return until every handler has finished with its connection.
+    //
+    // io_service is a local of this function, so it is destroyed the moment we
+    // return -- and ~AcceptedConnectionImpl deregisters its socket from the
+    // reactor that io_service owns. A connection outliving the io_service
+    // therefore dies in its own destructor:
+    //
+    //     ~AcceptedConnectionImpl<ip::tcp>
+    //       -> reactive_socket_service_base::destroy
+    //         -> kqueue_reactor::deregister_descriptor      SIGSEGV
+    //
+    // which on this build takes the embedded Tor down with it ("Tor died:
+    // Caught signal 11"), since it shares the process.
+    //
+    // This was survivable by accident before the shutdown path woke this
+    // thread: the listener normally sat in run_one() until some client
+    // connected, so io_service outlived the handlers by luck. Waking it
+    // promptly is right, but it makes the ordering explicit rather than
+    // incidental, so the wait has to be explicit too.
+    //
+    // ThreadRPCServer3 deletes its connection BEFORE decrementing the counter,
+    // so reaching zero means every connection is gone. Shutting the sockets
+    // down above is what makes that happen quickly; the bound is only a
+    // backstop against a handler wedged somewhere else.
+    int64_t nWaitStart = GetTime();
+    while (vnThreadsRunning[THREAD_RPCHANDLER] > 0)
+    {
+        if (GetTime() - nWaitStart > 10)
+        {
+            printf("ThreadRPCServer2(): %d RPC handler(s) still running; "
+                   "returning anyway\n", vnThreadsRunning[THREAD_RPCHANDLER]);
+            break;
+        }
+        MilliSleep(20);
+    }
 }
 
 class JSONRequest
