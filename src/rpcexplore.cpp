@@ -2329,10 +2329,30 @@ Value getrichlistsize(const Array &params, bool fHelp)
 
 
 
-void GetRichList(int nColor, int nStart, int nMax, Object& objRet)
+// Fills objRet with the nColor rich list from rank nStart, richest first.
+//
+// The list is stored as balance -> set of addresses, so ranks do not line up
+// with storage: one balance spans as many ranks as there are addresses holding
+// it. Either edge of the requested range can fall inside such a set, and the
+// two edges want opposite treatment.
+//
+// The leading surplus is never wanted. The set holding nStart usually begins
+// at a better rank, and those addresses are not part of what was asked for --
+// returning them shifts every rank in the reply, and in a paged read repeats
+// addresses the previous page already delivered. They are skipped here. A
+// std::set orders its members consistently, so the same members are skipped
+// every time the same rank is asked for, and pages stay stable between calls.
+//
+// The trailing surplus is the point, when fTies is set. A rich list is a
+// leader board: everyone level with the last place asked for shares it, so
+// asking for the top 20 when 30 addresses are tied at 20th returns all 49.
+// Paged reads clear fTies, because pages have to tile -- there the tie is cut
+// at the last rank of the page and the next page resumes inside it.
+void GetRichList(int nColor, int nStart, int nMax, bool fTies, Object& objRet)
 {
     CExploreDB exploredb;
     int nLimit = nStart + nMax - 1;
+    // addresses passed so far, so nCount is the rank of the last one seen
     int nCount = 0;
 
     const MapBalanceCounts& mapForColor = mapAddressBalances[nColor];
@@ -2357,10 +2377,24 @@ void GetRichList(int nColor, int nStart, int nMax, Object& objRet)
                         strprintf("TSNH: balance set %s size mismatch",
                                   FormatMoney(nBalance, nColor).c_str()));
             }
+            // This set holds ranks nCount + 1 through nCount + nSize. Only the
+            // first set reached can begin above nStart; for every set after it
+            // nSkip comes out non-positive, so nothing is skipped.
+            int nSkip = nStart - nCount - 1;
             BOOST_FOREACH(const string& addr, setBalances)
             {
-                objRet.push_back(Pair(addr, ValueFromAmount(nBalance, nColor)));
                 nCount += 1;
+                if (nSkip > 0)
+                {
+                    nSkip -= 1;
+                    continue;
+                }
+                objRet.push_back(Pair(addr, ValueFromAmount(nBalance, nColor)));
+                // cut the tie at the last rank asked for
+                if (!fTies && (nCount >= nLimit))
+                {
+                    break;
+                }
             }
             // return all that tied for last spot
             if (nCount >= nLimit)
@@ -2386,6 +2420,9 @@ Value getrichlist(const Array &params, bool fHelp)
             "Returns [max] <color> addresses from rich list beginning with [start]\n"
             "  For example, if [start]=101 and [max]=100 means to\n"
             "  return the second 100 richest (if possible).\n"
+            "  Addresses tied with the last rank returned are included as well,\n"
+            "  the way a leader board shares a place, so more than [max]\n"
+            "  addresses can come back. Use getrichlistpg for exact pages.\n"
             "    <color> is the currency color index\n"
             "    [start] is the nth richest address (default: 1)\n"
             "    [max] is the max addresses to return (default: 100)");
@@ -2420,7 +2457,8 @@ Value getrichlist(const Array &params, bool fHelp)
         }
     }
 
-    GetRichList(nColor, nStart, nMax, obj);
+    // leader board semantics: everyone tied for last place is included
+    GetRichList(nColor, nStart, nMax, true, obj);
 
     return obj;
 }
@@ -2438,6 +2476,8 @@ Value getrichlistpg(const Array &params, bool fHelp)
             "  beginning with 1 + (<perpage> * (<page> - 1>))\n"
             "  For example, <page>=2 and <perpage>=20 means to\n"
             "  return addresses ranking 21 - 40 (if possible).\n"
+            "  Pages tile exactly: addresses tied across a page boundary are\n"
+            "  split between the pages rather than repeated on both.\n"
             "    <color> is the currency color index\n"
             "    <page> is the page number\n"
             "    <perpage> is the number of address per page\n"
@@ -2460,7 +2500,9 @@ Value getrichlistpg(const Array &params, bool fHelp)
     GetPagination(params, LEADING_PARAMS, nRichListSize, pg);
 
     Object data;
-    GetRichList(nColor, pg.start, pg.max, data);
+    // exact page: a tie straddling the boundary is cut, and the next page
+    // picks it up where this one left off, so pages tile without repeating
+    GetRichList(nColor, pg.start, pg.max, false, data);
 
     if (!pg.forward)
     {
