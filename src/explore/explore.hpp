@@ -38,6 +38,9 @@ extern bool fReindexExplore;
 extern MapColorBalances mapAddressBalances;
 
 
+// Movement-index floor for a currency, in whole coins; 0 = untracked.
+int64_t MovementFloor(int nColor);
+
 void UpdateMapAddressBalances(const MapColorBalances& mapAddressBalancesAdd,
                               const MapColorBalancesRemove& setAddressBalancesRemove,
                               MapColorBalances& mapAddressBalancesRet);

@@ -111,12 +111,43 @@ void ExploreGetDestinations(const vector<CTxOut>& vout, VecDest& vret)
 
 
 
+// The movement floor for a currency, in whole coins; 0 means the currency is
+// not tracked in the movement index at all.
+//
+// Set at roughly 0.01% of each supply, so that a movement means a comparable
+// share of the currency whichever one it is:
+//
+//     BRK  2500 of 24.28M   0.0103%
+//     BRX   600 of  6.27M   0.0096%
+//     SIS   400 of  3.99M   0.0100%
+//
+// SIS needs a floor above its block reward for a further reason: at 100 coins
+// its share of the index was 90% newly minted SIS, because the reward is 104.
+//
+// BAM is untracked: its entire supply sits at one address and has never moved.
+// The Deck is untracked because a card's supply is 1 and it has its own
+// provenance views (getcardinfo).
+int64_t MovementFloor(int nColor)
+{
+    switch (nColor)
+    {
+    case BREAKOUT_COLOR_BRK:
+        return 2500;
+    case BREAKOUT_COLOR_BRX:
+        return 600;
+    case BREAKOUT_COLOR_SIS:
+        return 400;
+    default:
+        return 0;
+    }
+}
+
 // Does this transaction belong in the movement index?
 //
 // Two conditions, both computed from what ExploreConnectTx already has in
 // hand, so nothing extra is loaded:
 //
-//   * some output is at least MOVEMENT_MIN_COINS of its own currency, and
+//   * some output is at least that currency's MovementFloor(), and
 //   * some output pays an address that none of the inputs came from.
 //
 // The second is the one that matters. On this chain most large outputs are a
@@ -176,7 +207,12 @@ static bool IsMovement(const VecDest& vFrom, const VecDest& vTo,
              it = mapTo.begin(); it != mapTo.end(); ++it)
     {
         const int nColor = it->first.second;
-        if (it->second < (MOVEMENT_MIN_COINS * COIN[nColor]))
+        const int64_t nFloor = MovementFloor(nColor);
+        if (nFloor == 0)
+        {
+            continue;          // currency not tracked
+        }
+        if (it->second < (nFloor * COIN[nColor]))
         {
             continue;
         }

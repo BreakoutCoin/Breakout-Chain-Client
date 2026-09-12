@@ -2174,13 +2174,15 @@ Value getmovementspg(const Array &params, bool fHelp)
             "getmovementspg <page> <perpage> [ordering] [mincoins] [color]" +
             strExploreHelp +
             "Returns up to <perpage> movements.\n"
-            "A movement is a transaction with an output of at least 100 coins\n"
-            "of its currency that pays an address none of the inputs came\n"
-            "from -- a stake returning its own principal is not a movement.\n"
+            "A movement is a transaction paying at least that currency's floor\n"
+            "to an address none of the inputs came from; a stake returning its\n"
+            "own principal is not a movement. Floors are per currency and are\n"
+            "reported in the response.\n"
             "    <page> is the page number\n"
             "    <perpage> is the number of movements per page\n"
             "    [ordering] by blockchain position (default=true -> forward)\n"
-            "    [mincoins] raises the cutoff for this query (default: 100)\n"
+            "    [mincoins] additional cutoff for this query, in coins\n"
+            "               (0 or absent = the index's own per-currency floors)\n"
             "    [color] restricts to one currency; 0 or omitted means all");
     }
 
@@ -2189,18 +2191,19 @@ Value getmovementspg(const Array &params, bool fHelp)
     int nQty = 0;
     exploredb.ReadMovementQty(nQty);
 
-    // The index is built at MOVEMENT_MIN_COINS; a caller may ask for more.
-    // Each record carries the value that qualified it, so a higher cutoff is
-    // answered by filtering here rather than by rebuilding the index.
-    int64_t nMinCoins = MOVEMENT_MIN_COINS;
+    // The index already applies a per-currency floor (MovementFloor); this is
+    // an ADDITIONAL absolute cutoff for this query only. 0, or absent, means
+    // return what the index considers notable. Each record carries the value
+    // that qualified it, so filtering harder needs no rebuild -- but nothing
+    // below a currency's floor was ever recorded, so asking for less than that
+    // cannot conjure it.
+    int64_t nMinCoins = 0;
     if (params.size() > 3)
     {
         nMinCoins = params[3].get_int64();
-        if (nMinCoins < MOVEMENT_MIN_COINS)
+        if (nMinCoins < 0)
         {
-            throw runtime_error(
-                strprintf("Minimum is %" PRId64 " coins; the index holds nothing below it.",
-                          (int64_t)MOVEMENT_MIN_COINS));
+            throw runtime_error("mincoins cannot be negative.");
         }
     }
 
@@ -2280,6 +2283,19 @@ Value getmovementspg(const Array &params, bool fHelp)
     result.push_back(Pair("indexed", (boost::int64_t)nQty));
     result.push_back(Pair("mincoins", (boost::int64_t)nMinCoins));
     result.push_back(Pair("color", nColorWanted));
+
+    // the per-currency floors this index was built with, so a caller need not
+    // hard-code a copy of them
+    Object floors;
+    for (int c = 1; c < N_COLORS; ++c)
+    {
+        int64_t nFloor = MovementFloor(c);
+        if (nFloor > 0)
+        {
+            floors.push_back(Pair(COLOR_TICKER[c], (boost::int64_t)nFloor));
+        }
+    }
+    result.push_back(Pair("floors", floors));
     result.push_back(Pair("page", pg.page));
     result.push_back(Pair("per_page", pg.per_page));
     result.push_back(Pair("last_page", pg.last_page));

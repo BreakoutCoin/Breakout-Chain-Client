@@ -90,20 +90,15 @@ const exploreKey_t ADDR_SET_BAL(EXPLORE_KEY, ADDR_SET_BAL_LABEL);
 
 // Movement index: chain-wide, value-filtered, self-sends excluded.
 //
-// MOVEMENT_MIN is the cutoff the index is BUILT with; it decides what gets
-// recorded, so changing it requires a rebuild (bump EXPLOREDB_VERSION).
-// Callers may ask for any HIGHER cutoff at query time, because each record
-// carries the value that qualified it -- so the display threshold is a runtime
-// choice and only the floor is baked in.
+// The floor is PER CURRENCY (see MovementFloor() in explore.cpp), because a
+// flat one means very different things across currencies: 1000 coins is
+// 0.004% of the BRK supply and 0.025% of SIS, a factor of six. The floors are
+// set at roughly 0.01% of each supply, so "notable" means the same thing
+// whatever is moving.
 //
-// 100 coins was chosen from the distribution on mainnet: at that cutoff, with
-// self-sends excluded, the index holds about 33,000 records (~2 MB) and its
-// newest entry is within a day of the tip. The previous hard-coded display
-// threshold of 100,000 left the movement page showing nothing newer than
-// eighteen months old.
-// Expressed in whole coins; scaled by COIN[nColor] at the point of test,
-// since each currency carries its own denomination.
-const int64_t MOVEMENT_MIN_COINS = 100;
+// A floor decides what gets recorded, so changing one requires a rebuild
+// (bump EXPLOREDB_VERSION). Callers may filter harder at query time, because
+// each record carries the value that qualified it.
 
 const std::string MOVEMENT_QTY_LABEL = "MQ";
 const exploreKey_t MOVEMENT_QTY(EXPLORE_KEY, MOVEMENT_QTY_LABEL);
