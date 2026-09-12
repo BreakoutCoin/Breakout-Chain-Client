@@ -25,6 +25,54 @@ Related:
 
 ## Protocol version 61030
 
+### 1.9.5.0
+
+* Fixes a `breakoutd` abort at shutdown, `Assertion failed:
+  (!posix::pthread_mutex_lock(&m)) ... recursive_mutex.hpp, line 108`.
+  Nothing in the shutdown path brought the RPC server down: the listener sat in
+  `io_service.run_one()` and each connection handler in a blocking read, so a
+  client holding a keep-alive connection open pinned a handler thread.
+  `StopNode()` gave up after twenty seconds ("ThreadsRPCServer still running")
+  and tore down globals anyway, and the next request on the surviving
+  connection locked a destroyed mutex. `StopRPCServer()` now half-closes idle
+  connections and wakes the listener; connections mid-request, including the
+  one serving `stop`, finish their reply first. A stop with an idle keep-alive
+  connection open went from about 80 seconds to one.
+* Waking the listener exposed a second fault, fixed in the same release: the
+  listener owns the `io_service` as a local, and returning while handlers were
+  still deleting their connections deregistered sockets from a destroyed
+  reactor (`SIGSEGV` in `kqueue_reactor::deregister_descriptor`). Because Tor
+  runs in-process, that crash left behind a Tor crash log naming the wrong
+  component. The listener now waits, bounded at ten seconds, for every handler
+  to finish.
+* Boost assertions are now recorded in `debug.log`, with the expression, our
+  file and line, the thread name, the client version and a backtrace, instead
+  of one line on a `stderr` that a daemon has usually lost. Thread names are
+  now set on macOS as well as Linux.
+* Fixes the Explore API rich list on any start that does not rebuild the
+  explore index. The in-memory cache behind `getrichlist`, `getrichlistpg` and
+  `getrichlistsize` was filled only by the replay, so a warm start began empty
+  and silently omitted most holders -- on mainnet SIS it returned 135
+  addresses and missed the largest holder entirely. The cache is now loaded
+  from the on-disk balance sets at startup.
+* Fixes `getrichlist` and `getrichlistpg` starting a reply above the rank
+  asked for when that rank fell inside a tie. Paged reads repeated addresses
+  across pages under different ranks; ascending reads put the surplus in the
+  middle. `getrichlist` still includes everyone tied at the last place asked
+  for; `getrichlistpg` now tiles exactly, splitting a tie across pages.
+* New Explore API index of transactions that moved value to a new party, and
+  `getmovementspg <page> <perpage> [ordering] [mincoins] [color]` to page it.
+  Stake self-returns are excluded and value is summed per recipient, so change
+  back to the sender never counts. Floors are per currency at about 0.01% of
+  supply -- BRK 2500, BRX 600, SIS 400; BAM and the Deck are not tracked.
+  `EXPLOREDB_VERSION` is now 3, so **nodes running `-exploreapi` rebuild the
+  explore index once on first start**.
+* New RPC `getbestblock [txinfo]`, the tip block in one call, including the
+  per-colour money supply.
+* `help` now shows a usage line for every Explore API command; the
+  "== Explore API ==" banner had been swallowing it.
+* No consensus rule, network protocol requirement or fork schedule changes.
+
 ### 1.9.4.0
 
 * Fixes a startup crash in nodes running the Breakout Explore API
