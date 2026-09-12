@@ -132,18 +132,72 @@ Page-paginated **transactions** touching the address (each entry is a transactio
 
 ## Rich-list commands
 
-Rich-list data comes from an in-memory map that is populated during (re)index; on an
-already-in-sync warm start it may be empty until a reindex.
+Rich-list data comes from an in-memory map keyed by balance. It is filled by the
+replay during a (re)index and, on a start that skips the replay, loaded from the
+on-disk balance sets — so it is complete from the first request either way.
+
+Balances at or below one cent of a currency are not tracked, so those addresses
+appear in no rich-list answer and are not counted by `getrichlistsize`.
 
 ### `getrichlistsize <color> [minbalance]`
 Number of `<color>` addresses with a balance greater than `minbalance` (default: one cent of
 the color). Returns an integer.
 
 ### `getrichlist <color> [start] [max]`
-Richest `<color>` addresses, range-paginated. Returns an object mapping `address → balance`.
+Richest `<color>` addresses from rank `[start]`, as an object mapping `address → balance`.
+
+Addresses tied with the last rank returned are included as well, the way a leader
+board shares a place, so **more than `[max]` addresses can come back**: ask for the
+top 20 while 30 addresses are tied at 20th and all 49 are returned. Use
+`getrichlistpg` when you need exact counts.
 
 ### `getrichlistpg <color> <page> <perpage> [ordering]`
-Page-paginated rich list.
+Page-paginated rich list. Returns `total`, `page`, `per_page`, `last_page` and
+`data`, the last being an object mapping `address → balance`.
+
+Pages tile exactly: a tie crossing a page boundary is split between the two pages
+rather than repeated on both, so paging straight through yields each address once
+and ranks run `1 .. total`. `[ordering]` defaults to true, meaning descending.
+
+A page past the end is an error, not an empty result.
+
+---
+
+## Block commands
+
+### `getbestblock [txinfo]`
+The block at the tip, in one call — the same object `getblockbynumber` returns,
+for `hashBestChain`. Saves a `getblockcount` round trip, and cannot straddle a
+block change the way the two-call form can. `[txinfo]` expands the `tx` array
+into full transactions rather than txids.
+
+The per-currency `moneysupply` and `totalmint` maps are carried on this object,
+so it is the cheapest way to read current supply.
+
+---
+
+## Movement commands
+
+### `getmovementspg <page> <perpage> [ordering] [mincoins] [color]`
+Page-paginated index of transactions that moved value between parties.
+
+A transaction is indexed when, summing by recipient, some address that none of
+the inputs came from receives at least the floor for that currency. That excludes
+proof-of-stake self-returns, which are the great majority of large outputs, and
+it measures what actually reached a party rather than the largest output in the
+transaction.
+
+The floors are a property of the index, not of the query. `[mincoins]` is an
+additional cutoff applied on top of them and defaults to 0; asking below a floor
+is refused rather than silently under-reporting. The response reports the floors
+in force under `floors`, so callers need not keep their own copy.
+
+Currencies with a floor of 0 are untracked — that includes the Deck, whose cards
+have a supply of 1 each and their own provenance views (`getcardinfo`).
+
+`[ordering]` here is by blockchain position and defaults to true meaning
+*forward*, unlike the rich-list calls. `[color]` restricts to one currency; 0 or
+omitted means all of them.
 
 ---
 
