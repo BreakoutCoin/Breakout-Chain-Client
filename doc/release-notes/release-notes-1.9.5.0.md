@@ -169,9 +169,28 @@ version is unchanged at **61030**; nothing here affects peer compatibility or th
 
 ## Known issues
 
-The rare `corrupted size vs. prev_size` abort at shutdown described in the
-[v1.9.2.0 notes](release-notes-1.9.2.0.md#known-issues) has not been reproduced against this
-release, and this release should not be assumed to fix it. The RPC shutdown fixes here need a
-client holding an idle keep-alive connection open, which that failing run is not known to have
-had. The broader race described in those notes — `Shutdown()` calling `exit(0)` while threads that
-`StopNode()` stopped waiting for may still be running — is unchanged. Investigation is ongoing.
+**Shutdown can still, rarely, abort or crash.** `Shutdown()` calls `exit(0)` once `StopNode()` is
+done, and `StopNode()` does not wait for every thread, so a thread can still be running while the
+process's globals are destroyed. The node has already stopped when this happens; restart it
+normally. A fix is planned for v1.9.5.1.
+
+This was measured after release, on Debian 12, using AddressSanitizer builds of v1.9.3.0 and
+v1.9.5.0 with Tor and live peers, over roughly 400 start / `backupwallet` / `stop` cycles:
+
+* **The v1.9.2.0 `corrupted size vs. prev_size` abort is most likely fixed.** v1.9.3.0 (identical
+  to v1.9.2.0 in this code) shows the RPC use-after-free fixed in this release, even on a plain
+  stop with no keep-alive client, and that bug writes into freed memory in the way glibc heap
+  aborts arise. v1.9.5.0 showed none in any normal scenario. The exact glibc message was not
+  reproduced, so this is an inference, not proof.
+* **The connection thread can outlive `exit()`.** Seen on about 3 of 190 v1.9.5.0 cycles, as
+  `Assertion failed: (!posix::pthread_mutex_lock(&m))` on thread `breakout-opencon`.
+  `OpenNetworkConnection()` stops counting itself as running while it connects through Tor, so
+  `StopNode()` does not wait for it, and the thread then takes an already-destroyed lock in
+  `ProcessOneShot()`. The field report of that assertion that prompted this release's RPC fix may
+  have been this bug.
+* **An RPC client that stops reading its reply** leaves a handler blocked writing. The listener
+  gives up waiting for it after ten seconds and destroys the socket machinery anyway, so the
+  handler's eventual clean-up is the use-after-free this release otherwise fixed, and shutdown
+  does not finish until that client disconnects. This needs a misbehaving client.
+* **Nothing waits for the Tor thread.** It crashed inside OpenSSL during `exit()` once on v1.9.3.0.
+  v1.9.5.0 has the same exposure, though it was not seen to crash there.
