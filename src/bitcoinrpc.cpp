@@ -36,6 +36,7 @@
 #include <boost/filesystem/fstream.hpp>
 #include <boost/shared_ptr.hpp>
 #include <list>
+#include <memory>
 
 #define printf OutputDebugStringF
 
@@ -922,26 +923,35 @@ static void SetRPCConnectionBusy(AcceptedConnection* conn, bool fBusy)
         setRPCBusy.erase(conn);
 }
 
-// Half-close every live connection so its handler's blocked read returns.
-// shutdown() rather than close(): the descriptor stays valid, so there is no
-// window in which it could be reused underneath the handler, and the handler
-// still performs its own close() and delete on the way out.
-static void ShutdownRPCConnections()
+// Half-close every idle connection so its handler's blocked read returns, and
+// with fBusy the connections mid-request as well. shutdown() rather than
+// close(): the descriptor stays valid, so there is no window in which it could
+// be reused underneath the handler, and the handler still performs its own
+// close() and delete on the way out.
+//
+// Busy connections are normally left to answer and exit by themselves. fBusy
+// is for the one that cannot: a handler whose client has stopped reading sits
+// in a blocked write indefinitely, and only failing that write releases it.
+static void ShutdownRPCConnections(bool fBusy = false)
 {
     LOCK(cs_rpcConnections);
-    int nIdle = 0;
+    int nShut = 0;
     for (std::set<AcceptedConnection*>::iterator it = setRPCConnections.begin();
          it != setRPCConnections.end(); ++it)
     {
-        if (setRPCBusy.count(*it))
+        if (!fBusy && setRPCBusy.count(*it))
             continue;          // mid-request: let it answer and exit itself
         (*it)->shutdown_socket();
-        nIdle++;
+        nShut++;
     }
-    if (nIdle > 0)
+    if (nShut > 0)
     {
-        printf("Shut down %d idle RPC connection(s), %" PRIszu " still serving\n",
-               nIdle, setRPCBusy.size());
+        if (fBusy)
+            printf("Shut down %d RPC connection(s) still open, including %" PRIszu
+                   " mid-request\n", nShut, setRPCBusy.size());
+        else
+            printf("Shut down %d idle RPC connection(s), %" PRIszu " still serving\n",
+                   nShut, setRPCBusy.size());
     }
 }
 
@@ -1104,9 +1114,15 @@ void ThreadRPCServer2(void* parg)
 
     const bool fUseSSL = GetBoolArg("-rpcssl");
 
-    asio::io_context io_service;
+    // Owned through pointers rather than as locals so that, if a handler is
+    // still running when this function has to return, both can be left alive
+    // for the rest of the process instead of being destroyed underneath it.
+    // See the end of this function.
+    std::unique_ptr<asio::io_context> pIoService(new asio::io_context());
+    asio::io_context& io_service = *pIoService;
 
-    ssl::context context(ssl::context::sslv23);
+    std::unique_ptr<ssl::context> pContext(new ssl::context(ssl::context::sslv23));
+    ssl::context& context = *pContext;
     if (fUseSSL)
     {
         context.set_options(ssl::context::no_sslv2);
@@ -1233,16 +1249,34 @@ void ThreadRPCServer2(void* parg)
     // incidental, so the wait has to be explicit too.
     //
     // ThreadRPCServer3 deletes its connection BEFORE decrementing the counter,
-    // so reaching zero means every connection is gone. Shutting the sockets
-    // down above is what makes that happen quickly; the bound is only a
-    // backstop against a handler wedged somewhere else.
+    // so reaching zero means every connection is gone. Shutting the idle
+    // sockets down above is what makes that happen quickly.
+    //
+    // A connection mid-request is given a moment to send its reply -- "stop"
+    // is answered over one -- and is then shut down too. Without that, a
+    // client that stops reading leaves its handler blocked in a write that
+    // never completes.
     int64_t nWaitStart = GetTime();
+    bool fShutBusy = false;
     while (vnThreadsRunning[THREAD_RPCHANDLER] > 0)
     {
+        if (!fShutBusy && GetTime() - nWaitStart >= 2)
+        {
+            ShutdownRPCConnections(true);
+            fShutBusy = true;
+        }
         if (GetTime() - nWaitStart > 10)
         {
+            // Wedged somewhere other than its socket. Returning must not
+            // destroy the io_context and ssl::context under it, because its
+            // connection's destructor still has to use them: that is the
+            // use-after-free the wait above exists to prevent. Leave both to
+            // the process instead. This is the only path that leaks them.
             printf("ThreadRPCServer2(): %d RPC handler(s) still running; "
-                   "returning anyway\n", vnThreadsRunning[THREAD_RPCHANDLER]);
+                   "returning without destroying the io_service\n",
+                   vnThreadsRunning[THREAD_RPCHANDLER]);
+            (void)pContext.release();
+            (void)pIoService.release();
             break;
         }
         MilliSleep(20);

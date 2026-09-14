@@ -1364,6 +1364,10 @@ void ThreadOpenConnections2(void* parg)
     int64_t nStart = GetTime();
     while (true)
     {
+        // A failed connect below returns here, and shutdown is the usual
+        // reason a connect fails late: test before touching cs_vOneShots.
+        if (fShutdown)
+            return;
         ProcessOneShot();
 
         vnThreadsRunning[THREAD_OPENCONNECTIONS]--;
@@ -1566,9 +1570,21 @@ bool OpenNetworkConnection(const CAddress& addrConnect, CSemaphoreGrant *grantOu
     if (strDest && FindNode(strDest))
         return false;
 
-    vnThreadsRunning[THREAD_OPENCONNECTIONS]--;
+    // The caller stays counted as running for the whole connect. This used to
+    // step out of the count around ConnectNode() so a slow connect would not
+    // hold up StopNode() -- but a connect through Tor's SOCKS port blocks in
+    // recv() until Tor answers or goes away, which is typically after
+    // StopNode() has finished waiting. The thread then carried on while
+    // exit() destroyed the globals, and took cs_vOneShots after its
+    // destruction:
+    //
+    //     Assertion failed: (!posix::pthread_mutex_lock(&m))
+    //     ProcessOneShot <- ThreadOpenConnections2       (breakout-opencon)
+    //
+    // StopNode() stops Tor before it waits, which fails the pending SOCKS
+    // exchange, and its wait is bounded anyway. It was also the wrong counter
+    // for ThreadOpenAddedConnections, which calls this too.
     CNode* pnode = ConnectNode(addrConnect, strDest);
-    vnThreadsRunning[THREAD_OPENCONNECTIONS]++;
     if (fShutdown)
         return false;
     if (!pnode)
@@ -1803,6 +1819,17 @@ void StartTor(void* parg)
     // Make this thread recognisable as the tor thread
     RenameThread("onion");
 
+    // Counted so that StopNode() waits for Tor to finish. shutdown_tor() only
+    // asks Tor's event loop to exit; without the wait, exit() could run the
+    // process's destructors while Tor was still building circuits, and it
+    // once crashed in OpenSSL that way:
+    //
+    //     CRYPTO_THREAD_write_lock <- RAND_bytes_ex <- crypto_rand
+    //       <- origin_circuit_new <- second_elapsed_callback     (onion)
+    //
+    // Nothing in Tor's own cleanup calls OPENSSL_cleanup(), so the rest of
+    // shutdown can still use OpenSSL once Tor has gone.
+    vnThreadsRunning[THREAD_TOR]++;
     try
     {
       run_tor();
@@ -1812,6 +1839,7 @@ void StartTor(void* parg)
     }
 
     printf("Onion thread exited.\n");
+    vnThreadsRunning[THREAD_TOR]--;
 
 }
 
@@ -1998,6 +2026,11 @@ bool StopNode()
         (vnThreadsRunning[THREAD_CONSOLIDATE] > 0))
     {
         printf("ThreadConsolidate still running\n");
+    }
+    if ((vnThreadsRunning.size() > THREAD_TOR) &&
+        (vnThreadsRunning[THREAD_TOR] > 0))
+    {
+        printf("Tor thread still running\n");
     }
 
     MilliSleep(1);
