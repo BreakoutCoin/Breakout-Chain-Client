@@ -8,35 +8,35 @@
 version bump, a GUI tweak, a build-system fix — and has no binaries and no notes. The newest tag is
 therefore often ahead of the newest release, and that is expected rather than an oversight.
 
-The current release is **v1.9.2.0** —
-[release notes](doc/release-notes/release-notes-1.9.2.0.md).
+The current release is **v1.9.5.1** —
+[release notes](doc/release-notes/release-notes-1.9.5.1.md).
+[`CHANGELOG.md`](CHANGELOG.md) is the compact history of every version, tag or release, indexed by
+network protocol version.
 
 | release | notes | consensus-affecting |
 |---|---|---|
-| **v1.9.2.0** | [notes](doc/release-notes/release-notes-1.9.2.0.md) | No — fixes an RPC hang in `breakoutd`; carries the v1.9.1.0 fork content unchanged |
-| v1.9.1.0 | [notes](doc/release-notes/release-notes-1.9.1.0.md) | Yes — schedules the `BRK_FORK008` / `BRK_FORK009` / `BRK_FORK010` activation below |
+| **v1.9.5.1** | [notes](doc/release-notes/release-notes-1.9.5.1.md) | No — fixes the remaining rare abort or crash of `breakoutd` at shutdown |
+| v1.9.5.0 | [notes](doc/release-notes/release-notes-1.9.5.0.md) | No — RPC shutdown fixes, Explore API rich list fixes, `getbestblock` and `getmovementspg` |
+| v1.9.3.0 | [notes](doc/release-notes/release-notes-1.9.3.0.md) | No — fixes a startup crash for nodes that upgraded after the fork activated |
+| v1.9.2.0 | [notes](doc/release-notes/release-notes-1.9.2.0.md) | No — fixes an RPC hang in `breakoutd` |
+| v1.9.1.0 | [notes](doc/release-notes/release-notes-1.9.1.0.md) | Yes — the `BRK_FORK008` / `BRK_FORK009` / `BRK_FORK010` fork below |
 | v1.7.3.0 and earlier | see [Releases](../../releases) | — |
 
-`v1.9.0.0` is a tag, not a release: it was superseded by v1.9.1.0 within days, before any binaries
-were published for it. Its content is carried forward in full by the v1.9.1.0 notes, which are the
-single document for the fork.
+Every release since v1.9.1.0 carries the fork content unchanged and uses network protocol version
+61030. Tags between them with no notes — `v1.9.0.0`, `v1.9.1.1`–`v1.9.1.4`, `v1.9.2.1`,
+`v1.9.2.2`, `v1.9.4.0` — are not releases; their changes are included in the next release and
+listed in the change log. `v1.9.0.0` was superseded by v1.9.1.0 within days, before any binaries
+were published for it, and the v1.9.1.0 notes are the single document for the fork.
 
-<!-- BEGIN TEMPORARY UPGRADE NOTICE -- remove after 2026-09-06 -->
-> ### ⚠ Mandatory upgrade before Sun Sep 6 02:00:00 2026 UTC
+> ### The fork has activated
 >
-> v1.9.1.0 scheduled three consensus gates (`BRK_FORK008`, `BRK_FORK009`, `BRK_FORK010`) to
-> activate at **Sun Sep 6 02:00:00 2026 UTC** (epoch `1788660000`).
+> v1.9.1.0's consensus gates (`BRK_FORK008`, `BRK_FORK009`, `BRK_FORK010`) activated at
+> **Sun Sep 6 02:00:00 2026 UTC** (epoch `1788660000`). A node running anything older than
+> v1.9.1.0 no longer follows the network.
 >
-> **Every node must be upgraded before that instant.** A node still running v1.8.0.0 afterwards will
-> lose its peers and stop following the network — it will not degrade gracefully. If you cannot
-> upgrade in time, stop the node rather than let it run past activation; nothing is damaged by
-> stopping, and it will resume normally once upgraded.
->
-> **v1.9.1.0 or v1.9.2.0** satisfies the fork. See the
-> [v1.9.1.0 release notes](doc/release-notes/release-notes-1.9.1.0.md) for what changes, why the
-> deadline is hard, and which build you need. v1.9.2.0 changes none of it and is the recommended
-> build for anyone running `breakoutd`.
-<!-- END TEMPORARY UPGRADE NOTICE -->
+> If you upgraded late, after running a pre-fork client past activation, use **v1.9.3.0 or later**:
+> earlier 1.9.x builds crash on startup in that situation. See the
+> [v1.9.3.0 release notes](doc/release-notes/release-notes-1.9.3.0.md).
 
 ## Building
 

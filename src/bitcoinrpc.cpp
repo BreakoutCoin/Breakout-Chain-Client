@@ -1256,16 +1256,16 @@ void ThreadRPCServer2(void* parg)
     // is answered over one -- and is then shut down too. Without that, a
     // client that stops reading leaves its handler blocked in a write that
     // never completes.
-    int64_t nWaitStart = GetTime();
+    int64_t nWaitStart = GetTimeMillis();
     bool fShutBusy = false;
     while (vnThreadsRunning[THREAD_RPCHANDLER] > 0)
     {
-        if (!fShutBusy && GetTime() - nWaitStart >= 2)
+        if (!fShutBusy && GetTimeMillis() - nWaitStart >= 2000)
         {
             ShutdownRPCConnections(true);
             fShutBusy = true;
         }
-        if (GetTime() - nWaitStart > 10)
+        if (GetTimeMillis() - nWaitStart > 10000)
         {
             // Wedged somewhere other than its socket. Returning must not
             // destroy the io_context and ssl::context under it, because its

@@ -25,6 +25,36 @@ Related:
 
 ## Protocol version 61030
 
+### 1.9.5.1
+
+* Fixes the three shutdown races left in 1.9.5.0. `Shutdown()` calls
+  `exit(0)` once `StopNode()` returns, so any thread `StopNode()` does not wait
+  for runs into the process's static destructors. Found with AddressSanitizer
+  builds on Debian 12, with Tor and live peers.
+* The connection thread stepped out of its running count around
+  `ConnectNode()`. A connect through Tor's SOCKS port outlasted `StopNode()`'s
+  wait, failed once Tor stopped, and the loop took `cs_vOneShots` in
+  `ProcessOneShot()` after `exit()` had destroyed it: `Assertion failed:
+  (!posix::pthread_mutex_lock(&m))` on `breakout-opencon`, about 1.7% of stops.
+  The thread now stays counted through the connect, and the loop tests
+  `fShutdown` first.
+* Nothing waited for the Tor thread, which could still be building circuits
+  during `exit()` and once crashed inside OpenSSL. It is now counted as
+  `THREAD_TOR`, so `StopNode()` waits for it.
+* An RPC client that stopped reading left its handler blocked in a write.
+  The listener gave up waiting after ten seconds and destroyed the
+  `io_service` under it -- the use-after-free 1.9.5.0 otherwise fixed -- and
+  shutdown hung until the client disconnected. After a two-second grace, busy
+  connections are now shut down too. A handler still running at ten seconds
+  no longer has the `io_service` and SSL context destroyed under it; they are
+  left to the process instead.
+* Measured over 252 patched cycles (204 with ASan, 48 with glibc heap
+  checking): no reports, `stop` answered every time, and the connection and
+  Tor threads always exited before `exit()`. Unpatched 1.9.5.0, run
+  alongside, reproduced the assertion. Typical shutdown is unchanged at about
+  one to two seconds.
+* No consensus rule, network protocol requirement or fork schedule changes.
+
 ### 1.9.5.0
 
 * Fixes a `breakoutd` abort at shutdown, `Assertion failed:
