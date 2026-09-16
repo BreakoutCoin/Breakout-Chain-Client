@@ -8,14 +8,15 @@
 version bump, a GUI tweak, a build-system fix — and has no binaries and no notes. The newest tag is
 therefore often ahead of the newest release, and that is expected rather than an oversight.
 
-The current release is **v1.9.5.1** —
-[release notes](doc/release-notes/release-notes-1.9.5.1.md).
+The current release is **v1.9.6.0** —
+[release notes](doc/release-notes/release-notes-1.9.6.0.md).
 [`CHANGELOG.md`](CHANGELOG.md) is the compact history of every version, tag or release, indexed by
 network protocol version.
 
 | release | notes | consensus-affecting |
 |---|---|---|
-| **v1.9.5.1** | [notes](doc/release-notes/release-notes-1.9.5.1.md) | No — fixes the remaining rare abort or crash of `breakoutd` at shutdown |
+| **v1.9.6.0** | [notes](doc/release-notes/release-notes-1.9.6.0.md) | No — fixes a syncing node wrongly rejecting good blocks and banning the peers that relay them |
+| v1.9.5.1 | [notes](doc/release-notes/release-notes-1.9.5.1.md) | No — fixes the remaining rare abort or crash of `breakoutd` at shutdown |
 | v1.9.5.0 | [notes](doc/release-notes/release-notes-1.9.5.0.md) | No — RPC shutdown fixes, Explore API rich list fixes, `getbestblock` and `getmovementspg` |
 | v1.9.3.0 | [notes](doc/release-notes/release-notes-1.9.3.0.md) | No — fixes a startup crash for nodes that upgraded after the fork activated |
 | v1.9.2.0 | [notes](doc/release-notes/release-notes-1.9.2.0.md) | No — fixes an RPC hang in `breakoutd` |

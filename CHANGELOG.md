@@ -25,6 +25,43 @@ Related:
 
 ## Protocol version 61030
 
+### 1.9.6.0
+
+* Fixes a syncing node banning the peers that relay it good blocks. A node far
+  behind the network rejected every current tip block it was sent and scored
+  the sender for it, working through its peers until it had disconnected them
+  all and could no longer sync. Both proof-of-work and proof-of-stake blocks
+  were affected.
+* `CBlock::CheckBlock()` is documented as holding only "checks that are
+  independent of context ... that can be verified before saving an orphan
+  block", and `ProcessBlock()` runs it before the orphan shunt. Two of its
+  checks had stopped being context-free, and both carried a DoS score.
+* The KawPoW mix recomputation would only run for a block whose wire `nHeight`
+  was within 100,000 of `nBestHeight` -- of how far *this node* had synced,
+  rather than of where the block sits in the chain. At height 501 a good block
+  at 1,498,074 fell outside that window and was scored as forged
+  proof-of-work: `DoS(50)`, so two blocks banned the peer. The window is a
+  crash-safety bound on the ethash epoch, not a consensus rule; it is now
+  anchored to the block's own contextual height, which `ConnectBlock()` and
+  `ProcessBlock()` supply whenever the block is not an orphan.
+* The proof-of-stake block signature check reads the coinstake's prevout
+  transaction from the local database, which a node that has not yet
+  downloaded that part of the chain does not have. `BlockSigStatus`
+  `TX_UNREADABLE` was reported as "bad proof-of-stake block signature" and
+  scored `DoS(5)`, banning a peer over twenty good blocks. It is now deferred
+  to `AcceptBlock()`, which runs the check immediately after
+  `CheckProofOfStake()` has read that same transaction.
+* Neither check is skipped. A block cannot join the best chain without
+  `ConnectBlock()` resolving its mix against its real height, and cannot enter
+  the block index without `AcceptBlock()` settling its signature, so the
+  `BRK_FORK009` mix verification and the `BRK_FORK007` signature rule are
+  enforced in full. A proof of work that could not be evaluated for a local
+  reason -- an epoch context that would not allocate -- is now rejected
+  without scoring the sender.
+* No consensus rule, network protocol requirement or fork schedule changes.
+  The set of blocks that can join the best chain is unchanged; only the point
+  at which two checks are applied has moved.
+
 ### 1.9.5.1
 
 * Fixes the three shutdown races left in 1.9.5.0. `Shutdown()` calls
