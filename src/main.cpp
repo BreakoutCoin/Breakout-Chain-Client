@@ -1912,11 +1912,10 @@ bool CheckSHA256ProofOfWork(uint256 hash, unsigned int nBits)
 static std::map<int, std::shared_ptr<ethash_epoch_context> > mapValidationEpochCache;
 static CCriticalSection cs_ValidationEpochCache;
 
-// How far a candidate block's wire nHeight may plausibly sit from the node's
-// current best height before it is treated as bogus. CheckKawpowProofOfWork()
-// is reached from context-free CBlock::CheckBlock() (no pindexPrev), so this
-// is a coarse sanity bound, not an exact contextual check -- it exists solely
-// to stop an attacker-chosen nHeight (arbitrarily large, or negative once the
+// How far a candidate block's wire nHeight may plausibly sit from the anchor
+// height the caller supplies before it is treated as bogus. This is a coarse
+// sanity bound, not an exact contextual check -- it exists solely to stop an
+// attacker-chosen nHeight (arbitrarily large, or negative once the
 // signed/unsigned wire field is reinterpreted) from driving ethash's
 // epoch/light-cache sizing into signed-overflow UB, a modulo-by-zero, or a
 // null-context dereference, all BEFORE any proof-of-work has been done
@@ -1926,31 +1925,67 @@ static CCriticalSection cs_ValidationEpochCache;
 // crash.
 static const int64_t KAWPOW_VALIDATION_HEIGHT_WINDOW = 100000;
 
+// G20 fix: the anchor used to be nBestHeight unconditionally, i.e. how far
+// THIS node had synced, and a block outside the window was rejected outright
+// with the DoS(50) that CheckBlock() attaches to a failed proof of work. A
+// node far behind the network therefore banned every peer that relayed it a
+// current tip block: at nBestHeight=501 a perfectly good block at height
+// 1,498,074 is ~1.5M outside the window, so it was scored as forged
+// proof-of-work rather than as what it actually is -- an orphan we cannot yet
+// place. The window is a crash-safety bound on the ethash epoch, never a
+// consensus rule (a wrong nHeight yields a wrong mix and is caught by the
+// mix comparison below), so it must be anchored to the block's position in
+// the chain, not to our own sync progress. Callers that know the block's
+// contextual height (ConnectBlock(), via pindex->nHeight) pass it as
+// nHeightAnchor; callers with no chain context for the block (the
+// context-free CBlock::CheckBlock() reached from ProcessBlock(), which has no
+// pindexPrev) pass -1, and a block outside the window is then deferred rather
+// than rejected. With an anchor in hand a block outside the window is still a
+// rejection -- it is claiming a height it cannot have. See
+// CheckKawpowProofOfWork().
+enum class KawpowMixResult : int
+{
+    VERIFIED = 0,        // mix recomputed from the DAG, caller must compare
+    IMPLAUSIBLE_HEIGHT,  // block.nHeight is nowhere near the anchor
+    CONTEXT_FAILED,      // epoch context could not be created (local resources)
+};
+
 // Recomputes the genuine ProgPoW mix for a block from the epoch DAG, for use
-// by CheckKawpowProofOfWork()'s post-BRK_FORK009 branch. Returns false (never
-// throws, never dereferences a null context) if the block's height is outside
-// the plausible window or the epoch context could not be created -- callers
-// must treat that as "reject the block", exactly like any other failed
-// consensus check.
-static bool KAWPOWRecomputeMixForValidation(const CBlock& block, uint256& mix_hash)
+// by CheckKawpowProofOfWork()'s post-BRK_FORK009 branch. Never throws, never
+// dereferences a null context: it reports IMPLAUSIBLE_HEIGHT if the block's
+// height is outside the plausible window around nHeightAnchor, and
+// CONTEXT_FAILED if the epoch context could not be created. What those two
+// mean is the caller's business and depends entirely on whether the caller
+// had a real anchor to give -- see CheckKawpowProofOfWork().
+static KawpowMixResult KAWPOWRecomputeMixForValidation(const CBlock& block,
+                                                       int nHeightAnchor,
+                                                       uint256& mix_hash)
 {
     int64_t nHeight = (int64_t) block.nHeight;
-    int64_t nBest = (int64_t) nBestHeight;
-    if (nBest < 0)
+    int64_t nAnchor = (int64_t) nHeightAnchor;
+    if (nAnchor < 0)
     {
-        nBest = 0;
+        // No contextual height: fall back to our own tip. Near the tip this
+        // is an accurate anchor and the check runs as before; while syncing
+        // it is not, and the caller defers instead of rejecting.
+        nAnchor = (int64_t) nBestHeight;
+        if (nAnchor < 0)
+        {
+            nAnchor = 0;
+        }
     }
     if ((nHeight < 0) ||
-        (nHeight > nBest + KAWPOW_VALIDATION_HEIGHT_WINDOW) ||
-        (nHeight < nBest - KAWPOW_VALIDATION_HEIGHT_WINDOW))
+        (nHeight > nAnchor + KAWPOW_VALIDATION_HEIGHT_WINDOW) ||
+        (nHeight < nAnchor - KAWPOW_VALIDATION_HEIGHT_WINDOW))
     {
-        return false;
+        return KawpowMixResult::IMPLAUSIBLE_HEIGHT;
     }
 
+    // Defensive: unreachable for nHeight >= 0 and a positive epoch length.
     const int nEpoch = ethash::get_epoch_number((int) nHeight);
     if (nEpoch < 0)
     {
-        return false;
+        return KawpowMixResult::CONTEXT_FAILED;
     }
 
     std::shared_ptr<ethash_epoch_context> context;
@@ -1967,7 +2002,7 @@ static bool KAWPOWRecomputeMixForValidation(const CBlock& block, uint256& mix_ha
             ethash::epoch_context_ptr uniqueContext = ethash::create_epoch_context(nEpoch);
             if (!uniqueContext)
             {
-                return false;
+                return KawpowMixResult::CONTEXT_FAILED;
             }
             context = std::shared_ptr<ethash_epoch_context>(
                 uniqueContext.release(), ethash_destroy_epoch_context);
@@ -1992,10 +2027,11 @@ static bool KAWPOWRecomputeMixForValidation(const CBlock& block, uint256& mix_ha
                                                        hashHeader,
                                                        block.nNonce64);
     mix_hash = to_uint256(resultProgPoW.mix_hash);
-    return true;
+    return KawpowMixResult::VERIFIED;
 }
 
-bool CheckKawpowProofOfWork(const CBlock* pblock)
+bool CheckKawpowProofOfWork(const CBlock* pblock, int nHeightAnchor,
+                            bool* pfInconclusive)
 {
     if (!pblock)
     {
@@ -2045,12 +2081,68 @@ bool CheckKawpowProofOfWork(const CBlock* pblock)
     if (KawpowMixVerificationIsActive((int64_t) pblock->nTime))
     {
         uint256 recomputedMix;
-        if (!KAWPOWRecomputeMixForValidation(*pblock, recomputedMix))
+        KawpowMixResult mixResult = KAWPOWRecomputeMixForValidation(
+                                                      *pblock,
+                                                      nHeightAnchor,
+                                                      recomputedMix);
+
+        if (mixResult == KawpowMixResult::CONTEXT_FAILED)
         {
-            return error("CheckKawpowProofOfWork() : could not recompute the "
-                         "ProgPoW mix for this block (implausible height or "
-                         "epoch-context allocation failure)");
+            // We could not build the epoch DAG context -- a local resource
+            // failure, which says nothing about the block. Reject it, because
+            // we genuinely cannot verify it, but flag the failure as
+            // inconclusive so CheckBlock() does not score the peer that sent
+            // it. The block stays fetchable and will be re-checked later.
+            if (pfInconclusive)
+            {
+                *pfInconclusive = true;
+            }
+            return error("CheckKawpowProofOfWork() : could not create the "
+                         "ProgPoW epoch context for the block at height %d "
+                         "(local resource failure, not peer misbehavior)",
+                         pblock->nHeight);
         }
+
+        if (mixResult == KawpowMixResult::IMPLAUSIBLE_HEIGHT)
+        {
+            if (nHeightAnchor < 0)
+            {
+                // G20 fix: NOT a failed proof of work. We have no chain
+                // context for this block, so the only anchor available was
+                // our own tip, and the block's wire nHeight is nowhere near
+                // it -- the normal case for a current tip block arriving at a
+                // node that is still syncing. Returning false here is what
+                // made CheckBlock() hand the relaying peer a DoS(50) for
+                // every good block it forwarded (50 + 50 = 100 = banned, in
+                // two blocks).
+                //
+                // Report the check as passed-but-incomplete and let the block
+                // be held as an orphan. It cannot join the best chain without
+                // going through ConnectBlock(), which passes pindex->nHeight
+                // as the anchor and so always reaches a verdict -- so no
+                // block reaches the best chain with an unverified mix, and
+                // G01's forged-proof-of-work hardening is preserved in full.
+                if (fDebug)
+                {
+                    printf("CheckKawpowProofOfWork() : deferring ProgPoW mix "
+                           "verification for block at height %d (no chain "
+                           "context yet; our best height is %d)\n",
+                           pblock->nHeight,
+                           nBestHeight);
+                }
+                return true;
+            }
+
+            // We know where this block sits in the chain and its wire
+            // nHeight is more than KAWPOW_VALIDATION_HEIGHT_WINDOW away from
+            // that. Nothing is deferred here: this is a verdict, and the
+            // block is bogus.
+            return error("CheckKawpowProofOfWork() : block claims height %d "
+                         "but connects at height %d (implausible height)",
+                         pblock->nHeight,
+                         nHeightAnchor);
+        }
+
         if (recomputedMix != pblock->mix_hash)
         {
             return error("CheckKawpowProofOfWork() : mix_hash does not match "
@@ -2062,12 +2154,13 @@ bool CheckKawpowProofOfWork(const CBlock* pblock)
     return true;
 }
 
-bool CheckProofOfWork(uint256 hash, unsigned int nBits, const CBlock* pblock)
+bool CheckProofOfWork(uint256 hash, unsigned int nBits, const CBlock* pblock,
+                      int nHeightAnchor, bool* pfInconclusive)
 {
     if (pblock && pblock->IsKawpowBlock())
     {
         // Validate KAWPoW
-        return CheckKawpowProofOfWork(pblock);
+        return CheckKawpowProofOfWork(pblock, nHeightAnchor, pfInconclusive);
     }
 
     // G15 fix (BRK_FORK010+, fork-gated consensus change): IsKawpowBlock() is
@@ -2796,8 +2889,15 @@ bool CBlock::DisconnectBlock(CTxDB& txdb, CBlockIndex* pindex)
 bool CBlock::ConnectBlock(CTxDB& txdb, CBlockIndex* pindex, bool fJustCheck)
 {
     // Check it again in case a previous version let a bad block in, but skip
-    // BlockSig checking
-    if (!CheckBlock(!fJustCheck, !fJustCheck, false))
+    // BlockSig checking.
+    //
+    // G20 fix: pass pindex->nHeight as the KawPoW height anchor. This is the
+    // block's real position in the chain, so the epoch-plausibility window
+    // always resolves here -- a mix deferred by the context-free
+    // CheckBlock() in ProcessBlock() is verified for certain before the block
+    // can join the best chain, however far behind the node was when the block
+    // first arrived.
+    if (!CheckBlock(!fJustCheck, !fJustCheck, false, pindex->nHeight))
     {
         return false;
     }
@@ -4619,10 +4719,23 @@ bool CBlock::AddToBlockIndex(unsigned int nFile,
 }
 
 
-bool CBlock::CheckBlock(bool fCheckPOW, bool fCheckMerkleRoot, bool fCheckSig) const
+bool CBlock::CheckBlock(bool fCheckPOW, bool fCheckMerkleRoot, bool fCheckSig,
+                        int nHeightAnchor) const
 {
     // These are checks that are independent of context
     // that can be verified before saving an orphan block.
+    //
+    // G20 fix: "independent of context" is the contract this function is
+    // supposed to honour, and two of the checks below had quietly stopped
+    // honouring it -- the KawPoW mix recomputation (anchored to nBestHeight)
+    // and the proof-of-stake block signature (needs the coinstake prevout on
+    // our own disk). Both fail for a perfectly good tip block whenever the
+    // node is far behind the network, and both carried a DoS score, so a
+    // syncing node banned every peer that relayed it the current tip. Both
+    // now defer when the context they need is missing, and are resolved by
+    // ConnectBlock() / AcceptBlock() once the block can be placed in the
+    // chain. nHeightAnchor is the block's contextual height when the caller
+    // knows it (ConnectBlock passes pindex->nHeight), -1 otherwise.
 
     // Size limits
     if (vtx.empty() ||
@@ -4632,10 +4745,18 @@ bool CBlock::CheckBlock(bool fCheckPOW, bool fCheckMerkleRoot, bool fCheckSig) c
         return DoS(100, error("CheckBlock() : size limits failed"));
     }
 
-    // Check proof of work matches claimed amount
-    if (fCheckPOW && IsProofOfWork() && !CheckProofOfWork(GetHash(), nBits, this))
+    // Check proof of work matches claimed amount.
+    //
+    // G20 fix: a proof of work we could not evaluate because of a local
+    // resource failure is rejected but scored 0 -- banning the sender of a
+    // block we were unable to check is our fault being charged to them.
+    bool fPoWInconclusive = false;
+    if (fCheckPOW && IsProofOfWork() &&
+        !CheckProofOfWork(GetHash(), nBits, this, nHeightAnchor,
+                          &fPoWInconclusive))
     {
-        return DoS(50, error("CheckBlock() : proof of work failed"));
+        return DoS(fPoWInconclusive ? 0 : 50,
+                   error("CheckBlock() : proof of work failed"));
     }
 
     // Check timestamp
@@ -4707,16 +4828,42 @@ bool CBlock::CheckBlock(bool fCheckPOW, bool fCheckMerkleRoot, bool fCheckSig) c
             ReturnCode codeBlockSig = CheckBlockSignature();
             if (!codeBlockSig)
             {
-                // don't hard dos a peer just because our we temporarily can't
-                // access our own disk 
-                int n = (codeBlockSig.code ==
-                         (int) BlockSigStatus::TX_UNREADABLE)
-                            ? 5
-                            : 100;
-                return DoS(
-                    n,
-                    error(
-                        "CheckBlock() : bad proof-of-stake block signature"));
+                // G20 fix: TX_UNREADABLE is not a verdict on the block. From
+                // BRK_FORK007 on, the P2PK branch of CheckBlockSignature()
+                // has to read the coinstake's prevout transaction out of our
+                // own CTxDB to recover the public key that signed the block.
+                // For a tip block arriving while we are still syncing, that
+                // transaction is simply in a part of the chain we have not
+                // downloaded yet, so the read fails and the signature can be
+                // neither confirmed nor refuted. The old code called that
+                // "bad proof-of-stake block signature" and charged the
+                // relaying peer DoS(5) -- twenty good blocks and the peer was
+                // banned, which is exactly what the wrongful-ban logs show.
+                //
+                // Defer instead. AcceptBlock() re-runs this check once the
+                // block's parent is in the index, immediately after
+                // CheckProofOfStake() has read that very same prevout
+                // transaction, so the signature is always verified before the
+                // block enters the block index -- just at the point where the
+                // chain state needed to verify it exists.
+                if (codeBlockSig.code == (int) BlockSigStatus::TX_UNREADABLE)
+                {
+                    if (fDebug)
+                    {
+                        printf("CheckBlock() : deferring proof-of-stake "
+                               "signature check for %s (coinstake prevout not "
+                               "on disk yet; our best height is %d)\n",
+                               GetHash().ToString().c_str(),
+                               nBestHeight);
+                    }
+                }
+                else
+                {
+                    return DoS(
+                        100,
+                        error(
+                          "CheckBlock() : bad proof-of-stake block signature"));
+                }
             }
         }
     }
@@ -4887,6 +5034,38 @@ bool CBlock::AcceptBlock()
                    hash.ToString().c_str());
             return false;
         }
+
+        // G20 fix: this is where the proof-of-stake block signature is
+        // finally settled. CheckBlock() runs the same check, but it is
+        // context-free and so cannot read the coinstake's prevout
+        // transaction for a block that sits ahead of our chain; it defers
+        // on BlockSigStatus::TX_UNREADABLE instead of banning the peer that
+        // relayed it. Here the block's parent is in the index and
+        // CheckProofOfStake() above has just read that very prevout
+        // transaction off disk, so the read cannot fail for want of chain
+        // state and the signature is verified for certain before the block
+        // is written out and added to the block index. ConnectBlock() passes
+        // fCheckSig=false, so without this call a deferred signature would
+        // never be checked at all.
+        ReturnCode codeBlockSig = CheckBlockSignature();
+        if (!codeBlockSig)
+        {
+            if (codeBlockSig.code == (int) BlockSigStatus::TX_UNREADABLE)
+            {
+                // We have the chain state and still could not read the
+                // transaction: a local disk or database problem, not
+                // something the sender did. Reject the block without a DoS
+                // score so we retry it later rather than banning good peers
+                // over our own storage.
+                return error("AcceptBlock() : could not read the coinstake "
+                             "prevout to check the block signature for %s "
+                             "(local storage problem, not peer misbehavior)",
+                             hash.ToString().c_str());
+            }
+            return DoS(100,
+                       error("AcceptBlock() : bad proof-of-stake block "
+                             "signature"));
+        }
     }
     // PoW is checked in CheckBlock()
     if (IsProofOfWork())
@@ -5056,8 +5235,27 @@ bool ProcessBlock(CNode* pfrom, CBlock* pblock, bool& fOrphan, bool fIsBootstrap
             hash.ToString().c_str());
     }
 
-    // Preliminary checks
-    if (!pblock->CheckBlock())
+    // Preliminary checks.
+    //
+    // G20 fix: when we already hold the block's parent the block is not an
+    // orphan, and its height in the chain is known without any further work.
+    // Hand that to CheckBlock() as the KawPoW epoch-plausibility anchor so
+    // that a block we can actually place is verified here exactly as before.
+    // A genuine orphan has no such anchor; CheckBlock() then defers the two
+    // checks that need chain state (the ProgPoW mix recomputation and the
+    // proof-of-stake block signature) rather than rejecting the block and
+    // scoring its sender, and they are resolved by ConnectBlock() /
+    // AcceptBlock() once the block can be connected.
+    int nHeightAnchor = -1;
+    {
+        map<uint256, CBlockIndex*>::iterator miPrev =
+            mapBlockIndex.find(pblock->hashPrevBlock);
+        if (miPrev != mapBlockIndex.end())
+        {
+            nHeightAnchor = miPrev->second->nHeight + 1;
+        }
+    }
+    if (!pblock->CheckBlock(true, true, true, nHeightAnchor))
     {
         return error("ProcessBlock() : CheckBlock FAILED");
     }
@@ -5454,12 +5652,20 @@ ReturnCode CBlock::CheckBlockSignature() const
 
             if (!txPrev.ReadFromDisk(txdb, txin.prevout, txindex))
             {
+                // G20 fix: not "TSNH" at all -- this is the ordinary case for
+                // a block that sits ahead of the chain we have downloaded so
+                // far. It says nothing about the block's signature, so it is
+                // returned quietly; each caller decides whether it has the
+                // chain state that makes the failure meaningful and logs
+                // accordingly (CheckBlock() defers, AcceptBlock() treats it
+                // as a local storage fault).
                 return ReturnCode(
                             (int)BlockSigStatus::TX_UNREADABLE,
                             strprintf(
-                                "CheckBlockSignature(): TSNH "
+                                "CheckBlockSignature(): "
                                 "can't read tx:\n  %s",
-                                txin.prevout.hash.GetHex().c_str()));
+                                txin.prevout.hash.GetHex().c_str()),
+                            false);
             }
 
             if (txPrev.vout.size() < (txin.prevout.n + 1))

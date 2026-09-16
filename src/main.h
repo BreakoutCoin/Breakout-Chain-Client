@@ -152,9 +152,29 @@ bool SendMessages(CNode* pto, bool fSendTrickle);
 bool LoadExternalBlockFile(FILE* fileIn);
 
 bool CheckSHA256ProofOfWork(uint256 hash, unsigned int nBits);
-bool CheckKawpowProofOfWork(const CBlock* pblock);
+// nHeightAnchor is the block's contextual height (pindex->nHeight, or
+// pindexPrev->nHeight + 1) when the caller knows it, and -1 when it does not.
+// It anchors the coarse epoch-plausibility window that keeps an
+// attacker-chosen wire nHeight from driving ethash's light-cache sizing into
+// undefined behaviour. With no anchor and a block whose claimed height is
+// nowhere near our own tip -- a current tip block arriving at a node that is
+// still syncing -- the ProgPoW mix cannot be recomputed, and these functions
+// report the check as passed-but-deferred rather than failed, so the peer
+// that relayed a perfectly good block is not scored for it. WITH an anchor
+// the same situation is a verdict, not a deferral: the block is claiming a
+// height it cannot have and is rejected. ConnectBlock() always supplies the
+// anchor, so no block joins the best chain with an unverified mix.
+//
+// pfInconclusive, when given, is set true if the check failed for a local
+// reason (the epoch context could not be created) rather than because of
+// anything about the block, so the caller can reject without scoring the peer
+// that sent it.
+bool CheckKawpowProofOfWork(const CBlock* pblock, int nHeightAnchor = -1,
+                            bool* pfInconclusive = nullptr);
 bool CheckProofOfWork(uint256 hash, unsigned int nBits, 
-                      const CBlock* pblock = nullptr);
+                      const CBlock* pblock = nullptr,
+                      int nHeightAnchor = -1,
+                      bool* pfInconclusive = nullptr);
 
 double GetDifficulty(unsigned int nBits);
 double GetDifficulty(const CBlockIndex* blockindex);
@@ -1504,7 +1524,8 @@ public:
     bool SetBestChain(CTxDB& txdb, CBlockIndex* pindexNew);
     bool AddToBlockIndex(unsigned int nFile, unsigned int nBlockPos, const uint256& hashProofOfStake);
     bool CheckBlock(bool fCheckPOW=true,
-                    bool fCheckMerkleRoot=true, bool fCheckSig=true) const;
+                    bool fCheckMerkleRoot=true, bool fCheckSig=true,
+                    int nHeightAnchor=-1) const;
     bool AcceptBlock();
     bool GetCoinAge(uint64_t& nCoinAge) const; // ppcoin: calculate total coin age spent in block
     bool SignBlock(CWallet& keystore, int64_t *nFees);
